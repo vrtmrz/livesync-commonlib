@@ -4,6 +4,7 @@ import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf } from "@lib/common/types.ts";
 
 import { type ChunkManager } from "./ChunkManager.ts";
+import type { ChunkFetchSource } from "./chunkFetchSource.ts";
 
 import type { IReplicatorService, ISettingService } from "@lib/services/base/IService.ts";
 import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
@@ -24,6 +25,8 @@ export type ChunkFetcherOptions = {
     chunkManager: ChunkManager;
     replicatorService: IReplicatorService;
     deliveryStallTimeoutMs?: number;
+    /** Direct hosts replace both retrieval and acceptance; the default uses the active replicator. */
+    source?: ChunkFetchSource;
 };
 const BATCH_SIZE = 100; // Number of chunks to fetch in one request
 
@@ -407,21 +410,26 @@ export class ChunkFetcher {
             let pendingIDs = await this.waitBeforeRemoteRequest(requestIDs, requestClaims, localCheckCompletionVersion);
             if (pendingIDs.length === 0) return;
 
-            const replicator = this.options.replicatorService.getActiveReplicator();
-            if (!replicator) {
-                Logger("No active replicator was found to request missing chunks.");
-                return;
-            }
-            if (!canFetchRemoteChunks(replicator)) {
-                Logger("The active replicator does not support fetching individual remote chunks.");
-                for (const chunkID of pendingIDs) {
-                    this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
-                }
-                return;
-            }
             // A lookup begun before the latest finite completion cannot be the final probe.
             const requestCompletionVersion = this.finiteCompletionVersion;
-            const fetched = await replicator.fetchRemoteChunks(pendingIDs, false);
+            let fetched: EntryLeaf[] | false;
+            if (this.options.source) {
+                fetched = await this.options.source.fetchChunks(pendingIDs);
+            } else {
+                const replicator = this.options.replicatorService.getActiveReplicator();
+                if (!replicator) {
+                    Logger("No active replicator was found to request missing chunks.");
+                    return;
+                }
+                if (!canFetchRemoteChunks(replicator)) {
+                    Logger("The active replicator does not support fetching individual remote chunks.");
+                    for (const chunkID of pendingIDs) {
+                        this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
+                    }
+                    return;
+                }
+                fetched = await replicator.fetchRemoteChunks(pendingIDs, false);
+            }
             pendingIDs = this.getActiveClaimIds(pendingIDs, requestClaims);
             this.touchClaims(pendingIDs, requestClaims);
             if (!fetched) {
@@ -435,7 +443,9 @@ export class ChunkFetcher {
             this.logFetchedChunks(pendingIDs, classification);
             const { chunks, missingIds, invalidIds } = classification;
             try {
-                if (chunks.length > 0) {
+                if (chunks.length > 0 && this.options.source) {
+                    await this.options.source.storeChunks(chunks);
+                } else if (chunks.length > 0) {
                     Logger(`Writing fetched chunks (${chunks.length}) to the database...`);
                     const result = await this.chunkManager.write(
                         chunks,
@@ -459,7 +469,7 @@ export class ChunkFetcher {
                 Logger(`An error occurred while storing fetched chunks!`, LOG_LEVEL_VERBOSE);
                 Logger(error, LOG_LEVEL_VERBOSE);
             } finally {
-                // Emitting fetched chunks regardless of write success preserves the existing refetch behaviour.
+                // Emitting fetched chunks regardless of storage success preserves the existing refetch behaviour.
                 for (const chunk of chunks) {
                     this.chunkManager.emitEvent(EVENT_CHUNK_FETCHED, chunk);
                     this.settleClaim(chunk._id, requestClaims.get(chunk._id));

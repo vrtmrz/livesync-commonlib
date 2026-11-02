@@ -1,4 +1,5 @@
 import { MemoryValueStore } from "@vrtmrz/value-store";
+import { createDirectChunkFetchSource } from "@lib/managers/chunkFetchSource.ts";
 /**
  * The API for manipulating files stored in the CouchDB by Self-hosted LiveSync or its families.
  */
@@ -232,7 +233,9 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         this.services.setting.settings = getSettings();
         // this.services.database.createPouchDBInstance.setHandler(this.$$createPouchDBInstance.bind(this));
         this.services.databaseEvents.onDatabaseInitialisation.addHandler(this.$everyOnInitializeDatabase.bind(this));
-        this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);
+        this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this, {
+            createChunkFetchSource: createDirectChunkFetchSource,
+        });
         // Callers observe constructor-started initialisation through `ready`. Register a
         // handler immediately so a failure cannot become an unhandled rejection before
         // the host starts awaiting that promise.
@@ -316,6 +319,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         return this.settings;
     }
     async close() {
+        this.endWatch();
         await this.liveSyncLocalDB.close();
         return this.liveSyncLocalDB.onunload();
     }
@@ -513,82 +517,261 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     }
 
     watching = false;
-    // _abortController?: AbortController;
     changes: PouchDB.Core.Changes<EntryDoc> | undefined;
     since = "";
+    private stopWatching?: () => void;
+    private resumeWatching?: () => void;
+    private watchInFlight = 0;
+    private watchDelivering = new Set<string>();
+    private watchCheckpointPending?: Promise<void>;
 
+    /**
+     * Watch file changes, retrying incomplete reads and rejected consumer callbacks.
+     * Resolving the file callback acknowledges processing. The optional checkpoint
+     * callback must resolve after the host has persisted its safe resume position.
+     */
     beginWatch(
         callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void,
-        checkIsInterested?: (doc: MetaEntry) => boolean
+        checkIsInterested?: (doc: MetaEntry) => boolean,
+        onCheckpoint?: (seq: string | number) => Promise<void> | void
     ) {
-        if (this.watching) return false;
+        if (this.stopWatching || this.watching) return false;
         this.watching = true;
-        this.changes = this.liveSyncLocalDB.localDatabase
-            .changes({
-                include_docs: true,
-                since: this.since,
-                selector: {
-                    type: { $ne: "leaf" },
-                },
-                live: true,
-            })
-            .on("change", async (change: any) => {
-                const doc = change.doc;
-                if (!doc) {
-                    return;
+        this.watchInFlight ??= 0;
+        this.watchDelivering ??= new Set<string>();
+        type Position = { order: number; seq: string | number };
+        type Pending = {
+            id: string;
+            doc: MetaEntry | undefined;
+            seq: string | number;
+            before: Position;
+            running: boolean;
+            failures: number;
+            due: number;
+        };
+        const pending = new Map<string, Pending>();
+        let latest: Position = { order: 0, seq: this.since };
+        let durableOrder = 0;
+        let connection = 0;
+        let connected = false;
+        let retryTimer: number | ReturnType<typeof setTimeout> | undefined;
+        let reconnectTimer: number | ReturnType<typeof setTimeout> | undefined;
+        let checkpointTask: Promise<void> | undefined;
+        let checkpointFailures = 0;
+        let checkpointDue = 0;
+        const delivering = this.watchDelivering;
+        const active = () => this.stopWatching === stop;
+        const backoff = (failures: number) => Math.min(30_000, 1_000 * 2 ** Math.min(failures - 1, 5));
+        // Map insertion order retains each document's first unresolved obligation.
+        // Completed rows need only the latest position, even behind a long-lived gap.
+        const safePosition = (): Position => pending.values().next().value?.before ?? latest;
+        const current = (item: Pending, epoch: number) =>
+            active() && connected && connection === epoch && pending.get(item.id) === item;
+        const stop = () => {
+            this.watching = false;
+            connected = false;
+            connection++;
+            if (retryTimer !== undefined) clearTimeout(retryTimer);
+            if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
+            pending.clear();
+            this.stopWatching = undefined;
+            this.resumeWatching = undefined;
+            const changes = this.changes;
+            this.changes = undefined;
+            changes?.cancel();
+        };
+        this.stopWatching = stop;
+
+        const schedule = () => {
+            if (retryTimer !== undefined) clearTimeout(retryTimer);
+            retryTimer = undefined;
+            if (!active() || !connected) return;
+            let next = Infinity;
+            if (this.watchInFlight < 4) {
+                for (const item of pending.values()) {
+                    if (!item.running && !delivering.has(item.id)) next = Math.min(next, item.due);
                 }
-                if (!isNoteEntry(doc)) {
-                    return;
-                }
-                if (checkIsInterested) {
-                    if (!checkIsInterested(doc)) {
-                        Logger(`WATCH: SKIP ${doc.path}: OUT OF TARGET FOLDER`, LOG_LEVEL_VERBOSE, "watch");
-                        return;
+            }
+            if (!checkpointTask && safePosition().order > durableOrder) next = Math.min(next, checkpointDue);
+            if (next !== Infinity) {
+                retryTimer = compatGlobal.setTimeout(
+                    () => {
+                        retryTimer = undefined;
+                        void pump();
+                    },
+                    Math.max(0, next - Date.now())
+                );
+            }
+        };
+        const flushCheckpoint = (): Promise<void> => {
+            if (checkpointTask) return checkpointTask;
+            if (!active() || !connected || Date.now() < checkpointDue) return Promise.resolve();
+            const position = safePosition();
+            if (position.order <= durableOrder) return Promise.resolve();
+            const epoch = connection;
+            const previous = this.watchCheckpointPending;
+            const task = (async () => {
+                // A stopped watch may already have invoked host persistence. Complete
+                // it before a new session can submit a later checkpoint.
+                if (previous) await previous;
+                if (!active() || connection !== epoch) return;
+                try {
+                    await onCheckpoint?.(position.seq);
+                    if (!active()) return;
+                    this.since = String(position.seq);
+                    if (connection === epoch) durableOrder = position.order;
+                    checkpointFailures = 0;
+                    checkpointDue = 0;
+                } catch (ex) {
+                    Logger(`WATCH: CHECKPOINT FAILED`, LEVEL_INFO, "watch");
+                    Logger(ex, LEVEL_VERBOSE, "watch");
+                    if (active() && connection === epoch) {
+                        checkpointDue = Date.now() + backoff(++checkpointFailures);
                     }
                 }
-                Logger(`WATCH: PROCESSING: ${doc.path}`, LEVEL_VERBOSE, "watch");
-                let docX;
-                try {
-                    docX = await this.getByMeta(doc);
-                } catch (ex) {
-                    Logger(`WATCH: DOCUMENT LOAD FAILED: ${doc.path}`, LEVEL_INFO, "watch");
-                    Logger(ex, LEVEL_VERBOSE, "watch");
-                    return;
-                }
-                try {
-                    await callback(docX, change.seq);
-                    Logger(`WATCH: PROCESS DONE: ${doc.path}`, LEVEL_INFO, "watch");
-                } catch (ex) {
-                    Logger(`WATCH: PROCESS FAILED`, LEVEL_INFO, "watch");
-                    Logger(ex, LEVEL_VERBOSE, "watch");
-                }
-            })
-            .on("complete", () => {
-                Logger(`WATCH: FINISHED`, LEVEL_INFO, "watch");
-                this.watching = false;
-                this.changes = undefined;
-            })
-            .on("error", (err: Error) => {
-                Logger(`WATCH: ERROR: `, LEVEL_INFO, "watch");
-                Logger(err, LEVEL_VERBOSE, "watch");
-                if (this.watching) {
-                    Logger(`WATCH: CONNECTION HAS BEEN CLOSED, RECONNECTING...`, LEVEL_INFO, "watch");
-                    this.watching = false;
-                    this.changes = undefined;
-                    compatGlobal.setTimeout(() => {
-                        this.beginWatch(callback, checkIsInterested);
-                    }, 10000);
-                } else {
-                    Logger(`WATCH: CONNECTION HAS BEEN CLOSED.`, LEVEL_INFO, "watch");
+            })().finally(() => {
+                checkpointTask = undefined;
+                if (this.watchCheckpointPending === task) this.watchCheckpointPending = undefined;
+                if (active()) {
+                    void flushCheckpoint();
+                    schedule();
                 }
             });
+            checkpointTask = task;
+            this.watchCheckpointPending = task;
+            return task;
+        };
+        const process = async (item: Pending, epoch: number) => {
+            let loading = true;
+            try {
+                const doc = item.doc;
+                if (doc && isNoteEntry(doc) && (!checkIsInterested || checkIsInterested(doc))) {
+                    Logger(`WATCH: PROCESSING: ${doc.path}`, LEVEL_VERBOSE, "watch");
+                    const ready: ReadyEntry =
+                        doc.deleted || doc._deleted ? { ...doc, data: [] } : await this.getByMeta(doc);
+                    if (!current(item, epoch)) return;
+                    loading = false;
+                    delivering.add(item.id);
+                    try {
+                        await callback(ready, item.seq);
+                    } finally {
+                        delivering.delete(item.id);
+                    }
+                    if (!current(item, epoch)) return;
+                    Logger(`WATCH: PROCESS DONE: ${doc.path}`, LEVEL_INFO, "watch");
+                }
+                if (!current(item, epoch)) return;
+                pending.delete(item.id);
+                void flushCheckpoint();
+            } catch (ex) {
+                if (!current(item, epoch)) return;
+                Logger(
+                    loading ? `WATCH: DOCUMENT LOAD FAILED: ${item.doc?.path}` : `WATCH: PROCESS FAILED`,
+                    LEVEL_INFO,
+                    "watch"
+                );
+                Logger(ex, LEVEL_VERBOSE, "watch");
+                item.due = Date.now() + backoff(++item.failures);
+            }
+        };
+        const pump = (): Promise<void> => {
+            if (!active() || !connected) return Promise.resolve();
+            const tasks: Promise<void>[] = [];
+            for (const item of pending.values()) {
+                if (this.watchInFlight >= 4) break;
+                if (item.running || item.due > Date.now() || delivering.has(item.id)) continue;
+                item.running = true;
+                this.watchInFlight++;
+                const task = process(item, connection).finally(() => {
+                    item.running = false;
+                    this.watchInFlight--;
+                    // Releasing an uncancellable read also wakes a replacement watch.
+                    this.resumeWatching?.();
+                });
+                tasks.push(task);
+            }
+            void flushCheckpoint();
+            schedule();
+            return Promise.all(tasks).then((): void => {});
+        };
+        this.resumeWatching = () => {
+            void pump();
+        };
+        const reconnect = (epoch: number) => {
+            if (!active() || !connected || connection !== epoch) return;
+            this.watching = false;
+            connected = false;
+            connection++;
+            if (retryTimer !== undefined) clearTimeout(retryTimer);
+            retryTimer = undefined;
+            pending.clear();
+            const changes = this.changes;
+            this.changes = undefined;
+            changes?.cancel();
+            Logger(`WATCH: CONNECTION HAS BEEN CLOSED, RECONNECTING...`, LEVEL_INFO, "watch");
+            reconnectTimer = compatGlobal.setTimeout(() => {
+                reconnectTimer = undefined;
+                void (async () => {
+                    if (checkpointTask) await checkpointTask;
+                    if (active()) connect();
+                })();
+            }, 10_000);
+        };
+        const connect = () => {
+            if (!active()) return;
+            const epoch = ++connection;
+            this.watching = true;
+            connected = true;
+            latest = { order: 0, seq: this.since };
+            durableOrder = 0;
+            checkpointFailures = 0;
+            checkpointDue = 0;
+            try {
+                this.changes = this.liveSyncLocalDB.localDatabase
+                    .changes({
+                        include_docs: true,
+                        since: this.since,
+                        selector: { type: { $ne: "leaf" } },
+                        live: true,
+                    })
+                    .on("change", async (change: any) => {
+                        if (!active() || !connected || connection !== epoch) return;
+                        const before = latest;
+                        latest = { order: before.order + 1, seq: change.seq };
+                        const id = change.id ?? change.doc?._id ?? change.doc?.path ?? `row:${latest.order}`;
+                        const previous = pending.get(id);
+                        // Bare tombstones can reuse only metadata already pending in
+                        // this session; an unknown obfuscated path cannot be invented.
+                        const doc =
+                            change.doc?._deleted && previous?.doc ? { ...previous.doc, ...change.doc } : change.doc;
+                        pending.set(id, {
+                            id,
+                            doc,
+                            seq: change.seq,
+                            before: previous?.before ?? before,
+                            running: false,
+                            failures: 0,
+                            due: 0,
+                        });
+                        await pump();
+                    })
+                    .on("complete", () => reconnect(epoch))
+                    .on("error", (err: Error) => {
+                        if (!active() || connection !== epoch) return;
+                        Logger(`WATCH: ERROR: `, LEVEL_INFO, "watch");
+                        Logger(err, LEVEL_VERBOSE, "watch");
+                        reconnect(epoch);
+                    });
+            } catch (ex) {
+                Logger(`WATCH: ERROR: `, LEVEL_INFO, "watch");
+                Logger(ex, LEVEL_VERBOSE, "watch");
+                reconnect(epoch);
+            }
+        };
+        connect();
     }
     endWatch() {
-        if (this.changes) {
-            Logger(`WATCH: CANCELLING PROCESS.`, LEVEL_INFO, "watch");
-            this.changes.cancel();
-            Logger(`WATCH: CANCELLING SIGNAL HAS BEEN SENT.`, LEVEL_INFO, "watch");
-        }
+        this.stopWatching?.();
     }
     async followUpdates(
         callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void,
