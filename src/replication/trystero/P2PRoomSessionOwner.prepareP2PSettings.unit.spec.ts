@@ -94,6 +94,56 @@ afterEach(() => {
 });
 
 describe("P2PRoomSessionOwner prepared settings lifecycle", () => {
+    it.each(["persistent", "finite"] as const)(
+        "rejects an unsupported version before registering %s demand",
+        async (kind) => {
+            const { owner, settings, createSession, getValue } = createOwnerHarness();
+            settings.P2P_managedType = "";
+            Object.assign(settings, { pathNormalizationVersion: 2 });
+            const task = vi.fn();
+
+            const result = kind === "persistent" ? owner.open() : owner.runWithFiniteDemand(task);
+            await expect(result).rejects.toThrow("Unsupported path normalisation version: 2");
+            expect(task).not.toHaveBeenCalled();
+            expect(createSession).not.toHaveBeenCalled();
+            expect(getValue).not.toHaveBeenCalled();
+
+            Object.assign(settings, { pathNormalizationVersion: 0 });
+            await owner.setPersistentDemand("automatic", false);
+            expect(createSession).not.toHaveBeenCalled();
+            expect(getValue).not.toHaveBeenCalled();
+        }
+    );
+
+    it("returns a rejected promise for an unsupported probe without starting the trial", async () => {
+        const { owner, settings, createSession } = createOwnerHarness();
+        Object.assign(settings, { pathNormalizationVersion: 2 });
+        const trial = vi.fn(async () => "connected");
+        let result: ReturnType<typeof owner.runConnectionProbe>;
+
+        expect(() => {
+            result = owner.runConnectionProbe(settings, trial);
+        }).not.toThrow();
+        await expect(result!).rejects.toThrow("Unsupported path normalisation version: 2");
+        expect(trial).not.toHaveBeenCalled();
+        expect(createSession).not.toHaveBeenCalled();
+
+        Object.assign(settings, { pathNormalizationVersion: 0 });
+        await expect(owner.runConnectionProbe(settings, trial)).resolves.toEqual({ status: "trial", result: "connected" });
+        expect(trial).toHaveBeenCalledOnce();
+    });
+
+    it("rejects a version which becomes unsupported before queued reconciliation", async () => {
+        const { owner, settings, createSession, getValue } = createOwnerHarness();
+        const opening = owner.open();
+        Object.assign(settings, { pathNormalizationVersion: 2 });
+
+        await expect(opening).rejects.toThrow("Unsupported path normalisation version: 2");
+        expect(createSession).not.toHaveBeenCalled();
+        expect(getValue).not.toHaveBeenCalled();
+        await owner.close();
+    });
+
     it("waits for the stored identity before creating a room", async () => {
         const { owner, settings, getValue, createSession } = createOwnerHarness();
         settings.P2P_managedType = "";

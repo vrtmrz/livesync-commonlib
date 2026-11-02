@@ -15,6 +15,12 @@ import { defaultLogger, setGlobalLogFunction } from "octagonal-wheels/common/log
 import { decodeAnyArray, encodeAnyArray } from "octagonal-wheels/object";
 
 describe("QR Codec Round-Trip Test with Real Data", () => {
+    it("rejects an unsupported version when creating a Setup URI", async () => {
+        await expect(
+            encodeSettingsToSetupURI({ ...DEFAULT_SETTINGS, pathNormalizationVersion: 2 }, "test-passphrase")
+        ).rejects.toThrow("Unsupported path normalisation version: 2");
+    });
+
     it("shares the NFC path identity version in QR data", () => {
         const decoded = decodeSettingsFromQRCodeData(
             encodeSettingsToQRCodeData({

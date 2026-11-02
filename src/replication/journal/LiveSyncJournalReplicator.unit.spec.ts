@@ -24,6 +24,36 @@ afterEach(() => {
 });
 
 describe("LiveSyncJournalReplicator initialisation", () => {
+    it("throws synchronously before reconfiguring a client with an unsupported version", () => {
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        const applyNewConfig = vi.fn();
+        (replicator as any)._client = { applyNewConfig };
+        const settings = { ...DEFAULT_SETTINGS, pathNormalizationVersion: 2 };
+
+        expect(() => replicator.setupJournalSyncClient(settings)).toThrow("Unsupported path normalisation version: 2");
+        expect(applyNewConfig).not.toHaveBeenCalled();
+    });
+
+    it("rejects an unsupported reset before stopping replication", async () => {
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        const close = vi.spyOn(replicator, "closeReplication").mockImplementation(() => undefined);
+
+        await expect(
+            replicator.tryResetRemoteDatabase({ ...DEFAULT_SETTINGS, pathNormalizationVersion: 2 })
+        ).rejects.toThrow("Unsupported path normalisation version: 2");
+        expect(close).not.toHaveBeenCalled();
+    });
+
+    it("keeps a connection check failure as false without contacting storage", async () => {
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        const listFiles = vi.spyOn(MinioStorageAdapter.prototype, "listFiles").mockResolvedValue([]);
+
+        await expect(
+            replicator.tryConnectRemote({ ...DEFAULT_SETTINGS, pathNormalizationVersion: 2 }, false)
+        ).resolves.toBe(false);
+        expect(listFiles).not.toHaveBeenCalled();
+    });
+
     it("does not access the local database while constructing a remote-only replicator", () => {
         const getLocalDatabase = vi.fn(() => {
             throw new Error("Local database is not ready yet.");
