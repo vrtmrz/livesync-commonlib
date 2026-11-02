@@ -121,10 +121,12 @@ local database and before ordinary milestone updates. It does not publish a
 node, create a Security Seed, or change a checkpoint. Rebuild first locks the
 existing milestone for the rebuilding node, retaining an existing compatibility
 range for that node and preserving the old identity evidence and Tweaks until
-the journals are deleted. Deletion processes all Journal pages before removing
-control documents, including the milestone and Security Seed. A partial failure
-or interrupted request during Journal deletion retains those control documents
-and the transfer checkpoint for a retry. Checkpoints reset only after control
+the journals are deleted. Deletion lists the keys once, retaining skipped control
+document keys until all Journal pages have been processed. It then removes those
+control documents, including the milestone and Security Seed, in finite batches.
+A repeated or backwards listing cursor stops the reset before those control
+documents are removed. A partial failure or interrupted request during Journal
+deletion retains those control documents and the transfer checkpoint for a retry. Checkpoints reset only after control
 document deletion also succeeds. A missing milestone stays absent during this
 step. The replacement identity is declared after deletion succeeds, so a failed
 or interrupted deletion cannot label the old journals with the new identity.

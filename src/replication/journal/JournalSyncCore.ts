@@ -343,22 +343,25 @@ export class JournalSyncCore {
         this.resetAllCaches();
         try {
             // Retain identity and decryption evidence until every Journal has been deleted.
-            // Advance past control-only pages without deleting them.
+            const skippedFiles: string[] = [];
             let from = "";
-            for (;;) {
-                const files = await this.storage.listFiles(from, 100);
-                if (files.length === 0) break;
-                const journals = files.filter((key) => !key.startsWith("_"));
-                if (journals.length > 0 && !(await this.storage.deleteFiles(journals))) return false;
-                from = files[files.length - 1];
-            }
+            let files: string[];
+            do {
+                files = await this.storage.listFiles(from, 100);
+                if (files.length > 0) {
+                    const nextFrom = files[files.length - 1];
+                    if (nextFrom <= from) {
+                        throw new Error("Journal reset listing did not advance. Control documents have been retained.");
+                    }
+                    skippedFiles.push(...files.filter((key) => key.startsWith("_")));
+                    const journals = files.filter((key) => !key.startsWith("_"));
+                    if (journals.length > 0 && !(await this.storage.deleteFiles(journals))) return false;
+                    from = nextFrom;
+                }
+            } while (files.length > 0);
 
-            for (;;) {
-                const files = await this.storage.listFiles("", 100);
-                if (files.length === 0) break;
-                // A remaining Journal means the reset cannot yet retire its control documents.
-                if (files.some((key) => !key.startsWith("_"))) return false;
-                if (!(await this.storage.deleteFiles(files))) return false;
+            while (skippedFiles.length > 0) {
+                if (!(await this.storage.deleteFiles(skippedFiles.splice(0, 100)))) return false;
             }
         } catch (ex) {
             Logger(`WARNING! Could not delete files.`, LOG_LEVEL_NOTICE, "reset-bucket");

@@ -553,7 +553,33 @@ describe("JournalSyncCore", () => {
             await expect(core.resetBucket()).resolves.toBe(true);
             expect(virtualStorage.size).toBe(0);
             expect(core.store.set).toHaveBeenCalledOnce();
+            expect(vi.mocked(mockStorage.listFiles).mock.calls.filter(([from]) => from === "")).toHaveLength(1);
         });
+
+        it.each(["repeated", "backwards"])(
+            "rejects a %s listing cursor without deleting retained control documents",
+            async (cursor) => {
+                const milestone = "_00000000-milestone.json";
+                const journal = "z-journal.jsonl.gz";
+                const control = new Uint8Array([2]);
+                virtualStorage.set(milestone, control);
+                virtualStorage.set(journal, new Uint8Array([1]));
+                vi.mocked(mockStorage.listFiles)
+                    .mockResolvedValueOnce([milestone, journal])
+                    .mockResolvedValueOnce(cursor === "repeated" ? [milestone, journal] : [milestone])
+                    .mockResolvedValue([]);
+                mockStorage.deleteFiles = vi.fn(async (files) => {
+                    for (const file of files) virtualStorage.delete(file);
+                    return true;
+                });
+
+                await expect(core.resetBucket()).resolves.toBe(false);
+                expect(mockStorage.listFiles).toHaveBeenCalledTimes(2);
+                expect(mockStorage.deleteFiles).toHaveBeenCalledExactlyOnceWith([journal]);
+                expect(virtualStorage.get(milestone)).toEqual(control);
+                expect(core.store.set).not.toHaveBeenCalled();
+            }
+        );
 
         it("retains checkpoints until control document deletion also succeeds", async () => {
             virtualStorage.set("1793597000000-docs.jsonl.gz", new Uint8Array([1]));
