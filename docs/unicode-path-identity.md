@@ -2,7 +2,7 @@
 date: 2026-10-19
 commonlib-version: "0.1.42"
 self-hosted-livesync-version: "1.0.38"
-status: unreleased
+status: published
 ---
 
 # Unicode path identity
@@ -14,8 +14,11 @@ does not alter the Metadata path or require physical files to be renamed.
 Unsupported values are rejected.
 
 NFC identity shipped in Commonlib `0.1.42` and Self-hosted LiveSync `1.0.38`.
-The Journal and P2P extension described below is unreleased. The original
-CouchDB release remains the published baseline for this document.
+The Journal and P2P extension is published in
+[Commonlib 0.3.0](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.3.0).
+The original date and reviewed versions above retain the CouchDB baseline.
+CLI and Obsidian host adoption is pending in
+[Self-hosted LiveSync #1309](https://github.com/vrtmrz/obsidian-livesync/pull/1309).
 
 ## Package contract
 
@@ -29,10 +32,11 @@ to its existing physical entry.
 ## Initial host settings
 
 Commonlib's shared new-Vault and stored-setting defaults retain version `0`.
-The maintained CLI and Obsidian hosts use version `1` for newly created
-synchronisation settings in the unreleased extension, while retaining `0` for
-old settings and Setup URIs which omit the field. This policy does not enable
-NFC for WebApp or WebPeer, and does not migrate existing databases.
+The maintained CLI and Obsidian host extension uses version `1` for newly
+created synchronisation settings, while retaining `0` for old settings and
+Setup URIs which omit the field. Its application adoption is tracked above.
+This policy does not enable NFC for WebApp or WebPeer, and does not migrate
+existing databases.
 
 The focused replication entry exports `inspectDatabasePathIdentity` and
 `PathIdentityInspection`. The existing `RemoteConnectionProbe` may expose
@@ -97,8 +101,9 @@ does not itself perform the required reconstruction.
 
 ## Supported hosts
 
-The maintained CLI and Obsidian support NFC identity with CouchDB, Journal,
-and P2P in this unreleased extension.
+Commonlib 0.3.0 supports NFC identity with CouchDB, Journal, and P2P for
+maintained CLI and Obsidian host integrations. The application adoption status
+is recorded in the publication note above.
 `PathService` owns logical ID derivation. The CLI resolves NFC-equivalent names
 against directory entries while preserving the actual entry spelling; its
 generic Node storage contract remains exact-path access. Obsidian supplies its
