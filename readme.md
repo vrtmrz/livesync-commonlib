@@ -14,10 +14,10 @@ This package is primarily for maintainers of those clients and for integrations 
 
 ## Status and versioning
 
-Commonlib [0.2.3](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.2.3)
-is published on npm through both `latest` and `next`. Self-hosted LiveSync
+Commonlib [0.3.0](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.3.0)
+is published on npm. Self-hosted LiveSync
 [1.0.44](https://github.com/vrtmrz/obsidian-livesync/releases/tag/1.0.44)
-uses that exact version. See the [0.2.3 release notes](updates.md#023) for the
+uses Commonlib 0.2.3. The [0.2.3 release notes](updates.md#023) record its
 handler-setter source compatibility change and positive-infinity formatting
 exception.
 
@@ -305,7 +305,7 @@ See [the remote configuration profile guide](docs/remote-configurations.md) for 
 
 CouchDB stores the representations already in use as feature identifiers in its version document. Assess that document before synchronisation or direct file operations, and retain unknown identifiers for host diagnostics. See [the remote feature compatibility contract](docs/remote-feature-compatibility.md) for the wire format, update rules, and recovery boundaries.
 
-The maintained CLI and Obsidian hosts can opt into [Unicode NFC path identity](docs/unicode-path-identity.md) with CouchDB, Object Storage, and P2P in the unreleased transport extension. Existing databases require an explicit Rebuild or Fetch migration before using it. P2P participants must all be updated and migrated.
+Commonlib 0.3.0 provides [Unicode NFC path identity](docs/unicode-path-identity.md) with CouchDB, Object Storage, and P2P for maintained CLI and Obsidian host integrations. Application adoption remains in [Self-hosted LiveSync #1309](https://github.com/vrtmrz/obsidian-livesync/pull/1309). Changing an existing database's path identity requires coordinated Rebuild and Fetch. P2P participants must all be updated and migrated.
 
 ## Direct database watches
 
