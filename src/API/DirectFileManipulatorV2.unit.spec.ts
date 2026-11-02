@@ -50,7 +50,9 @@ describe("DirectFileManipulator", () => {
                 initializeDatabase: vi.fn().mockResolvedValue(true),
                 localDatabase: {
                     get: vi.fn(async () => ({
-                        _id: VERSIONING_DOCID, type: "versioninfo", version: 13,
+                        _id: VERSIONING_DOCID,
+                        type: "versioninfo",
+                        version: 13,
                         used_features: ["future-format-v2"],
                     })),
                 },
@@ -301,6 +303,79 @@ describe("DirectFileManipulator", () => {
         expect(expected).not.toBe(encryptionDerived);
     });
 
+    it("delivers a file after its initially missing chunks become readable", async () => {
+        vi.useFakeTimers();
+        const changes = { on: vi.fn().mockReturnThis(), cancel: vi.fn() };
+        const entry = {
+            _id: "late.md",
+            path: "late.md",
+            type: "plain",
+            children: ["h:late"],
+            ctime: 1,
+            mtime: 2,
+            size: 4,
+        };
+        const ready = { ...entry, data: ["late"] };
+        const getByMeta = vi.fn().mockRejectedValueOnce(new Error("chunk unavailable")).mockResolvedValue(ready);
+        const callback = vi.fn();
+        const manipulator = Object.assign(Object.create(DirectFileManipulator.prototype), {
+            watching: false,
+            since: "40",
+            liveSyncLocalDB: { localDatabase: { changes: vi.fn(() => changes) } },
+            getByMeta,
+        }) as DirectFileManipulator;
+        try {
+            manipulator.beginWatch(callback);
+            const handler = changes.on.mock.calls.find(([event]) => event === "change")?.[1];
+            expect(handler).toBeTypeOf("function");
+            void handler({ doc: entry, seq: "41" });
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(callback).toHaveBeenCalledWith(ready, "41");
+        } finally {
+            manipulator.endWatch();
+            vi.useRealTimers();
+        }
+    });
+
+    it.each([
+        { description: "a deletion", path: "old.md", deleted: true, selected: true },
+        { description: "a same-ID rename", path: "Old.md", deleted: false, selected: true },
+        { description: "an excluded same-ID rename", path: "excluded.md", deleted: false, selected: false },
+    ])("does not deliver an older pending read after $description", async ({ path, deleted, selected }) => {
+        const changes = { on: vi.fn().mockReturnThis(), cancel: vi.fn() };
+        const firstRead = promiseWithResolvers<unknown>();
+        const old = {
+            _id: "same-id",
+            _rev: "1-first",
+            path: "old.md",
+            type: "plain",
+            children: ["h:old"],
+            ctime: 1,
+            mtime: 2,
+            size: 4,
+        };
+        const latest = { ...old, _rev: "2-latest", path, deleted, data: deleted ? [] : ["next"] };
+        const callback = vi.fn();
+        const manipulator = Object.assign(Object.create(DirectFileManipulator.prototype), {
+            watching: false,
+            since: "40",
+            liveSyncLocalDB: { localDatabase: { changes: vi.fn(() => changes) } },
+            getByMeta: vi.fn((doc) => (doc._rev === old._rev ? firstRead.promise : Promise.resolve(latest))),
+        }) as DirectFileManipulator;
+        try {
+            manipulator.beginWatch(callback, (doc) => doc.path !== "excluded.md");
+            const handler = changes.on.mock.calls.find(([event]) => event === "change")?.[1];
+            expect(handler).toBeTypeOf("function");
+            const pending = handler({ doc: old, seq: "41" });
+            const newer = handler({ doc: latest, seq: "42" });
+            firstRead.resolve({ ...old, data: ["past"] });
+            await Promise.all([pending, newer]);
+            expect(callback.mock.calls.map(([doc]) => doc._rev)).toEqual(selected ? ["2-latest"] : []);
+        } finally {
+            await manipulator.endWatch();
+        }
+    });
+
     it("keeps its watch callback contained and reports a generic document-load failure", async () => {
         const changes = {
             on: vi.fn().mockReturnThis(),
@@ -332,5 +407,85 @@ describe("DirectFileManipulator", () => {
             expect.anything(),
             "watch"
         );
+        DirectFileManipulator.prototype.endWatch.call(manipulator);
+    });
+});
+
+describe("DirectFileManipulator watch facade", () => {
+    const createManipulator = () => {
+        const feed = { on: vi.fn().mockReturnThis(), cancel: vi.fn() };
+        const changes = vi.fn(() => feed);
+        const getByMeta = vi.fn(async (doc: MetaEntry) => ({ ...doc, data: ["body"] }));
+        const close = vi.fn().mockResolvedValue(undefined);
+        const onunload = vi.fn().mockResolvedValue(undefined);
+        const manipulator = Object.assign(Object.create(DirectFileManipulator.prototype), {
+            watching: false,
+            since: "saved",
+            getByMeta,
+            liveSyncLocalDB: { localDatabase: { changes }, close, onunload },
+        }) as DirectFileManipulator;
+        const emit = (event: string, value?: unknown) => {
+            const handler = feed.on.mock.calls.find(([name]) => name === event)?.[1];
+            if (!handler) throw new Error(`Missing ${event} handler`);
+            return handler(value);
+        };
+        return { manipulator, feed, changes, getByMeta, close, onunload, emit };
+    };
+    const note = { _id: "file.md", path: "file.md", type: "plain", children: [], ctime: 1, mtime: 2, size: 4 };
+
+    it("preserves public watch state and waits for host checkpoint persistence", async () => {
+        vi.useFakeTimers();
+        const f = createManipulator();
+        const persistence = promiseWithResolvers<void>();
+        const callback = vi.fn();
+        try {
+            f.manipulator.beginWatch(callback, undefined, () => persistence.promise);
+            expect(f.changes).toHaveBeenCalledWith({
+                include_docs: true,
+                since: "saved",
+                selector: { type: { $ne: "leaf" } },
+                live: true,
+            });
+            expect(f.manipulator.changes).toBe(f.feed);
+            expect(f.manipulator.watching).toBe(true);
+            await f.emit("change", { id: note._id, doc: note, seq: 7 });
+            expect(callback).toHaveBeenCalledWith({ ...note, data: ["body"] }, 7);
+            expect(f.manipulator.since).toBe("saved");
+            persistence.resolve();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(f.manipulator.since).toBe("7");
+            f.manipulator.endWatch();
+            expect(f.feed.cancel).toHaveBeenCalledOnce();
+            expect(f.manipulator.changes).toBeUndefined();
+            expect(f.manipulator.watching).toBe(false);
+            f.manipulator.since = "restored";
+            f.manipulator.beginWatch(callback);
+            expect(f.changes).toHaveBeenLastCalledWith(expect.objectContaining({ since: "restored" }));
+        } finally {
+            persistence.resolve();
+            f.manipulator.endWatch();
+            vi.useRealTimers();
+        }
+    });
+
+    it("cancels owned watch work before closing its database", async () => {
+        vi.useFakeTimers();
+        const f = createManipulator();
+        f.getByMeta.mockRejectedValue(new Error("chunk unavailable"));
+        try {
+            f.manipulator.beginWatch(vi.fn());
+            await f.emit("change", { id: note._id, doc: note, seq: "gap" });
+            f.emit("error", new Error("connection lost"));
+            await f.manipulator.close();
+            expect(f.close).toHaveBeenCalledOnce();
+            expect(f.onunload).toHaveBeenCalledOnce();
+            expect(vi.getTimerCount()).toBe(0);
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(f.changes).toHaveBeenCalledOnce();
+            expect(f.getByMeta).toHaveBeenCalledOnce();
+        } finally {
+            f.manipulator.endWatch();
+            vi.useRealTimers();
+        }
     });
 });

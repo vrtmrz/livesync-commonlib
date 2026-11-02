@@ -1,4 +1,5 @@
 import { MemoryValueStore } from "@vrtmrz/value-store";
+import { createDirectChunkFetchSource } from "@lib/managers/chunkFetchSource.ts";
 /**
  * The API for manipulating files stored in the CouchDB by Self-hosted LiveSync or its families.
  */
@@ -61,7 +62,7 @@ import { HeadlessServiceHub } from "@lib/services/HeadlessServices.ts";
 import { HeadlessDatabaseService } from "@lib/services/implements/headless/HeadlessDatabaseService.ts";
 import { ServiceContext } from "@lib/services/base/ServiceBase.ts";
 import type { InjectableSettingService } from "@lib/services/implements/injectable/InjectableSettingService.ts";
-import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
+import { DirectFileWatchOwner, isNoteEntry } from "./DirectFileWatchOwner.ts";
 
 export type DirectFileManipulatorOptions = {
     url: string;
@@ -106,10 +107,6 @@ export type DirectFileManipulatorRuntimeOptions = Readonly<{
 export type ReadyEntry = (NewEntry | PlainEntry) & { data: string[] };
 export type MetaEntry = (NewEntry | PlainEntry) & { children: string[] };
 
-function isNoteEntry(doc: EntryDoc | false): doc is NewEntry | PlainEntry {
-    if (!doc) return false;
-    return doc.type == "newnote" || doc.type == "plain";
-}
 function isReadyEntry(doc: EntryDoc | false): doc is ReadyEntry {
     if (!doc) return false;
     return "data" in doc;
@@ -232,7 +229,9 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         this.services.setting.settings = getSettings();
         // this.services.database.createPouchDBInstance.setHandler(this.$$createPouchDBInstance.bind(this));
         this.services.databaseEvents.onDatabaseInitialisation.addHandler(this.$everyOnInitializeDatabase.bind(this));
-        this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);
+        this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this, {
+            createChunkFetchSource: createDirectChunkFetchSource,
+        });
         // Callers observe constructor-started initialisation through `ready`. Register a
         // handler immediately so a failure cannot become an unhandled rejection before
         // the host starts awaiting that promise.
@@ -316,6 +315,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         return this.settings;
     }
     async close() {
+        this.endWatch();
         await this.liveSyncLocalDB.close();
         return this.liveSyncLocalDB.onunload();
     }
@@ -513,82 +513,59 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     }
 
     watching = false;
-    // _abortController?: AbortController;
     changes: PouchDB.Core.Changes<EntryDoc> | undefined;
     since = "";
+    private watchOwner?: DirectFileWatchOwner;
 
+    /**
+     * Watch file changes, retrying incomplete reads and rejected consumer callbacks.
+     * Resolving the file callback acknowledges processing. The optional checkpoint
+     * callback must resolve after the host has persisted its safe resume position.
+     */
     beginWatch(
         callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void,
-        checkIsInterested?: (doc: MetaEntry) => boolean
+        checkIsInterested?: (doc: MetaEntry) => boolean,
+        onCheckpoint?: (seq: string | number) => Promise<void> | void
     ) {
-        if (this.watching) return false;
-        this.watching = true;
-        this.changes = this.liveSyncLocalDB.localDatabase
-            .changes({
-                include_docs: true,
-                since: this.since,
-                selector: {
-                    type: { $ne: "leaf" },
+        const manipulator = this;
+        this.watchOwner ??= new DirectFileWatchOwner({
+            state: {
+                get watching() {
+                    return manipulator.watching;
                 },
-                live: true,
-            })
-            .on("change", async (change: any) => {
-                const doc = change.doc;
-                if (!doc) {
-                    return;
-                }
-                if (!isNoteEntry(doc)) {
-                    return;
-                }
-                if (checkIsInterested) {
-                    if (!checkIsInterested(doc)) {
-                        Logger(`WATCH: SKIP ${doc.path}: OUT OF TARGET FOLDER`, LOG_LEVEL_VERBOSE, "watch");
-                        return;
-                    }
-                }
-                Logger(`WATCH: PROCESSING: ${doc.path}`, LEVEL_VERBOSE, "watch");
-                let docX;
-                try {
-                    docX = await this.getByMeta(doc);
-                } catch (ex) {
-                    Logger(`WATCH: DOCUMENT LOAD FAILED: ${doc.path}`, LEVEL_INFO, "watch");
-                    Logger(ex, LEVEL_VERBOSE, "watch");
-                    return;
-                }
-                try {
-                    await callback(docX, change.seq);
-                    Logger(`WATCH: PROCESS DONE: ${doc.path}`, LEVEL_INFO, "watch");
-                } catch (ex) {
-                    Logger(`WATCH: PROCESS FAILED`, LEVEL_INFO, "watch");
-                    Logger(ex, LEVEL_VERBOSE, "watch");
-                }
-            })
-            .on("complete", () => {
-                Logger(`WATCH: FINISHED`, LEVEL_INFO, "watch");
-                this.watching = false;
-                this.changes = undefined;
-            })
-            .on("error", (err: Error) => {
-                Logger(`WATCH: ERROR: `, LEVEL_INFO, "watch");
-                Logger(err, LEVEL_VERBOSE, "watch");
-                if (this.watching) {
-                    Logger(`WATCH: CONNECTION HAS BEEN CLOSED, RECONNECTING...`, LEVEL_INFO, "watch");
-                    this.watching = false;
-                    this.changes = undefined;
-                    compatGlobal.setTimeout(() => {
-                        this.beginWatch(callback, checkIsInterested);
-                    }, 10000);
-                } else {
-                    Logger(`WATCH: CONNECTION HAS BEEN CLOSED.`, LEVEL_INFO, "watch");
-                }
-            });
+                set watching(value) {
+                    manipulator.watching = value;
+                },
+                get changes() {
+                    return manipulator.changes;
+                },
+                set changes(value) {
+                    manipulator.changes = value;
+                },
+                get since() {
+                    return manipulator.since;
+                },
+                set since(value) {
+                    manipulator.since = value;
+                },
+            },
+            openChanges(since) {
+                return manipulator.liveSyncLocalDB.localDatabase.changes({
+                    include_docs: true,
+                    since,
+                    selector: { type: { $ne: "leaf" } },
+                    live: true,
+                });
+            },
+            readDocument(doc) {
+                return manipulator.getByMeta(doc);
+            },
+        });
+        return this.watchOwner.beginWatch(callback, checkIsInterested, onCheckpoint);
     }
+
     endWatch() {
-        if (this.changes) {
-            Logger(`WATCH: CANCELLING PROCESS.`, LEVEL_INFO, "watch");
-            this.changes.cancel();
-            Logger(`WATCH: CANCELLING SIGNAL HAS BEEN SENT.`, LEVEL_INFO, "watch");
-        }
+        this.watchOwner?.endWatch();
     }
     async followUpdates(
         callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void,

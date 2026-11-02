@@ -23,6 +23,7 @@ import { EVENT_CHUNK_FETCHED } from "@lib/managers/ChunkFetcher.ts";
 import type { LiveSyncEventHub } from "@lib/hub/hub.ts";
 import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
 import { LiveSyncManagers } from "@lib/managers/LiveSyncManagers.ts";
+import type { ChunkFetchSource } from "@lib/managers/chunkFetchSource.ts";
 import type { AutoMergeResult } from "@lib/managers/ConflictManager.ts";
 import type { IServiceHub } from "@lib/services/base/IService.ts";
 import type { ServiceContext } from "@lib/services/base/ServiceBase.ts";
@@ -70,6 +71,11 @@ export type GeneratedChunk = {
     piece: string;
 };
 
+/** Optional host IO bound afresh to each prepared database instance. */
+export interface LiveSyncLocalDBRuntimeOptions {
+    createChunkFetchSource?: (database: PouchDB.Database<EntryDoc>) => ChunkFetchSource;
+}
+
 export class LiveSyncLocalDB {
     auth: Credential;
     dbname: string;
@@ -113,7 +119,11 @@ export class LiveSyncLocalDB {
     /** Share owner retirement across every close path for one physical database lifetime. */
     private activeReplicationClose?: Promise<boolean>;
     private databaseUnloadNotification?: Promise<void>;
-    constructor(dbname: string, env: LiveSyncLocalDBEnv) {
+    constructor(
+        dbname: string,
+        env: LiveSyncLocalDBEnv,
+        private readonly runtimeOptions: LiveSyncLocalDBRuntimeOptions = {}
+    ) {
         this.auth = {
             username: "",
             password: "",
@@ -249,6 +259,7 @@ export class LiveSyncLocalDB {
 
         const manager = new LiveSyncManagers({
             database: this.localDatabase,
+            chunkFetchSource: this.runtimeOptions?.createChunkFetchSource?.(this.localDatabase),
             APIService: this.env.services.API,
             pathService: this.env.services.path,
             replicatorService: this.env.services.replicator,

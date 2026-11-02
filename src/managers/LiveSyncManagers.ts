@@ -2,6 +2,7 @@ import { LOG_LEVEL_VERBOSE, type EntryDoc } from "@lib/common/types";
 import { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters.ts";
 import { ChangeManager } from "@lib/managers/ChangeManager.ts";
 import { ChunkFetcher } from "@lib/managers/ChunkFetcher.ts";
+import type { ChunkFetchSource } from "@lib/managers/chunkFetchSource.ts";
 import { ChunkManager } from "@lib/managers/ChunkManager.ts";
 import { ConflictManager } from "@lib/managers/ConflictManager.ts";
 import { EntryManager } from "@lib/managers/EntryManager/EntryManager.ts";
@@ -22,6 +23,7 @@ export interface LiveSyncManagersOptions<TSettingService extends ISettingService
     pathService: IPathService;
     replicatorService: IReplicatorService;
     APIService: IAPIService;
+    chunkFetchSource?: ChunkFetchSource;
 }
 export class LiveSyncManagers {
     protected _pathService: IPathService;
@@ -101,6 +103,7 @@ export class LiveSyncManagers {
         });
         const chunkFetcher = new ChunkFetcher({
             chunkManager: chunkManager,
+            source: this.options.chunkFetchSource,
             replicatorService: this.options.replicatorService,
             settingService: this.options.settingService,
         });

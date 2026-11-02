@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Direct CouchDB integrations can receive files whose Chunks arrive after their Metadata, using shared Chunk waiting and retries without writing fetched content back to the source.
+- Direct database watches retain unreadable files and rejected deliveries for retry while allowing other files to proceed. Newer changes supersede pending reads, and the optional `onCheckpoint` callback lets hosts save a resume position which does not skip unfinished work. This addresses [LiveSync Bridge #88](https://github.com/vrtmrz/livesync-bridge/issues/88); it does not replay files already skipped by a previously saved checkpoint.
+
 ## 0.2.3
 
 1st November, 2026
