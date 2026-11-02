@@ -6,7 +6,7 @@
 ### Added
 
 - Maintained CLI and Obsidian hosts can use Unicode NFC path identity with Journal and P2P replication.
-    - Journal uses compatibility range `4` and checks identity before Fetch resets local data or ordinary administration updates the milestone. Rebuild retains the old identity until the remote journals have been deleted, then declares the replacement identity and resets transfer progress.
+    - Journal uses compatibility range `4` and checks identity before Fetch resets local data or ordinary administration updates the milestone. Rebuild retains the old identity until the remote journals have been deleted, including after a partial deletion failure, then declares the replacement identity and resets transfer progress. Existing journals without a compatibility milestone require Rebuild in both legacy and NFC modes.
     - P2P reuses its Tweak exchange and database feature declarations to check both peers before transfer, including when ordinary configuration-mismatch warnings are disabled.
     - Existing databases require coordinated Rebuild and Fetch. Physical file names, stored path spelling, Chunk IDs, and file contents retain their existing contracts. Every participating client must be updated and migrated.
 

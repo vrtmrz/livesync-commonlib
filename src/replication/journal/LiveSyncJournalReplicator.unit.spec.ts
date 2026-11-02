@@ -235,16 +235,20 @@ describe("LiveSyncJournalReplicator replication compatibility state", () => {
         ).resolves.toBe(false);
     });
 
-    it("refuses to initialise NFC compatibility over journals with a missing milestone", async () => {
-        const { client, replicator, setting } = createConnectivityReplicator();
-        setting.pathNormalizationVersion = 1;
-        client.hasRemoteJournals.mockResolvedValue(true);
+    it.each([0, 1] as const)(
+        "refuses to initialise compatibility over journals with a missing milestone in mode %s",
+        async (pathVersion) => {
+            const { client, replicator, setting } = createConnectivityReplicator();
+            setting.pathNormalizationVersion = pathVersion;
+            client.hasRemoteJournals.mockResolvedValue(true);
 
-        await expect(
-            replicator.checkReplicationConnectivity(false, false, false, setting, client as never)
-        ).rejects.toThrow(/milestone/i);
-        expect(client.uploadJson).not.toHaveBeenCalled();
-    });
+            await expect(
+                replicator.checkReplicationConnectivity(false, false, false, setting, client as never)
+            ).rejects.toThrow(/milestone/i);
+            expect(client.uploadJson).not.toHaveBeenCalled();
+            expect(client.getCheckpointInfo).not.toHaveBeenCalled();
+        }
+    );
 
     it.each([0, 1] as const)(
         "uses the compatibility range even after preferred tweaks have been cleared: %s",
@@ -356,6 +360,7 @@ describe("LiveSyncJournalReplicator compatibility milestone", () => {
             downloadJsonWithResult,
             getCheckpointInfo,
             uploadJson,
+            hasRemoteJournals: vi.fn(async () => false),
         } as never);
         return { downloadJson, downloadJsonWithResult, getCheckpointInfo, replicator, uploadJson };
     }
@@ -649,6 +654,7 @@ describe("LiveSyncJournalReplicator remote mutation outcomes", () => {
         vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue({
             downloadJsonWithResult,
             uploadJson,
+            hasRemoteJournals: vi.fn(async () => false),
         } as never);
 
         await expect(replicator.markRemoteLocked(DEFAULT_SETTINGS, true, false)).resolves.toBeUndefined();
@@ -728,6 +734,7 @@ describe("LiveSyncJournalReplicator remote mutation outcomes", () => {
         vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue({
             downloadJsonWithResult,
             uploadJson,
+            hasRemoteJournals: vi.fn(async () => false),
         } as never);
 
         await expect(replicator.markRemoteLocked(DEFAULT_SETTINGS, true, false)).rejects.toBeDefined();
@@ -1115,6 +1122,7 @@ describe("LiveSyncJournalReplicator remote preferred tweak values", () => {
 
 describe("LiveSyncJournalReplicator preferred tweak writes", () => {
     function createReplicator(currentSettings: RemoteDBSettings) {
+        vi.spyOn(JournalSyncCore.prototype, "hasRemoteJournals").mockResolvedValue(false);
         const currentSettingsReader = vi.fn(() => currentSettings);
         const replicator = new LiveSyncJournalReplicator({
             services: {
@@ -1238,10 +1246,10 @@ describe("Journal path identity before recovery mutations", () => {
         expect(client.getCheckpointInfo).not.toHaveBeenCalled();
     });
 
-    it("does not infer a fresh Journal from missing compatibility evidence over existing data", async () => {
-        const existing = createJournal(1);
+    it.each([0, 1])("does not infer a fresh Journal from missing evidence in mode %s", async (localVersion) => {
+        const existing = createJournal(localVersion);
         await expect(existing.replicator.inspectRemotePathIdentity(existing.setting)).rejects.toThrow(/missing/i);
-        const empty = createJournal(1, undefined, false);
+        const empty = createJournal(localVersion, undefined, false);
         await expect(empty.replicator.inspectRemotePathIdentity(empty.setting)).resolves.toEqual({ status: "empty" });
         expect(empty.client.uploadJson).not.toHaveBeenCalled();
     });
@@ -1263,12 +1271,19 @@ describe("Journal path identity before recovery mutations", () => {
         }
     );
 
-    it("does not create an NFC milestone over existing journals during recovery admission", async () => {
-        const { replicator, setting, client, snapshot } = createJournal(1);
-        await expect(replicator.markRemoteResolved(setting)).rejects.toThrow(/milestone/i);
-        expect(snapshot()).toBeUndefined();
-        expect(client.uploadJson).not.toHaveBeenCalled();
-    });
+    it.each([0, 1])(
+        "rejects missing identity before Fetch and recovery administration in mode %s",
+        async (localVersion) => {
+            const { replicator, setting, client, snapshot } = createJournal(localVersion);
+            await expect(replicator.assertRemotePathIdentity(setting)).rejects.toThrow(/milestone/i);
+            await expect(replicator.markRemoteResolved(setting)).rejects.toThrow(/milestone/i);
+            await expect(replicator.markRemoteLocked(setting, true, false)).rejects.toThrow(/milestone/i);
+            await expect(replicator.markRemoteLocked(setting, false, false)).rejects.toThrow(/milestone/i);
+            expect(snapshot()).toBeUndefined();
+            expect(client.uploadJson).not.toHaveBeenCalled();
+            expect(client.getCheckpointInfo).not.toHaveBeenCalled();
+        }
+    );
 
     it("keeps a compatible peer admitted after an incompatible peer is refused", async () => {
         const { replicator, setting, client, snapshot } = createJournal(0, 1);

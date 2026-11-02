@@ -341,34 +341,33 @@ export class JournalSyncCore {
 
     async resetBucket(): Promise<boolean> {
         this.resetAllCaches();
-        let files = [] as string[];
         try {
-            do {
-                files = await this.storage.listFiles("", 100);
-                if (files.length == 0) {
-                    break;
-                }
-                if (!(await this.storage.deleteFiles(files))) {
-                    return false;
-                }
-            } while (files.length != 0);
+            // Retain identity and decryption evidence until every Journal has been deleted.
+            // Advance past control-only pages without deleting them.
+            let from = "";
+            for (;;) {
+                const files = await this.storage.listFiles(from, 100);
+                if (files.length === 0) break;
+                const journals = files.filter((key) => !key.startsWith("_"));
+                if (journals.length > 0 && !(await this.storage.deleteFiles(journals))) return false;
+                from = files[files.length - 1];
+            }
+
+            for (;;) {
+                const files = await this.storage.listFiles("", 100);
+                if (files.length === 0) break;
+                // A remaining Journal means the reset cannot yet retire its control documents.
+                if (files.some((key) => !key.startsWith("_"))) return false;
+                if (!(await this.storage.deleteFiles(files))) return false;
+            }
         } catch (ex) {
             Logger(`WARNING! Could not delete files.`, LOG_LEVEL_NOTICE, "reset-bucket");
             Logger(ex, LOG_LEVEL_VERBOSE);
             return false;
         }
 
-        const journals = await this._getRemoteJournals();
-        if (journals.length == 0) {
-            await this.resetCheckpointInfo();
-            Logger("Nothing to delete!", LOG_LEVEL_NOTICE);
-            return true;
-        }
-        if (!(await this.storage.deleteFiles(journals))) {
-            return false;
-        }
-        Logger(`${journals.length} items has been deleted!`, LOG_LEVEL_NOTICE);
         await this.resetCheckpointInfo();
+        Logger("Remote bucket cleared", LOG_LEVEL_NOTICE);
         return true;
     }
 

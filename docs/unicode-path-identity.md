@@ -111,19 +111,23 @@ stored node ranges and required Tweak reject a different identity even when
 ordinary mismatch warnings are disabled. Removing preferred Tweaks does not
 remove the range check or an existing document-ID agreement proof. The existing
 ID check is also reused before Fetch and ordinary milestone updates. A missing
-milestone over existing journals requires Rebuild; it is not permission to declare a new identity. Older clients must be
-updated before migration; their explicit version-check override is outside
-this compatibility guarantee.
+milestone over existing journals requires Rebuild in both legacy and NFC modes;
+it is not permission to declare a new identity. Older clients must be updated
+before migration; their explicit version-check override is outside this
+compatibility guarantee.
 
 The same read-only identity assessment runs before a Journal Fetch resets the
 local database and before ordinary milestone updates. It does not publish a
 node, create a Security Seed, or change a checkpoint. Rebuild first locks the
 existing milestone for the rebuilding node, retaining an existing compatibility
 range for that node and preserving the old identity evidence and Tweaks until
-the journals are deleted. A missing milestone stays absent during
-this step. The replacement identity is declared after deletion succeeds, so a
-failed or interrupted deletion cannot label the old journals with the new
-identity.
+the journals are deleted. Deletion processes all Journal pages before removing
+control documents, including the milestone and Security Seed. A partial failure
+or interrupted request during Journal deletion retains those control documents
+and the transfer checkpoint for a retry. Checkpoints reset only after control
+document deletion also succeeds. A missing milestone stays absent during this
+step. The replacement identity is declared after deletion succeeds, so a failed
+or interrupted deletion cannot label the old journals with the new identity.
 
 P2P uses its existing Tweak exchange and version document to check both peers
 before ordinary data replication. Missing path settings mean version `0`.

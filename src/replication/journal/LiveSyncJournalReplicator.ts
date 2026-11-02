@@ -135,9 +135,9 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
         const preferred = milestone?.tweak_values?.[DEVICE_ID_PREFERRED];
         if (preferred && getPathNormalizationVersion(preferred) !== pathVersion) return false;
-        if (pathVersion === 1 && nodes.size === 0 && (await client.hasRemoteJournals())) {
+        if (nodes.size === 0 && (await client.hasRemoteJournals())) {
             throw new Error(
-                "The Journal compatibility milestone is missing. Rebuild from the authoritative Vault before using NFC path identity."
+                "The Journal compatibility milestone is missing. Rebuild from the authoritative Vault before synchronising."
             );
         }
         return true;

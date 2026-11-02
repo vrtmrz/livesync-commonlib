@@ -61,8 +61,11 @@ describe("JournalSyncCore", () => {
                 if (data === undefined) return { status: "not-found" as const };
                 return { status: "available" as const, value: data };
             }),
-            listFiles: vi.fn(async () => {
-                return Array.from(virtualStorage.keys());
+            listFiles: vi.fn(async (from: string, limit?: number) => {
+                return Array.from(virtualStorage.keys())
+                    .sort()
+                    .filter((key) => key > (from || ""))
+                    .slice(0, limit);
             }),
             deleteFile: vi.fn(async (file: string) => {
                 virtualStorage.delete(file);
@@ -495,6 +498,78 @@ describe("JournalSyncCore", () => {
     });
 
     describe("resetBucket", () => {
+        it.each(["partial response", "transport error"])(
+            "retains control documents and checkpoints after a failed Journal deletion: %s",
+            async (failure) => {
+                const journal = "1793597000000-docs.jsonl.gz";
+                const deletedJournal = "1793596999000-docs.jsonl.gz";
+                const milestone = "_00000000-milestone.json";
+                const control = new Uint8Array([2]);
+                virtualStorage.set(journal, new Uint8Array([1]));
+                virtualStorage.set(deletedJournal, new Uint8Array([3]));
+                virtualStorage.set(milestone, control);
+                virtualStorage.set(DOCID_JOURNAL_SYNC_PARAMETERS, control);
+                mockStorage.deleteFiles = vi.fn(async (files) => {
+                    for (const file of files) {
+                        if (file !== journal) virtualStorage.delete(file);
+                    }
+                    if (failure === "transport error") throw new Error("Interrupted deletion");
+                    return !files.includes(journal);
+                });
+
+                await expect(core.resetBucket()).resolves.toBe(false);
+                expect(virtualStorage.has(deletedJournal)).toBe(false);
+                expect(virtualStorage.get(journal)).toEqual(new Uint8Array([1]));
+                expect(virtualStorage.get(milestone)).toEqual(control);
+                expect(virtualStorage.get(DOCID_JOURNAL_SYNC_PARAMETERS)).toEqual(control);
+                expect(core.store.set).not.toHaveBeenCalled();
+
+                mockStorage.deleteFiles = vi.fn(async (files) => {
+                    for (const file of files) virtualStorage.delete(file);
+                    return true;
+                });
+                await expect(core.resetBucket()).resolves.toBe(true);
+                expect(virtualStorage.size).toBe(0);
+                expect(core.store.set).toHaveBeenCalledOnce();
+            }
+        );
+
+        it("deletes all Journal pages before any control document, including after a page of controls", async () => {
+            for (let index = 0; index < 105; index++) {
+                virtualStorage.set(`${1793597000000 + index}-docs.jsonl.gz`, new Uint8Array([index]));
+                virtualStorage.set(`_control-${String(index).padStart(3, "0")}.json`, new Uint8Array([index]));
+            }
+            virtualStorage.set("z-last-journal.jsonl.gz", new Uint8Array([1]));
+            virtualStorage.set("_00000000-milestone.json", new Uint8Array([2]));
+            mockStorage.deleteFiles = vi.fn(async (files) => {
+                expect(files.length).toBeLessThanOrEqual(100);
+                if (files.some((file) => file.startsWith("_"))) {
+                    expect([...virtualStorage.keys()].filter((key) => !key.startsWith("_"))).toEqual([]);
+                }
+                for (const file of files) virtualStorage.delete(file);
+                return true;
+            });
+
+            await expect(core.resetBucket()).resolves.toBe(true);
+            expect(virtualStorage.size).toBe(0);
+            expect(core.store.set).toHaveBeenCalledOnce();
+        });
+
+        it("retains checkpoints until control document deletion also succeeds", async () => {
+            virtualStorage.set("1793597000000-docs.jsonl.gz", new Uint8Array([1]));
+            virtualStorage.set("_00000000-milestone.json", new Uint8Array([2]));
+            mockStorage.deleteFiles = vi.fn(async (files) => {
+                for (const file of files) {
+                    if (!file.startsWith("_")) virtualStorage.delete(file);
+                }
+                return !files.some((file) => file.startsWith("_"));
+            });
+
+            await expect(core.resetBucket()).resolves.toBe(false);
+            expect([...virtualStorage.keys()]).toEqual(["_00000000-milestone.json"]);
+            expect(core.store.set).not.toHaveBeenCalled();
+        });
+
         it.each([false, true])("resets transfer progress after clearing a bucket (populated: %s)", async (populated) => {
             let checkpoint = { ...CheckPointInfoDefault };
             vi.spyOn(core.store, "get").mockImplementation(async () => checkpoint);
