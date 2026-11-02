@@ -18,7 +18,7 @@ import type { ReplicatorHostEnv } from "./types";
 import { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
 import { PEER_REPLICATION_READINESS } from "@lib/replication/ReplicatorProvider";
 import { getP2PReplicatorConfigurationIdentity } from "./p2pReplicatorConfigurationIdentity";
-import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
+import { assertSupportedPathNormalizationVersion, getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 import {
     ACTIVE_P2P_RELAY_BINDING_CONFLICT,
     activeP2PRelayBindingCovers,
@@ -113,8 +113,8 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     /** Reconcile one long-lived reason for keeping the room available. */
     async setPersistentDemand(demand: P2PPersistentRoomDemand, active: boolean): Promise<void> {
         const settings = this.env.services.setting.currentSettings();
-        const supportsPathIdentity = getPathNormalizationVersion(settings) === 0;
-        const enabled = settings.P2P_Enabled && supportsPathIdentity;
+        assertSupportedPathNormalizationVersion(settings.pathNormalizationVersion);
+        const enabled = settings.P2P_Enabled;
         if (active && enabled) {
             this.persistentDemands.add(demand);
         } else {
@@ -122,8 +122,6 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         }
         if (active && !settings.P2P_Enabled) {
             Logger(this.env.services.context.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
-        } else if (active && !supportsPathIdentity) {
-            Logger("P2P does not support NFC path identity.", LOG_LEVEL_NOTICE);
         }
         await this.fencePreparationForCurrentSettings(enabled);
         await this.reconcileTransport();
@@ -137,11 +135,9 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
      */
     async runWithFiniteDemand<T>(task: (session: P2PRoomSession) => T | PromiseLike<T>): Promise<T> {
         const settings = this.env.services.setting.currentSettings();
+        assertSupportedPathNormalizationVersion(settings.pathNormalizationVersion);
         if (!settings.P2P_Enabled) {
             throw new Error("P2P is not enabled.");
-        }
-        if (getPathNormalizationVersion(settings) !== 0) {
-            throw new Error("P2P does not support NFC path identity.");
         }
         const demand = Symbol("p2p-finite-room-demand");
         this.finiteDemands.add(demand);
@@ -168,8 +164,10 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         trialSettings: P2PConnectionProbeSettings,
         runOwnedTrial: () => Promise<T>
     ): Promise<P2PConnectionProbeAdmissionResult<T>> {
-        if (getPathNormalizationVersion(this.env.services.setting.currentSettings()) !== 0) {
-            return Promise.reject(new Error("P2P does not support NFC path identity."));
+        try {
+            assertSupportedPathNormalizationVersion(this.env.services.setting.currentSettings().pathNormalizationVersion);
+        } catch (error) {
+            return Promise.reject(error);
         }
         return this.enqueueLifecycleOperation(async () => {
             const current = this.current;
@@ -196,7 +194,8 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     private async reconcileTransport(): Promise<void> {
         await this.enqueueLifecycleOperation(async () => {
             const settings = this.env.services.setting.currentSettings();
-            if (!settings.P2P_Enabled || getPathNormalizationVersion(settings) !== 0) {
+            assertSupportedPathNormalizationVersion(settings.pathNormalizationVersion);
+            if (!settings.P2P_Enabled) {
                 this.persistentDemands.clear();
                 this.finiteDemands.clear();
             }
@@ -504,17 +503,19 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             ...this.env.services.setting.currentSettings(),
         }) as ObsidianLiveSyncSettings;
         const database = this.env.services.database.localDatabase.localDatabase;
+        const pathNormalizationVersion = getPathNormalizationVersion(settings);
         this.automationCoordinator.reconcileIdentity(
             JSON.stringify([
                 settings.P2P_AppID || "self-hosted-livesync",
                 settings.P2P_roomID,
                 settings.P2P_passphrase,
+                pathNormalizationVersion,
             ]),
             database
         );
         return {
             database,
-            enabled: settings.P2P_Enabled && getPathNormalizationVersion(settings) === 0,
+            enabled: settings.P2P_Enabled,
             settings,
             deviceName,
             signature: JSON.stringify([getP2PReplicatorConfigurationIdentity(settings), deviceName]),

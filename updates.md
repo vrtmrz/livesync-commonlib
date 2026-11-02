@@ -7,6 +7,13 @@
 - Direct CouchDB integrations can receive files whose Chunks arrive after their Metadata, using shared Chunk waiting and retries without writing fetched content back to the source.
 - Direct database watches retain unreadable files and rejected deliveries for retry while allowing other files to proceed. Newer changes supersede pending reads, and the optional `onCheckpoint` callback lets hosts save a resume position which does not skip unfinished work. This addresses [LiveSync Bridge #88](https://github.com/vrtmrz/livesync-bridge/issues/88); it does not replay files already skipped by a previously saved checkpoint.
 
+### Added
+
+- Maintained CLI and Obsidian hosts can use Unicode NFC path identity with Journal and P2P replication.
+    - Journal uses compatibility range `4` and checks identity before Fetch resets local data or ordinary administration updates the milestone. Rebuild retains the old identity until the remote journals have been deleted, including after a partial deletion failure, then declares the replacement identity and resets transfer progress. Existing journals without a compatibility milestone require Rebuild in both legacy and NFC modes.
+    - P2P reuses its Tweak exchange and database feature declarations to check both peers before transfer, including when ordinary configuration-mismatch warnings are disabled.
+    - Existing databases require coordinated Rebuild and Fetch. Physical file names, stored path spelling, Chunk IDs, and file contents retain their existing contracts. Every participating client must be updated and migrated.
+
 ## 0.2.3
 
 1st November, 2026

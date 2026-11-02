@@ -654,7 +654,7 @@ export interface P2PConnectionInfo {
      */
     P2P_useDiagRTC?: boolean;
 }
-export interface P2PSyncSetting extends P2PConnectionInfo {
+export interface P2PSyncSetting extends P2PConnectionInfo, Partial<PathIdentitySettings> {
     P2P_AutoAccepting: AutoAccepting;
     P2P_AutoSyncPeers: string;
     P2P_AutoWatchPeers: string;

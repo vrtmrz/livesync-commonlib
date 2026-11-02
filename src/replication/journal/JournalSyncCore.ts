@@ -49,6 +49,8 @@ import {
     decryptBinary as decryptBinaryHKDF,
 } from "octagonal-wheels/encryption/hkdf";
 
+import { assertDatabasePathIdentity } from "@lib/pouchdb/pathIdentityCompatibility.ts";
+
 const RECORD_SPLIT = `\n`;
 const UNIT_SPLIT = `\u001f`;
 type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
@@ -61,6 +63,10 @@ function serializeDoc(doc: EntryDoc): Uint8Array {
         return te.encode(`~${doc._id}${UNIT_SPLIT}${writeData}${RECORD_SPLIT}`);
     }
     return te.encode(JSON.stringify(doc) + RECORD_SPLIT);
+}
+
+function isJournalKey(key: string): boolean {
+    return !key.startsWith("_");
 }
 
 export class JournalSyncCore {
@@ -264,7 +270,13 @@ export class JournalSyncCore {
     }
 
     async resetCheckpointInfo() {
-        await this.updateCheckPointInfo((info) => ({ ...CheckPointInfoDefault }));
+        await this.updateCheckPointInfo(() => ({
+            ...CheckPointInfoDefault,
+            knownIDs: new Set<string>(),
+            sentIDs: new Set<string>(),
+            receivedFiles: new Set<string>(),
+            sentFiles: new Set<string>(),
+        }));
     }
 
     private getJournalEpochFromSyncParams(params: SyncParameters): string {
@@ -333,33 +345,36 @@ export class JournalSyncCore {
 
     async resetBucket(): Promise<boolean> {
         this.resetAllCaches();
-        let files = [] as string[];
         try {
+            // Retain identity and decryption evidence until every Journal has been deleted.
+            const skippedFiles: string[] = [];
+            let from = "";
+            let files: string[];
             do {
-                files = await this.storage.listFiles("", 100);
-                if (files.length == 0) {
-                    break;
+                files = await this.storage.listFiles(from, 100);
+                if (files.length > 0) {
+                    const nextFrom = files[files.length - 1];
+                    if (nextFrom <= from) {
+                        throw new Error("Journal reset listing did not advance. Control documents have been retained.");
+                    }
+                    skippedFiles.push(...files.filter((key) => !isJournalKey(key)));
+                    const journals = files.filter(isJournalKey);
+                    if (journals.length > 0 && !(await this.storage.deleteFiles(journals))) return false;
+                    from = nextFrom;
                 }
-                if (!(await this.storage.deleteFiles(files))) {
-                    return false;
-                }
-            } while (files.length != 0);
+            } while (files.length > 0);
+
+            while (skippedFiles.length > 0) {
+                if (!(await this.storage.deleteFiles(skippedFiles.splice(0, 100)))) return false;
+            }
         } catch (ex) {
             Logger(`WARNING! Could not delete files.`, LOG_LEVEL_NOTICE, "reset-bucket");
             Logger(ex, LOG_LEVEL_VERBOSE);
             return false;
         }
 
-        const journals = await this._getRemoteJournals();
-        if (journals.length == 0) {
-            Logger("Nothing to delete!", LOG_LEVEL_NOTICE);
-            return true;
-        }
-        if (!(await this.storage.deleteFiles(journals))) {
-            return false;
-        }
-        Logger(`${journals.length} items has been deleted!`, LOG_LEVEL_NOTICE);
         await this.resetCheckpointInfo();
+        Logger("Remote bucket cleared", LOG_LEVEL_NOTICE);
         return true;
     }
 
@@ -626,6 +641,7 @@ export class JournalSyncCore {
     }
 
     async sendLocalJournal(showMessage = false) {
+        await assertDatabasePathIdentity(this.db, this.currentSettings);
         this.updateInfo({ syncStatus: "JOURNAL_SEND" });
         return await shareRunningResult("send_journal_stream", async () => {
             this.requestedStop = false;
@@ -673,12 +689,16 @@ export class JournalSyncCore {
         });
     }
 
+    async hasRemoteJournals(): Promise<boolean> {
+        return (await this.storage.listFiles("", 1)).some(isJournalKey);
+    }
+
     async _getRemoteJournals() {
         const checkPointInfo = await this.getCheckpointInfo();
         const StartAfter = [...checkPointInfo.receivedFiles.keys()].sort((a, b) =>
             b.localeCompare(a, undefined, { numeric: true })
         )[0];
-        const files = (await this.storage.listFiles(StartAfter)).filter((e) => !e.startsWith("_"));
+        const files = (await this.storage.listFiles(StartAfter)).filter(isJournalKey);
         if (!files) return [];
         return files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     }
@@ -884,6 +904,7 @@ export class JournalSyncCore {
     }
 
     async receiveRemoteJournal(showMessage = false) {
+        await assertDatabasePathIdentity(this.db, this.currentSettings);
         this.updateInfo({ syncStatus: "JOURNAL_RECEIVE" });
         return await shareRunningResult("receive_journal_stream", async () => {
             this.requestedStop = false;

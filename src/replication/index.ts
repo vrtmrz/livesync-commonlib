@@ -123,3 +123,6 @@ export type {
     CouchDBReplicationProgress,
     ReplicationCheckpointProgress,
 } from "../common/models/shared.definition.ts";
+
+export { inspectDatabasePathIdentity } from "../pouchdb/pathIdentityCompatibility.ts";
+export type { PathIdentityInspection } from "../pouchdb/pathIdentityCompatibility.ts";

@@ -1,3 +1,4 @@
+import type { PathIdentityInspection } from "@lib/pouchdb/pathIdentityCompatibility.ts";
 import {
     type EntryMilestoneInfo,
     NODEINFO_DOCID,
@@ -26,7 +27,7 @@ import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import type { SimpleStore } from "@lib/common/utils.ts";
 
 import { getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
-import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
+import { assertSupportedPathNormalizationVersion, getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import { JournalStorageReadStatuses } from "./objectstore/JournalStorageAdapter.ts";
 import { computeKeyedId, configuredIdKey } from "@lib/common/idDerivation.ts";
@@ -72,9 +73,25 @@ const currentVersionRange: ChunkVersionRange = {
 };
 
 function journalVersionRange(setting: RemoteDBSettings): ChunkVersionRange {
+    if (getPathNormalizationVersion(setting) === 1) return { min: 4, max: 4, current: 4 };
     return configuredIdKey(setting) && setting.encrypt && setting.usePathObfuscation
         ? { min: 3, max: 3, current: 3 }
         : currentVersionRange;
+}
+
+function pathIdentityFromJournalRange(range: ChunkVersionRange | undefined): 0 | 1 {
+    if (range?.min === 4 && range?.max === 4) return 1;
+    if (!range) return 0;
+    if (
+        Number.isSafeInteger(range.min) &&
+        Number.isSafeInteger(range.max) &&
+        range.min >= 0 &&
+        range.max <= 3 &&
+        range.min <= range.max
+    ) {
+        return 0;
+    }
+    throw new Error("The Journal declares an unsupported path identity range.");
 }
 
 export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
@@ -102,7 +119,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     setupJournalSyncClient(settings: RemoteDBSettings = this.currentSettings) {
-        this.assertLegacyPathIdentity(settings);
+        assertSupportedPathNormalizationVersion(settings.pathNormalizationVersion);
         if (this._client) {
             this._client.applyNewConfig(settings, this.simpleStore, this.env);
         } else {
@@ -116,47 +133,140 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         return this._client;
     }
 
+    private async isBucketPathIdentityCompatible(
+        setting: RemoteDBSettings,
+        milestone: EntryMilestoneInfo | undefined,
+        client: Pick<JournalSyncCore, "hasRemoteJournals">
+    ): Promise<boolean> {
+        const pathVersion = getPathNormalizationVersion(setting);
+        const ranges = milestone?.node_chunk_info ?? {};
+        // A rebuild lock retires accepted nodes. The stored ranges still
+        // describe the journals until the bucket has been reset.
+        const nodes = new Set([...(milestone?.accepted_nodes ?? []), ...Object.keys(ranges)]);
+        for (const node of nodes) {
+            const range = ranges[node];
+            const usesNFC = range?.min === 4 && range?.max === 4;
+            if (usesNFC !== (pathVersion === 1)) return false;
+        }
+        const preferred = milestone?.tweak_values?.[DEVICE_ID_PREFERRED];
+        if (preferred && getPathNormalizationVersion(preferred) !== pathVersion) return false;
+        if (nodes.size === 0 && (await client.hasRemoteJournals())) {
+            throw new Error(
+                "The Journal compatibility milestone is missing. Rebuild from the authoritative Vault before synchronising."
+            );
+        }
+        return true;
+    }
+
+    private async isBucketIdDerivationCompatible(
+        setting: RemoteDBSettings,
+        milestone: EntryMilestoneInfo | undefined
+    ): Promise<boolean> {
+        const idKey = configuredIdKey(setting);
+        const usesKeyedDocumentIds = !!idKey && setting.encrypt && setting.usePathObfuscation;
+        const preferred = milestone?.tweak_values?.[DEVICE_ID_PREFERRED];
+        const stored = milestone?.encrypted_id_derivation_proof;
+        if (!usesKeyedDocumentIds) {
+            return !stored && !(preferred?.idDerivationVersion === 1 && preferred.usePathObfuscation === true);
+        }
+        if (!milestone) return true;
+        if (!stored) return false;
+        const expected = await computeKeyedId(idKey, "remote-agreement", "journal-milestone-v1");
+        try {
+            return (await decryptString(stored, setting.passphrase)) === expected;
+        } catch {
+            return false;
+        }
+    }
+
+    private async assertBucketIdentity(
+        setting: RemoteDBSettings,
+        milestone: EntryMilestoneInfo | undefined,
+        client: Pick<JournalSyncCore, "hasRemoteJournals">
+    ): Promise<void> {
+        if (!(await this.isBucketPathIdentityCompatible(setting, milestone, client))) {
+            throw new Error(
+                "The Journal and settings use different path identity versions. Rebuild from the authoritative Vault or Fetch with matching settings before synchronising."
+            );
+        }
+        if (!(await this.isBucketIdDerivationCompatible(setting, milestone))) {
+            throw new Error(
+                "The Journal and settings use different document ID derivation modes or keys. Rebuild from the authoritative Vault or Fetch with matching settings before synchronising."
+            );
+        }
+    }
+
+    /** Inspect identity without publishing this node, preparing a seed, or changing checkpoints. */
+    async assertRemotePathIdentity(setting: RemoteDBSettings): Promise<void> {
+        const client = this.setupJournalSyncClient(setting);
+        await this.assertBucketIdentity(setting, await readRemoteMilestone(client), client);
+    }
+
+    /** Read path identity for initial setup without publishing a node or preparing a seed. */
+    async inspectRemotePathIdentity(setting: RemoteDBSettings): Promise<PathIdentityInspection> {
+        const client = this.setupJournalSyncClient(setting);
+        const milestone = await readRemoteMilestone(client);
+        const versions = new Set<0 | 1>();
+        const ranges = milestone?.node_chunk_info ?? {};
+        const nodes = new Set([...(milestone?.accepted_nodes ?? []), ...Object.keys(ranges)]);
+        for (const node of nodes) {
+            versions.add(pathIdentityFromJournalRange(ranges[node]));
+        }
+        const preferred = milestone?.tweak_values?.[DEVICE_ID_PREFERRED];
+        if (preferred) versions.add(getPathNormalizationVersion(preferred));
+        if (versions.size > 1) throw new Error("The Journal has conflicting path identity declarations.");
+        if (nodes.size === 0 && (await client.hasRemoteJournals())) {
+            throw new Error(
+                "The Journal path identity declaration is missing. Use matching settings or Rebuild from the authoritative Vault."
+            );
+        }
+        const version = [...versions][0];
+        return version === undefined
+            ? { status: "empty" }
+            : { status: "configured", pathNormalizationVersion: version };
+    }
+
+    /** Lock existing journals for replacement without declaring the replacement's identity. */
+    async markRemoteLockedForRebuild(setting: RemoteDBSettings): Promise<void> {
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
+        const client = this.setupJournalSyncClient(setting);
+        const milestone = await readRemoteMilestone(client);
+        // A missing declaration must remain missing if deletion fails or is interrupted.
+        if (!milestone) return;
+        // Older clients inspect accepted nodes only. Keep the existing range
+        // visible there until deletion succeeds, including during recovery.
+        const previousRange = Object.values(milestone.node_chunk_info ?? {}).sort((a, b) => b.min - a.min)[0];
+        const lockedMilestone: EntryMilestoneInfo = {
+            ...milestone,
+            locked: true,
+            accepted_nodes: previousRange ? [this.nodeid] : [],
+            node_chunk_info: previousRange
+                ? { ...milestone.node_chunk_info, [this.nodeid]: { ...previousRange } }
+                : milestone.node_chunk_info,
+        };
+        if (!(await client.uploadJson(MILSTONE_DOCID, lockedMilestone))) {
+            throw new Error("Could not upload remote milestone");
+        }
+    }
+
     async ensureBucketIsCompatible(
         deviceNodeID: string,
         currentVersionRange: ChunkVersionRange,
         setting: RemoteDBSettings = this.currentSettings,
         client: Pick<
             JournalSyncCore,
-            "downloadJsonWithResult" | "getCheckpointInfo" | "uploadJson"
+            "downloadJsonWithResult" | "getCheckpointInfo" | "uploadJson" | "hasRemoteJournals"
         > = this.setupJournalSyncClient(setting),
         recordTweakAssessment?: (assessment: TweakAssessment) => void
     ): Promise<ENSURE_DB_RESULT> {
-        const milestoneResult = await client.downloadJsonWithResult<EntryMilestoneInfo>(MILSTONE_DOCID);
-        if (milestoneResult.status === JournalStorageReadStatuses.UNAVAILABLE) {
-            throw milestoneResult.error;
+        const downloadedMilestone = (await readRemoteMilestone(client)) ?? false;
+        if (!(await this.isBucketPathIdentityCompatible(setting, downloadedMilestone || undefined, client))) {
+            return "INCOMPATIBLE";
         }
-        const downloadedMilestone =
-            milestoneResult.status === JournalStorageReadStatuses.AVAILABLE ? milestoneResult.value : false;
-        const idKey = configuredIdKey(setting);
-        let encryptedProof: string | undefined;
-        const preferredTweak = downloadedMilestone && downloadedMilestone.tweak_values?.[DEVICE_ID_PREFERRED];
-        if (
-            preferredTweak?.idDerivationVersion === 1 &&
-            preferredTweak.usePathObfuscation === true &&
-            (!idKey || !setting.encrypt || !setting.usePathObfuscation)
-        ) {
+        if (!(await this.isBucketIdDerivationCompatible(setting, downloadedMilestone || undefined))) {
             return "ID_KEY_MISMATCH";
         }
-        if (idKey && setting.encrypt && setting.usePathObfuscation) {
-            const expected = await computeKeyedId(idKey, "remote-agreement", "journal-milestone-v1");
-            const stored = downloadedMilestone && downloadedMilestone.encrypted_id_derivation_proof;
-            if (stored) {
-                try {
-                    if ((await decryptString(stored, setting.passphrase)) !== expected) return "ID_KEY_MISMATCH";
-                } catch {
-                    return "ID_KEY_MISMATCH";
-                }
-            } else if (downloadedMilestone) {
-                return "ID_KEY_MISMATCH";
-            } else {
-                encryptedProof = await encryptString(expected, setting.passphrase);
-            }
-        }
+        const encryptedProof = downloadedMilestone ? undefined : await this.createInitialIdDerivationProof(setting);
         const cPointInfo = await client.getCheckpointInfo();
         const progress = [...(cPointInfo?.receivedFiles || [])].sort().pop() || "";
         return await ensureRemoteIsCompatible(
@@ -387,7 +497,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         recordCompatibilityDecision?: CentralCompatibilityDecisionRecorder
     ) {
         recordCompatibilityDecision?.(CENTRAL_COMPATIBILITY_NOT_ASSESSED);
-        if (!this.supportsLegacyPathIdentity(setting)) return false;
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const activeClient = client ?? this.setupJournalSyncClient(setting);
         if (!(await activeClient.isAvailable())) {
             return false;
@@ -491,7 +601,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async tryResetRemoteDatabase(setting: RemoteDBSettings) {
-        this.assertLegacyPathIdentity(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         this.closeReplication();
         try {
             if (!(await this.client.resetBucket())) {
@@ -507,7 +617,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
-        this.assertLegacyPathIdentity(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         this.closeReplication();
         Logger("Remote Database Created or Connected", LOG_LEVEL_NOTICE);
         if (!(await this.ensurePBKDF2Salt(setting, true, false))) {
@@ -524,7 +634,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
-        this.assertLegacyPathIdentity(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILSTONE_DOCID as DocumentID,
             type: "milestoneinfo",
@@ -539,6 +649,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
         const client = this.setupJournalSyncClient(setting);
         const existingMilestone = await readRemoteMilestone(client);
+        await this.assertBucketIdentity(setting, existingMilestone, client);
         const initialProof = existingMilestone ? undefined : await this.createInitialIdDerivationProof(setting);
         const remoteMilestone: EntryMilestoneInfo = {
             ...defInitPoint,
@@ -559,7 +670,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
     }
     async markRemoteResolved(setting: RemoteDBSettings) {
-        this.assertLegacyPathIdentity(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILSTONE_DOCID as DocumentID,
             type: "milestoneinfo",
@@ -573,6 +684,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
         const client = this.setupJournalSyncClient(setting);
         const existingMilestone = await readRemoteMilestone(client);
+        await this.assertBucketIdentity(setting, existingMilestone, client);
         const initialProof = existingMilestone ? undefined : await this.createInitialIdDerivationProof(setting);
         const remoteMilestone: EntryMilestoneInfo = {
             ...defInitPoint,
@@ -591,7 +703,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const endpoint = setting.endpoint;
         let testClient: MinioStorageAdapter | undefined;
         try {
-            this.assertLegacyPathIdentity(setting);
+            assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
             testClient = new MinioStorageAdapter(setting, this.env);
             await testClient.listFiles("", 1);
             Logger(`Connected to ${endpoint} successfully!`, LOG_LEVEL_NOTICE);
@@ -606,12 +718,13 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async resetRemoteTweakSettings(setting: RemoteDBSettings) {
-        this.assertLegacyPathIdentity(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         try {
             const remoteMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
             if (!remoteMilestone) {
                 throw new Error("Missing remote milestone");
             }
+            await this.assertBucketIdentity(setting, remoteMilestone, this.client);
             remoteMilestone.tweak_values = {};
             Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
             await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
@@ -622,7 +735,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
-        this.assertLegacyPathIdentity(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         // Preferred-tweak writes are finite trial-settings operations. Do not
         // borrow or reconfigure the active Journal client.
         const trialClient = new JournalSyncCore(
@@ -636,6 +749,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             if (!remoteMilestone) {
                 throw new Error("Missing remote milestone");
             }
+            await this.assertBucketIdentity(setting, remoteMilestone, trialClient);
             remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = getEffectiveTweakValues(setting) satisfies TweakValues;
             Logger(`Preferred tweak values have been registered`, LOG_LEVEL_VERBOSE);
             if (!(await trialClient.uploadJson(MILSTONE_DOCID, remoteMilestone))) {
@@ -650,7 +764,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<RemotePreferredTweakResult> {
-        this.assertLegacyPathIdentity(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         // Preferred-tweak inspection is a finite trial-settings operation. Do
         // not borrow or reconfigure the active Journal client.
         const trialClient = new JournalSyncCore(
@@ -690,22 +804,12 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
-        this.assertLegacyPathIdentity(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const testClient = new MinioStorageAdapter(setting, this.env);
         try {
             return await testClient.getUsage();
         } finally {
             testClient.dispose();
-        }
-    }
-
-    private supportsLegacyPathIdentity(setting: RemoteDBSettings): boolean {
-        return getPathNormalizationVersion(setting) === 0;
-    }
-
-    private assertLegacyPathIdentity(setting: RemoteDBSettings): void {
-        if (!this.supportsLegacyPathIdentity(setting)) {
-            throw new Error("Object Storage does not support NFC path identity.");
         }
     }
 
@@ -719,7 +823,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getJoinedDevices(setting: RemoteDBSettings): Promise<JoinedDevicesSnapshot> {
-        this.assertLegacyPathIdentity(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const trialClient = new JournalSyncCore(
             setting,
             this.simpleStore,
@@ -737,7 +841,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async forgetJoinedDevice(setting: RemoteDBSettings, deviceId: string): Promise<ForgetJoinedDeviceResult> {
-        this.assertLegacyPathIdentity(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const ownDeviceId = await this.getOwnJoinedDeviceId();
         const trialClient = new JournalSyncCore(
             setting,
@@ -751,6 +855,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                     const result = await trialClient.downloadJsonWithResult<EntryMilestoneInfo>(MILSTONE_DOCID);
                     if (result.status === JournalStorageReadStatuses.NOT_FOUND) return undefined;
                     if (result.status === JournalStorageReadStatuses.UNAVAILABLE) throw result.error;
+                    await this.assertBucketIdentity(setting, result.value, trialClient);
                     return { milestone: result.value, revision: result.revision };
                 },
                 write: async (milestone, revision) =>

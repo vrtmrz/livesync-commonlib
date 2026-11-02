@@ -14,7 +14,8 @@ does not alter the Metadata path or require physical files to be renamed.
 Unsupported values are rejected.
 
 NFC identity shipped in Commonlib `0.1.42` and Self-hosted LiveSync `1.0.38`.
-The deletion handling below is an unreleased refinement of reconstruction.
+The Journal and P2P extension described below is unreleased. The original
+CouchDB release remains the published baseline for this document.
 
 ## Package contract
 
@@ -24,6 +25,24 @@ The Commonlib settings entry exposes `PathNormalizationVersion`,
 implementation for Metadata IDs rather than add a host-specific normalisation
 rule. Host storage adapters remain responsible for mapping a logical path back
 to its existing physical entry.
+
+## Initial host settings
+
+Commonlib's shared new-Vault and stored-setting defaults retain version `0`.
+The maintained CLI and Obsidian hosts use version `1` for newly created
+synchronisation settings in the unreleased extension, while retaining `0` for
+old settings and Setup URIs which omit the field. This policy does not enable
+NFC for WebApp or WebPeer, and does not migrate existing databases.
+
+The focused replication entry exports `inspectDatabasePathIdentity` and
+`PathIdentityInspection`. The existing `RemoteConnectionProbe` may expose
+`inspectPathIdentity` for read-only initial setup. Inspection distinguishes a
+confirmed empty remote from an existing declaration; unavailable or unsupported
+state rejects. Hosts use the existing declaration before first participation,
+and keep source Rebuild and configured startup explicit. Journal inspection
+reads milestone evidence without writing a node, Security Seed, or checkpoint.
+A P2P signalling probe does not establish peer database identity; Setup URIs
+carry the selected mode, and manual configuration must match the source.
 
 ## Database compatibility
 
@@ -78,14 +97,56 @@ does not itself perform the required reconstruction.
 
 ## Supported hosts
 
-The initial support boundary is the maintained CLI and Obsidian with CouchDB.
+The maintained CLI and Obsidian support NFC identity with CouchDB, Journal,
+and P2P in this unreleased extension.
 `PathService` owns logical ID derivation. The CLI resolves NFC-equivalent names
 against directory entries while preserving the actual entry spelling; its
 generic Node storage contract remains exact-path access. Obsidian supplies its
 normalised storage paths and preserves an existing physical spelling when it
 is NFC-equivalent to the received path.
 
-Journal and P2P refuse version `1`. Direct file access refuses a remote which
+Journal uses compatibility range `4` for NFC identity, independently of
+encryption and path obfuscation. Legacy ranges remain unchanged. The existing
+stored node ranges and required Tweak reject a different identity even when
+ordinary mismatch warnings are disabled. Removing preferred Tweaks does not
+remove the range check or an existing document-ID agreement proof. The existing
+ID check is also reused before Fetch and ordinary milestone updates. A missing
+milestone over existing journals requires Rebuild in both legacy and NFC modes;
+it is not permission to declare a new identity. Older clients must be updated
+before migration; their explicit version-check override is outside this
+compatibility guarantee.
+
+The same read-only identity assessment runs before a Journal Fetch resets the
+local database and before ordinary milestone updates. It does not publish a
+node, create a Security Seed, or change a checkpoint. Rebuild first locks the
+existing milestone for the rebuilding node, retaining an existing compatibility
+range for that node and preserving the old identity evidence and Tweaks until
+the journals are deleted. Deletion lists the keys once, retaining skipped control
+document keys until all Journal pages have been processed. It then removes those
+control documents, including the milestone and Security Seed, in finite batches.
+A repeated or backwards listing cursor stops the reset before those control
+documents are removed. A partial failure or interrupted request during Journal
+deletion retains those control documents and the transfer checkpoint for a retry. Checkpoints reset only after control
+document deletion also succeeds. A missing milestone stays absent during this
+step. The replacement identity is declared after deletion succeeds, so a failed
+or interrupted deletion cannot label the old journals with the new identity.
+
+P2P uses its existing Tweak exchange and version document to check both peers
+before ordinary data replication. Missing path settings mean version `0`.
+Local Metadata without the matching feature requires Rebuild. A fresh database
+with only control documents may declare the existing NFC feature. Connection
+state is renewed when the selected identity changes. This adds no
+authentication protocol or persistent admission store; all participating peers
+must be updated and migrated.
+
+Journal migration rebuilds the source local database and remote journals. P2P
+Rebuild prepares only the source local database. Other devices replace their
+local databases through Fetch. The existing local reset destroys Journal KV
+checkpoints; the P2P source mark and target checkpoint handle database
+replacement. These operations do not rewrite IDs or merge histories in place.
+P2P retains its existing source selection during Fetch.
+
+Direct file access refuses a remote which
 declares the NFC feature. Other host adapters must establish physical path
 resolution before offering this setting. The regression tests cover ASCII,
 NFC, NFD, and mixed paths through in-memory PouchDB Metadata lookup, with and

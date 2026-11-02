@@ -6,6 +6,7 @@ import {
     type RemoteDBSettings,
 } from "@lib/common/types.ts";
 import { LiveSyncJournalReplicator } from "./LiveSyncJournalReplicator.ts";
+import { ensureRemoteIsCompatible } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import { MinioStorageAdapter } from "./objectstore/MinioStorageAdapter.ts";
 import { JournalSyncCore } from "./JournalSyncCore.ts";
 import { JournalStorageReadStatuses } from "./objectstore/JournalStorageAdapter.ts";
@@ -23,6 +24,36 @@ afterEach(() => {
 });
 
 describe("LiveSyncJournalReplicator initialisation", () => {
+    it("throws synchronously before reconfiguring a client with an unsupported version", () => {
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        const applyNewConfig = vi.fn();
+        (replicator as any)._client = { applyNewConfig };
+        const settings = { ...DEFAULT_SETTINGS, pathNormalizationVersion: 2 };
+
+        expect(() => replicator.setupJournalSyncClient(settings)).toThrow("Unsupported path normalisation version: 2");
+        expect(applyNewConfig).not.toHaveBeenCalled();
+    });
+
+    it("rejects an unsupported reset before stopping replication", async () => {
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        const close = vi.spyOn(replicator, "closeReplication").mockImplementation(() => undefined);
+
+        await expect(
+            replicator.tryResetRemoteDatabase({ ...DEFAULT_SETTINGS, pathNormalizationVersion: 2 })
+        ).rejects.toThrow("Unsupported path normalisation version: 2");
+        expect(close).not.toHaveBeenCalled();
+    });
+
+    it("keeps a connection check failure as false without contacting storage", async () => {
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        const listFiles = vi.spyOn(MinioStorageAdapter.prototype, "listFiles").mockResolvedValue([]);
+
+        await expect(
+            replicator.tryConnectRemote({ ...DEFAULT_SETTINGS, pathNormalizationVersion: 2 }, false)
+        ).resolves.toBe(false);
+        expect(listFiles).not.toHaveBeenCalled();
+    });
+
     it("does not access the local database while constructing a remote-only replicator", () => {
         const getLocalDatabase = vi.fn(() => {
             throw new Error("Local database is not ready yet.");
@@ -173,6 +204,7 @@ describe("LiveSyncJournalReplicator replication compatibility state", () => {
             downloadJsonWithResult: vi.fn(async () => ({ status: "not-found" })),
             ensureCheckpointCachesAreFresh: vi.fn(async () => undefined),
             getCheckpointInfo: vi.fn(async () => ({ receivedFiles: new Set<string>() })),
+            hasRemoteJournals: vi.fn(async () => false),
             isAvailable: vi.fn(async () => true),
             resetAllCaches: vi.fn(),
             sync: vi.fn(async () => true),
@@ -233,18 +265,99 @@ describe("LiveSyncJournalReplicator replication compatibility state", () => {
         ).resolves.toBe(false);
     });
 
-    it("rejects NFC path identity before checking Object Storage connectivity", async () => {
+    it.each([0, 1] as const)(
+        "refuses to initialise compatibility over journals with a missing milestone in mode %s",
+        async (pathVersion) => {
+            const { client, replicator, setting } = createConnectivityReplicator();
+            setting.pathNormalizationVersion = pathVersion;
+            client.hasRemoteJournals.mockResolvedValue(true);
+
+            await expect(
+                replicator.checkReplicationConnectivity(false, false, false, setting, client as never)
+            ).rejects.toThrow(/milestone/i);
+            expect(client.uploadJson).not.toHaveBeenCalled();
+            expect(client.getCheckpointInfo).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each([0, 1] as const)(
+        "uses the compatibility range even after preferred tweaks have been cleared: %s",
+        async (localVersion) => {
+            const { client, replicator, setting } = createConnectivityReplicator();
+            setting.pathNormalizationVersion = localVersion;
+            setting.disableCheckingConfigMismatch = true;
+            setting.ignoreVersionCheck = true;
+            client.downloadJsonWithResult.mockResolvedValue({
+                status: "available",
+                value: {
+                    _id: "_00000000-milestone.json",
+                    type: "milestoneinfo",
+                    created: 1,
+                    locked: false,
+                    accepted_nodes: ["remote"],
+                    node_chunk_info: {
+                        remote: localVersion === 0 ? { min: 4, max: 4, current: 4 } : { min: 0, max: 2, current: 2 },
+                    },
+                    node_info: {},
+                    tweak_values: {},
+                },
+            } as never);
+
+            await expect(
+                replicator.checkReplicationConnectivity(false, false, false, setting, client as never)
+            ).resolves.toBe(false);
+            expect(client.uploadJson).not.toHaveBeenCalled();
+        }
+    );
+
+    it("admits NFC Journal identity using its distinct compatibility range", async () => {
         const { client, replicator, setting } = createConnectivityReplicator();
         setting.pathNormalizationVersion = 1;
+        replicator.nodeid = "nfc-node";
 
-        await expect(
-            replicator.checkReplicationConnectivity(false, false, false, setting, client as never)
-        ).resolves.toBe(false);
+        await expect(replicator.openReplication(setting, false, false)).resolves.toBe(true);
 
-        expect(client.isAvailable).not.toHaveBeenCalled();
-        expect(client.downloadJsonWithResult).not.toHaveBeenCalled();
-        expect(client.uploadJson).not.toHaveBeenCalled();
+        expect(client.isAvailable).toHaveBeenCalledOnce();
+        expect(client.sync).toHaveBeenCalledOnce();
+        expect(client.uploadJson.mock.calls[0][1]).toMatchObject({
+            node_chunk_info: { "nfc-node": { min: 4, max: 4, current: 4 } },
+            tweak_values: { [DEVICE_ID_PREFERRED]: { pathNormalizationVersion: 1 } },
+        });
     });
+
+    it.each([0, 1] as const)(
+        "rejects a Journal with the other path identity even when warnings and version checks are disabled: %s",
+        async (localVersion) => {
+            const { client, replicator, setting } = createConnectivityReplicator();
+            setting.pathNormalizationVersion = localVersion;
+            setting.disableCheckingConfigMismatch = true;
+            setting.ignoreVersionCheck = true;
+            const remoteVersion = localVersion === 0 ? 1 : 0;
+            client.downloadJsonWithResult.mockResolvedValue({
+                status: "available",
+                value: {
+                    _id: "_00000000-milestone.json",
+                    type: "milestoneinfo",
+                    created: 1,
+                    locked: false,
+                    accepted_nodes: ["remote"],
+                    node_chunk_info: {
+                        remote: remoteVersion === 1 ? { min: 4, max: 4, current: 4 } : { min: 0, max: 2, current: 2 },
+                    },
+                    node_info: {},
+                    tweak_values: {
+                        [DEVICE_ID_PREFERRED]: { ...DEFAULT_SETTINGS, pathNormalizationVersion: remoteVersion },
+                    },
+                },
+            } as never);
+
+            await expect(
+                replicator.checkReplicationConnectivity(false, false, false, setting, client as never)
+            ).resolves.toBe(false);
+            expect(client.uploadJson).not.toHaveBeenCalled();
+            expect(client.sync).not.toHaveBeenCalled();
+        }
+    );
 });
 
 describe("LiveSyncJournalReplicator compatibility milestone", () => {
@@ -277,6 +390,7 @@ describe("LiveSyncJournalReplicator compatibility milestone", () => {
             downloadJsonWithResult,
             getCheckpointInfo,
             uploadJson,
+            hasRemoteJournals: vi.fn(async () => false),
         } as never);
         return { downloadJson, downloadJsonWithResult, getCheckpointInfo, replicator, uploadJson };
     }
@@ -289,6 +403,77 @@ describe("LiveSyncJournalReplicator compatibility milestone", () => {
         expect(downloadJsonWithResult).toHaveBeenCalledWith("_00000000-milestone.json");
         expect(uploadJson).toHaveBeenCalledOnce();
     });
+
+    async function createKeyedJournalWithClearedTweaks(pathNormalizationVersion: 0 | 1) {
+        const keyed = {
+            ...DEFAULT_SETTINGS,
+            pathNormalizationVersion,
+            encrypt: true,
+            passphrase: "content-passphrase",
+            usePathObfuscation: true,
+            idDerivationVersion: 1,
+            idDerivationKey: "ab".repeat(32),
+        } as RemoteDBSettings;
+        const keyedRange =
+            pathNormalizationVersion === 1 ? { min: 4, max: 4, current: 4 } : { min: 3, max: 3, current: 3 };
+        const initial = createReplicator({ status: "not-found" });
+        Object.assign(initial.replicator.setupJournalSyncClient(), {
+            hasRemoteJournals: vi.fn(async () => false),
+        });
+        await expect(initial.replicator.ensureBucketIsCompatible("keyed", keyedRange, keyed)).resolves.toBe("OK");
+        const milestone = initial.uploadJson.mock.calls[0][1] as EntryMilestoneInfo;
+        expect(milestone.encrypted_id_derivation_proof).toBeTruthy();
+        initial.downloadJson.mockResolvedValue(milestone as never);
+        await initial.replicator.resetRemoteTweakSettings(keyed);
+        expect(milestone.tweak_values).toEqual({});
+        expect(milestone.encrypted_id_derivation_proof).toBeTruthy();
+        return { keyed, milestone };
+    }
+
+    it.each([
+        [0, false],
+        [0, true],
+        [1, false],
+        [1, true],
+    ] as const)(
+        "rejects unkeyed document IDs after clearing Tweaks (path %s, warnings disabled %s)",
+        async (pathNormalizationVersion, disableCheckingConfigMismatch) => {
+            const { keyed, milestone } = await createKeyedJournalWithClearedTweaks(pathNormalizationVersion);
+            const incoming = createReplicator({ status: "available", value: milestone });
+            const unkeyed = {
+                ...keyed,
+                idDerivationVersion: 0,
+                idDerivationKey: "",
+                disableCheckingConfigMismatch,
+            } as RemoteDBSettings;
+            const unkeyedRange =
+                pathNormalizationVersion === 1 ? { min: 4, max: 4, current: 4 } : { min: 0, max: 2, current: 2 };
+            const result = await incoming.replicator.ensureBucketIsCompatible("unkeyed", unkeyedRange, unkeyed);
+            expect(result).not.toBe("OK");
+            expect(incoming.uploadJson).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each(["inspect", "resolve", "lock", "unlock"] as const)(
+        "rejects incompatible document IDs before Journal %s",
+        async (operation) => {
+            const { keyed, milestone } = await createKeyedJournalWithClearedTweaks(1);
+            const before = structuredClone(milestone);
+            const unkeyed = { ...keyed, idDerivationVersion: 0, idDerivationKey: "" } as RemoteDBSettings;
+            const incoming = createReplicator({ status: "available", value: milestone });
+            incoming.replicator.nodeid = "unkeyed";
+            const attempt =
+                operation === "inspect"
+                    ? incoming.replicator.assertRemotePathIdentity(unkeyed)
+                    : operation === "resolve"
+                      ? incoming.replicator.markRemoteResolved(unkeyed)
+                      : incoming.replicator.markRemoteLocked(unkeyed, operation === "lock", false);
+            await expect(attempt).rejects.toThrow(/ID derivation/i);
+            expect(incoming.uploadJson).not.toHaveBeenCalled();
+            expect(incoming.getCheckpointInfo).not.toHaveBeenCalled();
+            expect(milestone).toEqual(before);
+        }
+    );
 
     it("encrypts the first ID proof and rejects a different key on the next connection", async () => {
         const key = "ab".repeat(32);
@@ -499,6 +684,7 @@ describe("LiveSyncJournalReplicator remote mutation outcomes", () => {
         vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue({
             downloadJsonWithResult,
             uploadJson,
+            hasRemoteJournals: vi.fn(async () => false),
         } as never);
 
         await expect(replicator.markRemoteLocked(DEFAULT_SETTINGS, true, false)).resolves.toBeUndefined();
@@ -578,6 +764,7 @@ describe("LiveSyncJournalReplicator remote mutation outcomes", () => {
         vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue({
             downloadJsonWithResult,
             uploadJson,
+            hasRemoteJournals: vi.fn(async () => false),
         } as never);
 
         await expect(replicator.markRemoteLocked(DEFAULT_SETTINGS, true, false)).rejects.toBeDefined();
@@ -601,14 +788,16 @@ describe("LiveSyncJournalReplicator finite resource ownership", () => {
         expect(dispose).toHaveBeenCalledOnce();
     });
 
-    it("blocks an NFC Object Storage connection probe before creating a storage adapter", async () => {
+    it("probes an NFC Object Storage connection and releases its adapter", async () => {
         const setting = { ...DEFAULT_SETTINGS, pathNormalizationVersion: 1 as const };
-        const listFiles = vi.spyOn(MinioStorageAdapter.prototype, "listFiles");
+        const listFiles = vi.spyOn(MinioStorageAdapter.prototype, "listFiles").mockResolvedValue([]);
+        const dispose = vi.spyOn(MinioStorageAdapter.prototype, "dispose");
         const replicator = new LiveSyncJournalReplicator({} as never);
 
-        await expect(replicator.tryConnectRemote(setting, false)).resolves.toBe(false);
+        await expect(replicator.tryConnectRemote(setting, false)).resolves.toBe(true);
 
-        expect(listFiles).not.toHaveBeenCalled();
+        expect(listFiles).toHaveBeenCalledOnce();
+        expect(dispose).toHaveBeenCalledOnce();
     });
 
     it("does not construct a Journal client merely to close an unused Replicator", () => {
@@ -963,6 +1152,7 @@ describe("LiveSyncJournalReplicator remote preferred tweak values", () => {
 
 describe("LiveSyncJournalReplicator preferred tweak writes", () => {
     function createReplicator(currentSettings: RemoteDBSettings) {
+        vi.spyOn(JournalSyncCore.prototype, "hasRemoteJournals").mockResolvedValue(false);
         const currentSettingsReader = vi.fn(() => currentSettings);
         const replicator = new LiveSyncJournalReplicator({
             services: {
@@ -1023,5 +1213,270 @@ describe("LiveSyncJournalReplicator preferred tweak writes", () => {
         );
 
         expect(dispose).toHaveBeenCalledOnce();
+    });
+});
+
+describe("Journal path identity before recovery mutations", () => {
+    function createJournal(localVersion: number, remoteVersion?: number, journals = true) {
+        const setting = {
+            ...DEFAULT_SETTINGS,
+            pathNormalizationVersion: localVersion,
+            ignoreVersionCheck: true,
+            disableCheckingConfigMismatch: true,
+        };
+        let milestone: EntryMilestoneInfo | undefined =
+            remoteVersion === undefined
+                ? undefined
+                : {
+                      _id: "_00000000-milestone.json" as EntryMilestoneInfo["_id"],
+                      type: "milestoneinfo",
+                      created: 1,
+                      locked: false,
+                      accepted_nodes: ["existing"],
+                      node_chunk_info: {
+                          existing:
+                              remoteVersion === 1 ? { min: 4, max: 4, current: 4 } : { min: 0, max: 2, current: 2 },
+                      },
+                      node_info: {},
+                      tweak_values: {},
+                  };
+        const replicator = new LiveSyncJournalReplicator({
+            services: {
+                setting: { currentSettings: () => setting },
+                keyValueDB: { simpleStore: {} },
+                API: { getAppVersion: () => "", getPluginVersion: () => "", getPlatform: () => "" },
+                vault: { getVaultName: () => "", vaultName: () => "" },
+            },
+        } as never);
+        replicator.nodeid = "joining";
+        const client = {
+            downloadJsonWithResult: vi.fn(async () =>
+                milestone ? { status: "available", value: structuredClone(milestone) } : { status: "not-found" }
+            ),
+            uploadJson: vi.fn(async (_key: string, value: EntryMilestoneInfo) => {
+                milestone = structuredClone(value);
+                return true;
+            }),
+            hasRemoteJournals: vi.fn(async () => journals),
+            getCheckpointInfo: vi.fn(async () => ({ receivedFiles: new Set<string>() })),
+        };
+        vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue(client as never);
+        return { replicator, setting, client, snapshot: () => structuredClone(milestone) };
+    }
+
+    it.each([0, 1])("inspects Journal path identity without admitting a new node: %s", async (remoteVersion) => {
+        const { replicator, setting, client, snapshot } = createJournal(1, remoteVersion);
+        const before = snapshot();
+        await expect(replicator.inspectRemotePathIdentity(setting)).resolves.toEqual({
+            status: "configured",
+            pathNormalizationVersion: remoteVersion,
+        });
+        expect(snapshot()).toEqual(before);
+        expect(client.uploadJson).not.toHaveBeenCalled();
+        expect(client.getCheckpointInfo).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["undeclared legacy range", undefined, 0],
+        ["earliest legacy range", { min: 0, max: 0, current: 0 }, 0],
+        ["mixed legacy range", { min: 0, max: 3, current: 3 }, 0],
+        ["keyed legacy range", { min: 3, max: 3, current: 3 }, 0],
+        ["NFC range", { min: 4, max: 4, current: 4 }, 1],
+    ] as const)("inspects a %s without writing remote state", async (_label, range, expectedVersion) => {
+        const { replicator, setting, client, snapshot } = createJournal(0, 0);
+        const milestone = snapshot()!;
+        milestone.node_chunk_info = range ? { existing: range } : {};
+        client.downloadJsonWithResult.mockResolvedValue({ status: "available", value: milestone });
+
+        await expect(replicator.inspectRemotePathIdentity(setting)).resolves.toEqual({
+            status: "configured",
+            pathNormalizationVersion: expectedVersion,
+        });
+        expect(client.hasRemoteJournals).not.toHaveBeenCalled();
+        expect(client.uploadJson).not.toHaveBeenCalled();
+        expect(client.getCheckpointInfo).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["negative", -1, 2],
+        ["fractional", 0, 2.5],
+        ["reversed", 3, 2],
+        ["mixed legacy and NFC", 0, 4],
+        ["future", 5, 5],
+        ["unsafe integer", 0, Number.MAX_SAFE_INTEGER + 1],
+    ] as const)("rejects a %s Journal range before further inspection", async (_label, min, max) => {
+        const { replicator, setting, client, snapshot } = createJournal(0, 0);
+        const milestone = snapshot()!;
+        milestone.node_chunk_info = { existing: { min, max, current: max } };
+        client.downloadJsonWithResult.mockResolvedValue({ status: "available", value: milestone });
+
+        await expect(replicator.inspectRemotePathIdentity(setting)).rejects.toThrow(
+            "The Journal declares an unsupported path identity range."
+        );
+        expect(client.hasRemoteJournals).not.toHaveBeenCalled();
+        expect(client.uploadJson).not.toHaveBeenCalled();
+    });
+
+    it("inspects retained ranges after accepted nodes have been cleared", async () => {
+        const { replicator, setting, client, snapshot } = createJournal(0, 1);
+        const milestone = snapshot()!;
+        milestone.accepted_nodes = [];
+        client.downloadJsonWithResult.mockResolvedValue({ status: "available", value: milestone });
+
+        await expect(replicator.inspectRemotePathIdentity(setting)).resolves.toEqual({
+            status: "configured",
+            pathNormalizationVersion: 1,
+        });
+        expect(client.hasRemoteJournals).not.toHaveBeenCalled();
+        expect(client.uploadJson).not.toHaveBeenCalled();
+    });
+
+    it.each(["retained range", "preferred setting"] as const)(
+        "rejects a conflicting %s before inspecting Journal files",
+        async (source) => {
+            const { replicator, setting, client, snapshot } = createJournal(0, 0);
+            const milestone = snapshot()!;
+            if (source === "retained range") {
+                milestone.node_chunk_info.retired = { min: 4, max: 4, current: 4 };
+            } else {
+                milestone.tweak_values = { [DEVICE_ID_PREFERRED]: { pathNormalizationVersion: 1 } };
+            }
+            client.downloadJsonWithResult.mockResolvedValue({ status: "available", value: milestone });
+
+            await expect(replicator.inspectRemotePathIdentity(setting)).rejects.toThrow(
+                "The Journal has conflicting path identity declarations."
+            );
+            expect(client.hasRemoteJournals).not.toHaveBeenCalled();
+            expect(client.uploadJson).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each([0, 1])("does not infer a fresh Journal from missing evidence in mode %s", async (localVersion) => {
+        const existing = createJournal(localVersion);
+        await expect(existing.replicator.inspectRemotePathIdentity(existing.setting)).rejects.toThrow(/missing/i);
+        const empty = createJournal(localVersion, undefined, false);
+        await expect(empty.replicator.inspectRemotePathIdentity(empty.setting)).resolves.toEqual({ status: "empty" });
+        expect(empty.client.uploadJson).not.toHaveBeenCalled();
+    });
+
+    it.each([0, 1])(
+        "rejects a different identity before resolving or locking a peer (local %s)",
+        async (localVersion) => {
+            for (const operation of ["resolve", "lock", "unlock"]) {
+                const { replicator, setting, client, snapshot } = createJournal(localVersion, 1 - localVersion);
+                const before = snapshot();
+                const mutation =
+                    operation === "resolve"
+                        ? replicator.markRemoteResolved(setting)
+                        : replicator.markRemoteLocked(setting, operation === "lock", false);
+                await expect(mutation).rejects.toThrow(/path identity/i);
+                expect(snapshot()).toEqual(before);
+                expect(client.uploadJson).not.toHaveBeenCalled();
+            }
+        }
+    );
+
+    it.each([0, 1])(
+        "rejects missing identity before Fetch and recovery administration in mode %s",
+        async (localVersion) => {
+            const { replicator, setting, client, snapshot } = createJournal(localVersion);
+            await expect(replicator.assertRemotePathIdentity(setting)).rejects.toThrow(/milestone/i);
+            await expect(replicator.markRemoteResolved(setting)).rejects.toThrow(/milestone/i);
+            await expect(replicator.markRemoteLocked(setting, true, false)).rejects.toThrow(/milestone/i);
+            await expect(replicator.markRemoteLocked(setting, false, false)).rejects.toThrow(/milestone/i);
+            expect(snapshot()).toBeUndefined();
+            expect(client.uploadJson).not.toHaveBeenCalled();
+            expect(client.getCheckpointInfo).not.toHaveBeenCalled();
+        }
+    );
+
+    it("keeps a compatible peer admitted after an incompatible peer is refused", async () => {
+        const { replicator, setting, client, snapshot } = createJournal(0, 1);
+        const nfcSettings = { ...setting, pathNormalizationVersion: 1 };
+        await expect(
+            replicator.ensureBucketIsCompatible(
+                "existing",
+                { min: 4, max: 4, current: 4 },
+                nfcSettings,
+                client as never
+            )
+        ).resolves.toBe("OK");
+        const original = snapshot();
+        client.uploadJson.mockClear();
+        await expect(replicator.markRemoteResolved(setting)).rejects.toThrow(/path identity/i);
+        expect(snapshot()).toEqual(original);
+        await expect(
+            replicator.ensureBucketIsCompatible(
+                "existing",
+                { min: 4, max: 4, current: 4 },
+                nfcSettings,
+                client as never
+            )
+        ).resolves.toBe("OK");
+    });
+
+    it("refuses preferred-setting writes from another path identity", async () => {
+        const { replicator, setting, snapshot } = createJournal(0, 1);
+        const upload = vi.spyOn(JournalSyncCore.prototype, "uploadJson").mockResolvedValue(true);
+        vi.spyOn(JournalSyncCore.prototype, "downloadJson").mockResolvedValue(snapshot() as never);
+        await expect(replicator.setPreferredRemoteTweakSettings(setting)).rejects.toThrow(/path identity/i);
+        expect(upload).not.toHaveBeenCalled();
+    });
+
+    it("checks matching identity without publishing a node or reading its checkpoint", async () => {
+        const { replicator, setting, client, snapshot } = createJournal(1, 1);
+        const before = snapshot();
+        await expect(replicator.assertRemotePathIdentity(setting)).resolves.toBeUndefined();
+        expect(snapshot()).toEqual(before);
+        expect(client.uploadJson).not.toHaveBeenCalled();
+        expect(client.getCheckpointInfo).not.toHaveBeenCalled();
+    });
+
+    it("preserves the old identity while locking for a coordinated rebuild", async () => {
+        const { replicator, setting, snapshot, client } = createJournal(1, 0);
+        const before = snapshot()!;
+        await replicator.markRemoteLockedForRebuild(setting);
+        expect(snapshot()).toEqual({
+            ...before,
+            locked: true,
+            accepted_nodes: [replicator.nodeid],
+            node_chunk_info: { ...before.node_chunk_info, [replicator.nodeid]: before.node_chunk_info.existing },
+        });
+        await expect(replicator.assertRemotePathIdentity(setting)).rejects.toThrow(/path identity/i);
+        expect(client.uploadJson).toHaveBeenCalledOnce();
+    });
+
+    it("keeps the old-client version gate effective while a rebuild lock is held", async () => {
+        const { replicator, setting, snapshot } = createJournal(1, 1);
+        await replicator.markRemoteLockedForRebuild(setting);
+        const locked = snapshot()!;
+        // An older client resolves itself before checking the accepted-node ranges.
+        locked.accepted_nodes.push("old-client");
+        locked.node_chunk_info["old-client"] = { min: 0, max: 2, current: 2 };
+        const legacy = { ...DEFAULT_SETTINGS, disableCheckingConfigMismatch: true };
+        await expect(
+            ensureRemoteIsCompatible(
+                locked,
+                legacy,
+                "old-client",
+                { min: 0, max: 2, current: 2 },
+                {
+                    app_version: "",
+                    plugin_version: "",
+                    vault_name: "",
+                    device_name: "",
+                    progress: "",
+                },
+                async () => {}
+            )
+        ).resolves.toBe("INCOMPATIBLE");
+    });
+
+    it("leaves a missing milestone absent until rebuild deletes the journals", async () => {
+        const { replicator, setting, snapshot, client } = createJournal(1);
+        await replicator.markRemoteLockedForRebuild(setting);
+        expect(snapshot()).toBeUndefined();
+        expect(client.uploadJson).not.toHaveBeenCalled();
+        await expect(replicator.markRemoteResolved(setting)).rejects.toThrow(/milestone/i);
     });
 });

@@ -94,6 +94,56 @@ afterEach(() => {
 });
 
 describe("P2PRoomSessionOwner prepared settings lifecycle", () => {
+    it.each(["persistent", "finite"] as const)(
+        "rejects an unsupported version before registering %s demand",
+        async (kind) => {
+            const { owner, settings, createSession, getValue } = createOwnerHarness();
+            settings.P2P_managedType = "";
+            Object.assign(settings, { pathNormalizationVersion: 2 });
+            const task = vi.fn();
+
+            const result = kind === "persistent" ? owner.open() : owner.runWithFiniteDemand(task);
+            await expect(result).rejects.toThrow("Unsupported path normalisation version: 2");
+            expect(task).not.toHaveBeenCalled();
+            expect(createSession).not.toHaveBeenCalled();
+            expect(getValue).not.toHaveBeenCalled();
+
+            Object.assign(settings, { pathNormalizationVersion: 0 });
+            await owner.setPersistentDemand("automatic", false);
+            expect(createSession).not.toHaveBeenCalled();
+            expect(getValue).not.toHaveBeenCalled();
+        }
+    );
+
+    it("returns a rejected promise for an unsupported probe without starting the trial", async () => {
+        const { owner, settings, createSession } = createOwnerHarness();
+        Object.assign(settings, { pathNormalizationVersion: 2 });
+        const trial = vi.fn(async () => "connected");
+        let result: ReturnType<typeof owner.runConnectionProbe>;
+
+        expect(() => {
+            result = owner.runConnectionProbe(settings, trial);
+        }).not.toThrow();
+        await expect(result!).rejects.toThrow("Unsupported path normalisation version: 2");
+        expect(trial).not.toHaveBeenCalled();
+        expect(createSession).not.toHaveBeenCalled();
+
+        Object.assign(settings, { pathNormalizationVersion: 0 });
+        await expect(owner.runConnectionProbe(settings, trial)).resolves.toEqual({ status: "trial", result: "connected" });
+        expect(trial).toHaveBeenCalledOnce();
+    });
+
+    it("rejects a version which becomes unsupported before queued reconciliation", async () => {
+        const { owner, settings, createSession, getValue } = createOwnerHarness();
+        const opening = owner.open();
+        Object.assign(settings, { pathNormalizationVersion: 2 });
+
+        await expect(opening).rejects.toThrow("Unsupported path normalisation version: 2");
+        expect(createSession).not.toHaveBeenCalled();
+        expect(getValue).not.toHaveBeenCalled();
+        await owner.close();
+    });
+
     it("waits for the stored identity before creating a room", async () => {
         const { owner, settings, getValue, createSession } = createOwnerHarness();
         settings.P2P_managedType = "";
@@ -134,21 +184,38 @@ describe("P2PRoomSessionOwner prepared settings lifecycle", () => {
         expect(createSession).not.toHaveBeenCalled();
     });
 
-    it("retires an existing room and rejects finite demand when path identity changes to NFC", async () => {
+    it("replaces an existing room and revalidates automation when path identity changes to NFC", async () => {
         const { owner, sessions, settings } = createOwnerHarness();
         settings.P2P_managedType = "";
 
         await owner.open();
         expect(sessions).toHaveLength(1);
+        const coordinator = (sessions[0] as any).env.automationCoordinator;
+        const baseline = vi.fn(async () => ({ status: "completed" as const, ok: true as const }));
+        await coordinator.runBaseline("peer-a", baseline);
+        expect(baseline).toHaveBeenCalledOnce();
 
         settings.pathNormalizationVersion = 1;
         await owner.setPersistentDemand("explicit", true);
 
-        expect(sessions).toHaveLength(1);
+        expect(sessions).toHaveLength(2);
         expect(sessions[0].retire).toHaveBeenCalledOnce();
-        await expect(owner.runWithFiniteDemand(async () => undefined)).rejects.toThrow(
-            "P2P does not support NFC path identity."
-        );
+        const nextBaseline = vi.fn(async () => ({ status: "completed" as const, ok: true as const }));
+        await (sessions[1] as any).env.automationCoordinator.runBaseline("peer-a", nextBaseline);
+        expect(nextBaseline).toHaveBeenCalledOnce();
+
+        settings.pathNormalizationVersion = 0;
+        await owner.setPersistentDemand("explicit", true);
+        expect(sessions).toHaveLength(3);
+        expect(sessions[1].retire).toHaveBeenCalledOnce();
+        const legacyBaseline = vi.fn(async () => ({ status: "completed" as const, ok: true as const }));
+        await (sessions[2] as any).env.automationCoordinator.runBaseline("peer-a", legacyBaseline);
+        expect(legacyBaseline).toHaveBeenCalledOnce();
+
+        const task = vi.fn(async () => undefined);
+        await expect(owner.runWithFiniteDemand(task)).resolves.toBeUndefined();
+        expect(task).toHaveBeenCalledOnce();
+        await owner.close();
     });
 
     it("reuses an equivalent serving room while its prepared settings remain usable", async () => {

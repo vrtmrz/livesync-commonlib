@@ -12,6 +12,9 @@ import type { Advertisement } from "./types";
 import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
 import { toRpcMethodName } from "./rpcCompat";
 import { fromP2PReplicationWireResult } from "./P2PReplicationWire";
+import { TrysteroReplicatorP2PClient } from "./TrysteroReplicatorP2PClient";
+import { VERSIONING_DOCID } from "@lib/common/models/db.const.ts";
+import { NFC_PATH_IDENTITY_FEATURE } from "@lib/pouchdb/remoteFeatureCompatibility.ts";
 import { decryptWithEphemeralSalt, encryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 
 function createRpcRoomPair() {
@@ -74,6 +77,42 @@ function createReplicator(settings: Record<string, unknown> = {}) {
     return { currentSettings, events, replicator, runFiniteReplicationActivity };
 }
 
+function installControlOnlyPathIdentityDatabase(replicator: TrysteroReplicator, initialVersion?: number) {
+    let versionInfo: Record<string, unknown> | undefined =
+        initialVersion === undefined
+            ? undefined
+            : { _id: VERSIONING_DOCID, type: "versioninfo", version: initialVersion };
+    const missing = () => Object.assign(new Error("missing"), { status: 404, name: "not_found", reason: "missing" });
+    const database = {
+        info: vi.fn(async () => ({ db_name: "control-only-db", update_seq: 0, doc_count: versionInfo ? 2 : 1 })),
+        get: vi.fn(async (id: string) => {
+            if (id === VERSIONING_DOCID && versionInfo) return versionInfo;
+            throw missing();
+        }),
+        allDocs: vi.fn(async () => ({
+            rows: [{ id: "nodeinfo", doc: { _id: "nodeinfo", type: "nodeinfo" } }],
+        })),
+        put: vi.fn(async (doc: Record<string, unknown> & { _id: string }) => {
+            if (doc._id === VERSIONING_DOCID) versionInfo = doc;
+            return { ok: true, id: doc._id, rev: "1-new" };
+        }),
+        changes: vi.fn(async () => ({ results: [], last_seq: 0, pending: 0 })),
+        revsDiff: vi.fn(async () => ({})),
+        bulkGet: vi.fn(async ({ docs }: { docs: Array<{ id: string }> }) => ({
+            results: docs.map(({ id }) => ({
+                id,
+                docs:
+                    id === VERSIONING_DOCID && versionInfo
+                        ? [{ ok: versionInfo }]
+                        : [{ error: "not_found", reason: "missing", status: 404 }],
+            })),
+        })),
+        bulkDocs: vi.fn(async () => []),
+    };
+    (replicator as any)._env.db = database;
+    return database;
+}
+
 function createAdvertisementServer(advertisements: Advertisement[] = []) {
     const knownAdvertisements = new Map(advertisements.map((advertisement) => [advertisement.peerId, advertisement]));
     return {
@@ -132,6 +171,172 @@ describe("TrysteroReplicator configuration import", () => {
 });
 
 describe("TrysteroReplicator tweak compatibility", () => {
+    const legacyVersionInfo = { _id: VERSIONING_DOCID, type: "versioninfo", version: 13, used_features: [] };
+    const versionInfoResponse = (documentResult: unknown) => ({
+        results: [{ id: VERSIONING_DOCID, docs: [documentResult] }],
+    });
+
+    it.each([
+        ["a current document", versionInfoResponse({ ok: legacyVersionInfo }), true],
+        ["a flat missing error", versionInfoResponse({ error: "not_found", status: 404 }), true],
+        ["a nested missing error", versionInfoResponse({ error: { status: 404 } }), true],
+        ["a missing error without status", versionInfoResponse({ error: "not_found" }), true],
+        ["a nested missing name", versionInfoResponse({ error: { name: "not_found" } }), true],
+        ["a nested missing code", versionInfoResponse({ error: { error: "not_found" } }), true],
+        [
+            "a null-prototype result",
+            versionInfoResponse(Object.assign(Object.create(null), { ok: legacyVersionInfo })),
+            true,
+        ],
+        ["an overridden hasOwnProperty", versionInfoResponse({ ok: legacyVersionInfo, hasOwnProperty: null }), true],
+        ["an inherited document", versionInfoResponse(Object.create({ ok: legacyVersionInfo })), false],
+        ["an inherited missing error", versionInfoResponse(Object.create({ error: "not_found", status: 404 })), false],
+        ["an unreadable document", versionInfoResponse({ error: "not_found", status: 403 }), false],
+        [
+            "an invalid success with a missing error",
+            versionInfoResponse({ ok: null, error: "not_found", status: 404 }),
+            false,
+        ],
+        ["a different document", versionInfoResponse({ ok: { ...legacyVersionInfo, _id: "another-id" } }), false],
+        ["a null document result", versionInfoResponse(null), false],
+        ["an empty result list", { results: [] }, false],
+        ["an empty document list", { results: [{ id: VERSIONING_DOCID, docs: [] }] }, false],
+        ["a wrong result ID", { results: [{ id: "another-id", docs: [{ ok: legacyVersionInfo }] }] }, false],
+    ] as const)("handles %s before starting metadata transfer", async (_case, response, canReplicate) => {
+        const { replicator } = createReplicator({ pathNormalizationVersion: 0 });
+        const localDB = installControlOnlyPathIdentityDatabase(replicator, 13);
+        await localDB.put(legacyVersionInfo);
+        const { replicator: remote } = createReplicator();
+        const remoteDB = installControlOnlyPathIdentityDatabase(remote, 13);
+        remoteDB.bulkGet.mockResolvedValue(response as any);
+        vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+        vi.spyOn(replicator, "checkTweakValues").mockResolvedValue(true);
+        (replicator as any).server = {
+            knownAdvertisements: [],
+            serverPeerId: "local-peer",
+            getConnection: vi.fn(() => ({
+                invokeRemoteFunction: vi.fn(async () => undefined),
+                getRemoteDB: vi.fn(() => remoteDB),
+            })),
+        };
+
+        const result = await replicator.replicateFrom("peer-id");
+
+        expect(result.status).toBe(canReplicate ? "completed" : "failed");
+        expect(remoteDB.bulkGet).toHaveBeenCalledWith({ docs: [{ id: VERSIONING_DOCID }] });
+        if (canReplicate) {
+            expect(remoteDB.changes).toHaveBeenCalledOnce();
+        } else {
+            expect(result).toMatchObject({
+                error: expect.objectContaining({ message: expect.stringContaining("P2P remote versioninfo") }),
+            });
+            expect(remoteDB.changes).not.toHaveBeenCalled();
+            expect(remoteDB.info).not.toHaveBeenCalled();
+        }
+    });
+
+    it("reports an absent path identity setting as legacy mode", async () => {
+        const { replicator } = createReplicator({ encrypt: false, usePathObfuscation: false });
+
+        await expect(replicator.getTweakSettings("challenge")).resolves.toMatchObject({
+            pathNormalizationVersion: 0,
+        });
+    });
+
+    it.each([
+        [0, 1],
+        [1, 0],
+        [1, undefined],
+    ] as const)(
+        "hard rejects path identity mismatch %s vs %s with encryption disabled",
+        async (localVersion, peerVersion) => {
+            const { replicator } = createReplicator({
+                encrypt: false,
+                usePathObfuscation: false,
+                pathNormalizationVersion: localVersion,
+                passphrase: "same",
+            });
+            const { replicator: remote } = createReplicator({
+                encrypt: false,
+                usePathObfuscation: false,
+                ...(peerVersion === undefined ? {} : { pathNormalizationVersion: peerVersion }),
+                passphrase: "same",
+            });
+            if (localVersion === 1) installControlOnlyPathIdentityDatabase(replicator);
+            if (peerVersion === 1) installControlOnlyPathIdentityDatabase(remote);
+            (replicator as any).server = {
+                knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+                serverPeerId: "local-peer",
+                getConnection: vi.fn(() => ({
+                    invokeRemoteObjectFunction: vi.fn(async (_name: string, args: string[]) =>
+                        remote.getTweakSettings(args[0])
+                    ),
+                })),
+            };
+
+            await expect(replicator.checkTweakValues("peer-id")).resolves.toBe(false);
+        }
+    );
+
+    it("checks path identity before the pseudo-replicator compatibility bypass", async () => {
+        const { replicator } = createReplicator({
+            encrypt: false,
+            usePathObfuscation: false,
+            pathNormalizationVersion: 0,
+            passphrase: "same",
+        });
+        const { replicator: remote } = createReplicator({
+            encrypt: false,
+            usePathObfuscation: false,
+            pathNormalizationVersion: 1,
+            passphrase: "same",
+        });
+        installControlOnlyPathIdentityDatabase(remote);
+        (replicator as any)._env.platform = "pseudo-replicator";
+        (replicator as any).server = {
+            knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+            serverPeerId: "local-peer",
+            getConnection: vi.fn(() => ({
+                invokeRemoteObjectFunction: vi.fn(async (_name: string, args: string[]) =>
+                    remote.getTweakSettings(args[0])
+                ),
+            })),
+        };
+
+        await expect(replicator.checkTweakValues("peer-id")).resolves.toBe(false);
+    });
+
+    it.each([
+        ["local", 2, 0],
+        ["peer", 0, 2],
+    ] as const)("rejects an unsupported %s path identity version", async (_side, localVersion, peerVersion) => {
+        const { replicator } = createReplicator({
+            encrypt: false,
+            usePathObfuscation: false,
+            pathNormalizationVersion: localVersion,
+            passphrase: "same",
+        });
+        const { replicator: remote } = createReplicator({
+            encrypt: false,
+            usePathObfuscation: false,
+            pathNormalizationVersion: peerVersion,
+            passphrase: "same",
+        });
+        (replicator as any).server = {
+            knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+            serverPeerId: "local-peer",
+            getConnection: vi.fn(() => ({
+                invokeRemoteObjectFunction: vi.fn(async (_name: string, args: string[]) =>
+                    remote.getTweakSettings(args[0])
+                ),
+            })),
+        };
+
+        await expect(replicator.checkTweakValues("peer-id")).rejects.toThrow(
+            "Unsupported path normalisation version: 2"
+        );
+    });
+
     it("rejects a peer using a different independent ID key without sending the key", async () => {
         const key = "ab".repeat(32);
         const { replicator } = createReplicator({
@@ -229,6 +434,461 @@ describe("TrysteroReplicator tweak compatibility", () => {
         };
 
         await expect(replicator.checkTweakValues("peer-id")).resolves.toBe(false);
+    });
+});
+
+describe("TrysteroReplicator path identity database compatibility", () => {
+    it.each([
+        ["local", 0, true, false],
+        ["peer", 0, false, true],
+    ] as const)(
+        "rejects an incompatible %s versioninfo identity before metadata transfer in mode %s",
+        async (_side, pathVersion, localUsesNfc, peerUsesNfc) => {
+            const versionInfo = (usesNfc: boolean) => ({
+                _id: VERSIONING_DOCID,
+                type: "versioninfo",
+                version: 13,
+                used_features: usesNfc ? [NFC_PATH_IDENTITY_FEATURE] : [],
+            });
+            const createDatabase = (name: string, identity: ReturnType<typeof versionInfo>) => {
+                const missing = () => new Error("missing");
+                const db = {
+                    info: vi.fn(async () => ({ db_name: name, update_seq: 0, doc_count: 1 })),
+                    get: vi.fn(async (id: string) => {
+                        if (id === VERSIONING_DOCID) return identity;
+                        throw missing();
+                    }),
+                    allDocs: vi.fn(async () => ({ rows: [{ id: "metadata", doc: { type: "plain" } }] })),
+                    put: vi.fn(async (doc: { _id: string }) => ({ ok: true, id: doc._id, rev: "1-new" })),
+                    changes: vi.fn(async () => ({ results: [], last_seq: 0, pending: 0 })),
+                    revsDiff: vi.fn(async () => ({})),
+                    bulkGet: vi.fn(async ({ docs }: { docs: Array<{ id: string }> }) => ({
+                        results: docs.map(({ id }) => ({
+                            id,
+                            docs: id === VERSIONING_DOCID ? [{ ok: identity }] : [{ error: "not_found", status: 404 }],
+                        })),
+                    })),
+                    bulkDocs: vi.fn(async () => []),
+                };
+                return db;
+            };
+            const localDB = createDatabase("local-db", versionInfo(localUsesNfc));
+            const remoteDB = createDatabase("peer-db", versionInfo(peerUsesNfc));
+            const { replicator } = createReplicator({
+                encrypt: false,
+                usePathObfuscation: false,
+                pathNormalizationVersion: pathVersion,
+                passphrase: "same",
+            });
+            const { replicator: remote } = createReplicator({
+                encrypt: false,
+                usePathObfuscation: false,
+                pathNormalizationVersion: pathVersion,
+                passphrase: "same",
+            });
+            (replicator as any)._env.db = localDB;
+            vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+            (replicator as any).server = {
+                knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+                serverPeerId: "local-peer",
+                getConnection: vi.fn(() => ({
+                    invokeRemoteFunction: vi.fn(async () => undefined),
+                    invokeRemoteObjectFunction: vi.fn(async (_name: string, args: string[]) =>
+                        remote.getTweakSettings(args[0])
+                    ),
+                    getRemoteDB: vi.fn(() => remoteDB),
+                })),
+            };
+
+            const result = await replicator.replicateFrom("peer-id");
+
+            expect(result.status).toBe("failed");
+            expect(localDB.get).toHaveBeenCalledWith(VERSIONING_DOCID);
+            expect(remoteDB.bulkGet).toHaveBeenCalledWith({ docs: [{ id: VERSIONING_DOCID }] });
+            expect(remoteDB.get).not.toHaveBeenCalledWith(VERSIONING_DOCID);
+            expect(remoteDB.changes).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each(["local", "peer"] as const)(
+        "rejects populated NFC-mode %s databases whose versioninfo does not declare NFC before metadata transfer",
+        async (mismatchSide) => {
+            const versionInfo = (usesNfc: boolean) => ({
+                _id: VERSIONING_DOCID,
+                type: "versioninfo",
+                version: 13,
+                used_features: usesNfc ? [NFC_PATH_IDENTITY_FEATURE] : [],
+            });
+            const createDatabase = (name: string, usesNfc: boolean, hasVersionInfo: boolean) => ({
+                info: vi.fn(async () => ({ db_name: name, update_seq: 0, doc_count: 2 })),
+                get: vi.fn(async (id: string) => {
+                    if (id === VERSIONING_DOCID && hasVersionInfo) return versionInfo(usesNfc);
+                    throw Object.assign(new Error("missing"), { status: 404, name: "not_found", reason: "missing" });
+                }),
+                allDocs: vi.fn(async () => ({ rows: [{ id: "metadata", doc: { type: "plain" } }] })),
+                put: vi.fn(async (doc: { _id: string }) => ({ ok: true, id: doc._id, rev: "1-new" })),
+                changes: vi.fn(async () => ({ results: [], last_seq: 0, pending: 0 })),
+                revsDiff: vi.fn(async () => ({})),
+                bulkGet: vi.fn(async ({ docs }: { docs: Array<{ id: string }> }) => ({
+                    results: docs.map(({ id }) => ({
+                        id,
+                        docs:
+                            id === VERSIONING_DOCID && hasVersionInfo
+                                ? [{ ok: versionInfo(usesNfc) }]
+                                : [{ error: "not_found", reason: "missing", status: 404 }],
+                    })),
+                })),
+                bulkDocs: vi.fn(async () => []),
+            });
+            const localDB = createDatabase("local-db", true, mismatchSide !== "local");
+            const remoteDB = createDatabase("peer-db", true, mismatchSide !== "peer");
+            const { replicator } = createReplicator({
+                encrypt: false,
+                usePathObfuscation: false,
+                pathNormalizationVersion: 1,
+                passphrase: "same",
+            });
+            const { replicator: remote } = createReplicator({
+                encrypt: false,
+                usePathObfuscation: false,
+                pathNormalizationVersion: 1,
+                passphrase: "same",
+            });
+            (replicator as any)._env.db = localDB;
+            (remote as any)._env.db = remoteDB;
+            vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+            (replicator as any).server = {
+                knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+                serverPeerId: "local-peer",
+                getConnection: vi.fn(() => ({
+                    invokeRemoteFunction: vi.fn(async () => undefined),
+                    invokeRemoteObjectFunction: vi.fn(async (_name: string, args: string[]) =>
+                        remote.getTweakSettings(args[0])
+                    ),
+                    getRemoteDB: vi.fn(() => remoteDB),
+                })),
+            };
+
+            await expect(replicator.replicateFrom("peer-id")).rejects.toThrow(
+                "The database and settings use different path identity versions."
+            );
+            const mismatchedDatabase = mismatchSide === "local" ? localDB : remoteDB;
+            expect(mismatchedDatabase.get).toHaveBeenCalledWith(VERSIONING_DOCID);
+            expect(mismatchedDatabase.allDocs).toHaveBeenCalledOnce();
+            expect(remoteDB.changes).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each([
+        ["missing local", "missing", "current"],
+        ["missing peer", "current", "missing"],
+        ["older local", "older", "current"],
+        ["older peer", "current", "older"],
+    ] as const)(
+        "preserves legacy path identity for a %s versioninfo document in mode 0",
+        async (_case, localState, peerState) => {
+            const missing = () =>
+                Object.assign(new Error("missing"), { status: 404, name: "not_found", reason: "missing" });
+            const versionInfo = {
+                _id: VERSIONING_DOCID,
+                type: "versioninfo",
+                version: 13,
+                used_features: [],
+            };
+            const olderVersionInfo = {
+                _id: VERSIONING_DOCID,
+                type: "versioninfo",
+                version: 11,
+            };
+            const createDatabase = (name: string, state: "missing" | "current" | "older") => ({
+                info: vi.fn(async () => ({ db_name: name, update_seq: 0, doc_count: 1 })),
+                get: vi.fn(async (id: string) => {
+                    if (id !== VERSIONING_DOCID) throw missing();
+                    if (state === "missing") throw missing();
+                    return state === "older" ? olderVersionInfo : versionInfo;
+                }),
+                put: vi.fn(async (doc: { _id: string }) => ({ ok: true, id: doc._id, rev: "1-new" })),
+                changes: vi.fn(async () => ({ results: [], last_seq: 0, pending: 0 })),
+                revsDiff: vi.fn(async () => ({})),
+                bulkGet: vi.fn(async ({ docs }: { docs: Array<{ id: string }> }) => ({
+                    results: docs.map(({ id }) => ({
+                        id,
+                        docs:
+                            id === VERSIONING_DOCID && state !== "missing"
+                                ? [{ ok: state === "older" ? olderVersionInfo : versionInfo }]
+                                : [{ error: "not_found", reason: "missing", status: 404 }],
+                    })),
+                })),
+                bulkDocs: vi.fn(async () => []),
+            });
+            const localDB = createDatabase("local-db", localState);
+            const remoteDB = createDatabase("peer-db", peerState);
+            const { replicator } = createReplicator({
+                encrypt: false,
+                usePathObfuscation: false,
+                pathNormalizationVersion: 0,
+                passphrase: "same",
+            });
+            const { replicator: remote } = createReplicator({
+                encrypt: false,
+                usePathObfuscation: false,
+                pathNormalizationVersion: 0,
+                passphrase: "same",
+            });
+            (replicator as any)._env.db = localDB;
+            vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+            (replicator as any).server = {
+                knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+                serverPeerId: "local-peer",
+                getConnection: vi.fn(() => ({
+                    invokeRemoteFunction: vi.fn(async () => undefined),
+                    invokeRemoteObjectFunction: vi.fn(async (_name: string, args: string[]) =>
+                        remote.getTweakSettings(args[0])
+                    ),
+                    getRemoteDB: vi.fn(() => remoteDB),
+                })),
+            };
+
+            const result = await replicator.replicateFrom("peer-id");
+
+            expect(result.status).toBe("completed");
+            expect(localDB.get).toHaveBeenCalledWith(VERSIONING_DOCID);
+            expect(remoteDB.bulkGet).toHaveBeenCalledWith({ docs: [{ id: VERSIONING_DOCID }] });
+            expect(remoteDB.get).not.toHaveBeenCalledWith(VERSIONING_DOCID);
+            expect(remoteDB.changes).toHaveBeenCalledOnce();
+        }
+    );
+
+    it("accepts a missing peer versioninfo as legacy mode across the P2P RPC boundary", async () => {
+        const { roomA, roomB } = createRpcRoomPair();
+        try {
+            const localDocuments = new Map<string, Record<string, unknown>>([
+                [VERSIONING_DOCID, { _id: VERSIONING_DOCID, type: "versioninfo", version: 13, used_features: [] }],
+            ]);
+            const localDB = {
+                info: vi.fn(async () => ({ db_name: "local-db", update_seq: 0, doc_count: localDocuments.size })),
+                get: vi.fn(async (id: string) => {
+                    const document = localDocuments.get(id);
+                    if (document) return document;
+                    throw Object.assign(new Error("missing"), {
+                        status: 404,
+                        name: "not_found",
+                        reason: "missing",
+                    });
+                }),
+                put: vi.fn(async (document: Record<string, unknown> & { _id: string }) => {
+                    localDocuments.set(document._id, document);
+                    return { ok: true, id: document._id, rev: "1-new" };
+                }),
+                changes: vi.fn(async () => ({ results: [], last_seq: 0, pending: 0 })),
+                revsDiff: vi.fn(async () => ({})),
+                bulkGet: vi.fn(async () => ({ results: [] })),
+                bulkDocs: vi.fn(async () => []),
+            };
+
+            const remoteDocuments = new Map<string, Record<string, unknown>>();
+            const remoteBulkGet = vi.fn(async (options: { docs: Array<{ id: string }> }) => ({
+                results: options.docs.map(({ id }) => ({
+                    id,
+                    docs: [
+                        {
+                            error: "not_found",
+                            reason: "missing",
+                            status: 404,
+                        },
+                    ],
+                })),
+            }));
+            roomB.register("db.info", () => ({ db_name: "peer-db", update_seq: 0, doc_count: remoteDocuments.size }));
+            roomB.register("db.get", (_peerId, id) => {
+                const document = remoteDocuments.get(String(id));
+                if (document) return document;
+                throw new Error("missing");
+            });
+            roomB.register("db.bulkGet", (_peerId, options) =>
+                remoteBulkGet(options as { docs: Array<{ id: string }> })
+            );
+            roomB.register("db.put", (_peerId, document) => {
+                const doc = document as Record<string, unknown> & { _id: string };
+                remoteDocuments.set(doc._id, doc);
+                return { ok: true, id: doc._id, rev: "1-new" };
+            });
+            roomB.register("db.changes", () => ({ results: [], last_seq: 0, pending: 0 }));
+            roomB.register("db.revsDiff", () => ({}));
+            roomB.register("db.bulkDocs", () => []);
+
+            const remoteClient = new TrysteroReplicatorP2PClient({ rpcRoom: roomA } as any, "peer-b");
+            const remoteDB = remoteClient.getRemoteDB();
+            const { replicator } = createReplicator({
+                encrypt: false,
+                usePathObfuscation: false,
+                pathNormalizationVersion: 0,
+                passphrase: "same",
+            });
+            (replicator as any)._env.db = localDB;
+            vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+            vi.spyOn(replicator, "checkTweakValues").mockResolvedValue(true);
+            (replicator as any).server = {
+                knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+                serverPeerId: "local-peer",
+                getConnection: vi.fn(() => ({
+                    invokeRemoteFunction: vi.fn(async () => undefined),
+                    getRemoteDB: vi.fn(() => remoteDB),
+                })),
+            };
+
+            const result = await replicator.replicateFrom("peer-id");
+
+            expect(result.status).toBe("completed");
+            expect(remoteBulkGet).toHaveBeenCalledWith({ docs: [{ id: VERSIONING_DOCID }] });
+            expect(remoteDocuments.has(VERSIONING_DOCID)).toBe(false);
+        } finally {
+            roomA.close();
+            roomB.close();
+        }
+    });
+
+    it.each([
+        ["missing versioninfo", undefined],
+        ["generation-12 versioninfo", 12],
+    ] as const)("declares NFC identity for fresh control-only databases with %s", async (_baseline, version) => {
+        const { replicator } = createReplicator({
+            encrypt: false,
+            usePathObfuscation: false,
+            pathNormalizationVersion: 1,
+            passphrase: "same",
+        });
+        const { replicator: remote } = createReplicator({
+            encrypt: false,
+            usePathObfuscation: false,
+            pathNormalizationVersion: 1,
+            passphrase: "same",
+        });
+        const localDB = installControlOnlyPathIdentityDatabase(replicator, version);
+        const remoteDB = installControlOnlyPathIdentityDatabase(remote, version);
+        vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+        (replicator as any).server = {
+            knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+            serverPeerId: "local-peer",
+            getConnection: vi.fn(() => ({
+                invokeRemoteFunction: vi.fn(async () => undefined),
+                invokeRemoteObjectFunction: vi.fn(async (_name: string, args: string[]) =>
+                    remote.getTweakSettings(args[0])
+                ),
+                getRemoteDB: vi.fn(() => remoteDB),
+            })),
+        };
+
+        const result = await replicator.replicateFrom("peer-id");
+
+        expect(result.status).toBe("completed");
+        expect(localDB.put).toHaveBeenCalledWith(
+            expect.objectContaining({
+                _id: VERSIONING_DOCID,
+                version: 13,
+                used_features: [NFC_PATH_IDENTITY_FEATURE],
+            })
+        );
+        expect(remoteDB.put).toHaveBeenCalledWith(
+            expect.objectContaining({
+                _id: VERSIONING_DOCID,
+                version: 13,
+                used_features: [NFC_PATH_IDENTITY_FEATURE],
+            })
+        );
+        expect(localDB.allDocs).toHaveBeenCalledOnce();
+        expect(remoteDB.allDocs).toHaveBeenCalledOnce();
+        expect(remoteDB.changes).toHaveBeenCalledOnce();
+    });
+});
+
+describe("TrysteroReplicator replication failure boundaries", () => {
+    it.each([
+        ["authentication", false],
+        ["authentication", true],
+        ["tweak check", false],
+        ["tweak check", true],
+    ] as const)("preserves a rejected %s with cancellation=%s", async (stage, abort) => {
+        const { replicator } = createReplicator();
+        const controller = new AbortController();
+        const failure = new Error(`${stage} failed`);
+        const reject = async () => {
+            if (abort) controller.abort();
+            throw failure;
+        };
+        const authenticate = vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+        const checkTweaks = vi.spyOn(replicator, "checkTweakValues").mockResolvedValue(true);
+        const getConnection = vi.fn();
+        replicator.server!.getConnection = getConnection;
+        const dispatchStatus = vi.spyOn(replicator, "dispatchStatus");
+        if (stage === "authentication") authenticate.mockImplementation(reject);
+        else checkTweaks.mockImplementation(reject);
+
+        const result = replicator.replicateFrom("peer-id", false, false, false, controller.signal);
+
+        if (stage === "tweak check" && abort) {
+            await expect(result).resolves.toEqual({ status: "cancelled" });
+        } else {
+            await expect(result).rejects.toBe(failure);
+        }
+        if (stage === "authentication") expect(checkTweaks).not.toHaveBeenCalled();
+        expect(getConnection).not.toHaveBeenCalled();
+        expect(dispatchStatus).not.toHaveBeenCalled();
+        expect(replicator._replicateFromPeers.size).toBe(0);
+    });
+
+    it.each(["authentication", "tweak check"] as const)(
+        "preserves cancellation when %s returns false",
+        async (stage) => {
+            const { replicator } = createReplicator();
+            const controller = new AbortController();
+            const reject = async () => {
+                controller.abort();
+                return false;
+            };
+            const authenticate = vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+            const checkTweaks = vi.spyOn(replicator, "checkTweakValues").mockResolvedValue(true);
+            if (stage === "authentication") authenticate.mockImplementation(reject);
+            else checkTweaks.mockImplementation(reject);
+
+            await expect(replicator.replicateFrom("peer-id", false, false, false, controller.signal)).resolves.toEqual({
+                status: "cancelled",
+            });
+            if (stage === "authentication") expect(checkTweaks).not.toHaveBeenCalled();
+            expect(replicator._replicateFromPeers.size).toBe(0);
+        }
+    );
+
+    it.each([false, true])("releases peer ownership after a transfer failure with cancellation=%s", async (abort) => {
+        const { replicator } = createReplicator();
+        const controller = new AbortController();
+        const failure = new Error("Remote database is unavailable");
+        const order: string[] = [];
+        vi.spyOn(replicator, "requestAuthenticate").mockImplementation(async () => {
+            order.push("authentication");
+            return true;
+        });
+        vi.spyOn(replicator, "checkTweakValues").mockImplementation(async () => {
+            order.push("tweaks");
+            return true;
+        });
+        vi.spyOn(replicator, "dispatchStatus").mockImplementation(() => {
+            order.push(replicator._replicateFromPeers.has("peer-id") ? "active" : "released");
+        });
+        replicator.server!.getConnection = vi.fn(() => ({
+            getRemoteDB: (signal: AbortSignal) => {
+                expect(signal).toBe(controller.signal);
+                order.push("database");
+                if (abort) controller.abort();
+                throw failure;
+            },
+        })) as never;
+
+        const result = await replicator.replicateFrom("peer-id", false, false, false, controller.signal);
+
+        expect(result).toEqual(abort ? { status: "cancelled" } : { status: "failed", error: failure });
+        expect(order).toEqual(["authentication", "tweaks", "active", "database", "released"]);
+        expect(replicator._replicateFromPeers.size).toBe(0);
     });
 });
 

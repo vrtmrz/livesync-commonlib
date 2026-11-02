@@ -54,7 +54,7 @@ function composeP2PProviderForTest() {
 }
 
 describe("useP2PReplicatorFeature", () => {
-    it("does not admit NFC path identity as a configured primary P2P transport", () => {
+    it("admits supported path identity modes as a configured primary P2P transport", () => {
         const { definition } = composeP2PProviderForTest();
 
         expect(
@@ -70,7 +70,14 @@ describe("useP2PReplicatorFeature", () => {
                 P2P_Enabled: true,
                 pathNormalizationVersion: 1,
             } as never)
-        ).toBe(false);
+        ).toBe(true);
+        expect(() =>
+            definition.isConfigured({
+                remoteType: REMOTE_P2P,
+                P2P_Enabled: true,
+                pathNormalizationVersion: 2,
+            } as never)
+        ).toThrow("Unsupported path normalisation version: 2");
     });
 
     it("does not reopen a suspended room from a delayed automatic-start callback", async () => {

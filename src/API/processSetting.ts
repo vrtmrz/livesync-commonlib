@@ -11,7 +11,7 @@ import {
 import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
 import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 import { configuredIdKey } from "@lib/common/idDerivation";
-import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
+import { assertSupportedPathNormalizationVersion, getPathNormalizationVersion } from "@lib/common/pathNormalization";
 
 /**
  * Encode settings to a tiny array to encode in QRCode,
@@ -21,7 +21,7 @@ import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
 export function encodeSettingsToQRCodeData(settings: ObsidianLiveSyncSettings) {
     settings = omitP2PRuntimeSettings(settings) as ObsidianLiveSyncSettings;
     configuredIdKey(settings);
-    getPathNormalizationVersion(settings);
+    assertSupportedPathNormalizationVersion(settings.pathNormalizationVersion);
     const fullIndexes = Object.entries(KeyIndexOfSettings) as [keyof ObsidianLiveSyncSettings, number][];
 
     // Find the maximum index to properly size the array
@@ -223,7 +223,7 @@ export async function encodeSettingsToSetupURI(
     const setting: Partial<ObsidianLiveSyncSettings> = {
         ...omitP2PRuntimeSettings(settingString),
     };
-    getPathNormalizationVersion(setting);
+    assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
     configuredIdKey({
         idDerivationVersion: setting.idDerivationVersion ?? 0,
         idDerivationKey: setting.idDerivationKey ?? "",
