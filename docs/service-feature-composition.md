@@ -2,10 +2,16 @@
 date: 2026-10-25
 commonlib-version: "0.2.0"
 self-hosted-livesync-version: "1.0.40"
-status: unreleased
+status: published
 ---
 
 # Service feature composition
+
+Publication update, 2nd November, 2026: the Service Hub source selection, narrowed
+host dependencies, and signature-preserving composition helpers are published
+in Commonlib [0.2.3](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.2.3)
+and used by Self-hosted LiveSync 1.0.44. The front matter retains the original
+review date and version baseline.
 
 This guide is for Commonlib and maintained-host developers who are adding behaviour to the Service Hub composition. It explains when to extend a Service, create a serviceFeature, share a ServiceModule, or introduce a class which owns a resource.
 
