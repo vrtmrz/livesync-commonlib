@@ -77,6 +77,7 @@ assert.ok(
     Object.hasOwn(generatedManifest.exports, "./hashing"),
     "Chunk hashing must be available through the focused hashing entry."
 );
+assert.ok(Object.hasOwn(generatedManifest.exports, "./storage"), "Path resolution requires a host-neutral entry.");
 assert.ok(Object.hasOwn(generatedManifest.exports, "./diagnostics"), "Database diagnostics require a focused entry.");
 assert.ok(packed.files.some(({ path }) => path === "docs/database-diagnostics.md"));
 const declaredBinTargets = new Set(
@@ -225,6 +226,7 @@ await writeConsumerFile(
                 "blob-compatibility-types.ts",
                 "runtime-tools-types.ts",
                 "service-feature-types.ts",
+                "storage-path-types.ts",
             ],
         },
         null,
@@ -687,11 +689,12 @@ void SvelteDialogMixIn;
 );
 await writeConsumerFile(
     "browser-storage.ts",
-    `import { createFileSystemAccessStorage } from "${packageName}/browser";
+    `import { createFileSystemAccessStorage, UnicodeResolvingFileSystemAccessStorageAdapter } from "${packageName}/browser";
 
 declare const rootHandle: FileSystemDirectoryHandle;
 const storage = createFileSystemAccessStorage({ rootHandle });
 void storage;
+export const resolvingStorage = new UnicodeResolvingFileSystemAccessStorageAdapter(rootHandle, () => 1);
 `
 );
 await writeConsumerFile(
@@ -720,6 +723,8 @@ for (const filename of [
     "runtime-tools-types.ts",
     "runtime-tools-runtime.mjs",
     "service-feature-types.ts",
+    "storage-path-types.ts",
+    "storage-path-runtime.mjs",
 ]) {
     await writeConsumerFile(filename, await readFile(resolve(root, "_tools/fixtures", filename), "utf8"));
 }
@@ -755,6 +760,10 @@ if (octagonalWheelsCandidate) {
     );
     assert.equal(JSON.parse(await readFile(selectedManifest, "utf8")).name, "octagonal-wheels");
 }
+run(process.execPath, [resolve(consumerDirectory, "storage-path-runtime.mjs")], {
+    cwd: consumerDirectory,
+    capture: false,
+});
 run(process.execPath, [resolve(consumerDirectory, "runtime-tools-runtime.mjs")], { cwd: consumerDirectory });
 run(process.execPath, [resolve(consumerDirectory, "blob-compatibility-runtime.mjs")], {
     cwd: consumerDirectory,
@@ -833,6 +842,25 @@ assert.ok(
 assert.ok(
     contextBundle.outputFiles[0].contents.length < 50_000,
     "The context bundle, including the canonical English fallback, has grown unexpectedly."
+);
+
+await writeConsumerFile("storage-path-browser.ts", `export * from "${packageName}/storage";`);
+const pathBundle = await build({
+    absWorkingDir: consumerDirectory,
+    bundle: true,
+    conditions: ["browser"],
+    entryPoints: [resolve(consumerDirectory, "storage-path-browser.ts")],
+    format: "esm",
+    logLevel: "silent",
+    metafile: true,
+    platform: "browser",
+    write: false,
+});
+assert.ok(
+    Object.keys(pathBundle.metafile.inputs).every(
+        (path) => !/\/(?:platform\/(?:node|browser)|services|serviceModules|pouchdb|databases)\//u.test(path)
+    ),
+    "The storage path entry must not import host, database, or Service Hub runtimes."
 );
 
 const browserStorageBundle = await build({
@@ -958,11 +986,12 @@ assert.deepEqual(
         "./rpc",
         "./settings",
         "./setup-uri",
+        "./storage",
         "./ui-commands",
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 15);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 16);
 
 console.log(
     JSON.stringify(

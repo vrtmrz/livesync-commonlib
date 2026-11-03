@@ -1,11 +1,12 @@
 import { constants as nodeFsConstants } from "node:fs";
-import type { Stats } from "node:fs";
+import type { Dirent, Stats } from "node:fs";
 import * as nodeFsPromises from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import * as nodePath from "node:path";
 
 import type { UXDataWriteOptions, UXStat } from "@lib/common/types.ts";
 import type { IStorageAdapter } from "@lib/serviceModules/adapters/IStorageAdapter.ts";
+import type { DirectoryEntry, StoragePath } from "../pathTypes.ts";
 import { validateStoragePath } from "../storagePath.ts";
 
 export type NodeStorageStat = UXStat;
@@ -42,7 +43,7 @@ export class NodeStorageAdapter implements IStorageAdapter<NodeStorageStat> {
         this.rootPath = nodePath.resolve(rootPath);
     }
 
-    private async resolvePath(path: string, allowRoot = true): Promise<string> {
+    protected async resolvePath(path: string, allowRoot = true): Promise<string> {
         const fullPath = nodePath.join(this.rootPath, validateStoragePath(path, allowRoot));
         await this.assertNoSymbolicLinks(fullPath);
         return fullPath;
@@ -88,17 +89,70 @@ export class NodeStorageAdapter implements IStorageAdapter<NodeStorageStat> {
         }
     }
 
+    /** Read metadata for an exact physical path, returning null only when it is absent. */
+    async statResolved(path: StoragePath): Promise<NodeStorageStat | null> {
+        let stat: Stats;
+        try {
+            stat = await nodeFsPromises.stat(await this.resolvePath(path));
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+            throw error;
+        }
+        return {
+            size: stat.size,
+            mtime: Math.floor(stat.mtimeMs),
+            ctime: getNodeFileCreationTime(stat),
+            type: stat.isDirectory() ? "folder" : "file",
+        };
+    }
+
+    /** Enumerate immediate physical children, returning null only when the directory is absent. */
+    async readDirectory(path: StoragePath): Promise<readonly DirectoryEntry[] | null> {
+        let entries: Dirent[];
+        try {
+            entries = await nodeFsPromises.readdir(await this.resolvePath(path), { withFileTypes: true });
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+            throw error;
+        }
+
+        const directoryEntries: DirectoryEntry[] = [];
+        for (const entry of entries) {
+            if (entry.isDirectory()) directoryEntries.push({ name: entry.name, kind: "directory" });
+            else if (entry.isFile()) directoryEntries.push({ name: entry.name, kind: "file" });
+        }
+        return directoryEntries;
+    }
+
     async stat(path: string): Promise<NodeStorageStat | null> {
         return await this.trystat(path);
     }
 
     async mkdir(path: string): Promise<void> {
+        await this.mkdirPath(path);
+    }
+
+    /** Create an exact resolved directory path. */
+    async mkdirResolved(path: StoragePath): Promise<void> {
+        await this.mkdirPath(path);
+    }
+
+    private async mkdirPath(path: string): Promise<void> {
         const fullPath = await this.resolvePath(path);
         await nodeFsPromises.mkdir(fullPath, { recursive: true });
         await this.assertNoSymbolicLinks(fullPath);
     }
 
     async remove(path: string): Promise<void> {
+        await this.removePath(path);
+    }
+
+    /** Remove an exact resolved file or directory path. */
+    async removeResolved(path: StoragePath): Promise<void> {
+        await this.removePath(path);
+    }
+
+    private async removePath(path: string): Promise<void> {
         const fullPath = await this.resolvePath(path, false);
         const stat = await nodeFsPromises.stat(fullPath);
         if (stat.isDirectory()) {
@@ -109,6 +163,15 @@ export class NodeStorageAdapter implements IStorageAdapter<NodeStorageStat> {
     }
 
     async read(path: string): Promise<string> {
+        return await this.readPath(path);
+    }
+
+    /** Read a file by its exact resolved physical path. */
+    async readResolved(path: StoragePath): Promise<string> {
+        return await this.readPath(path);
+    }
+
+    private async readPath(path: string): Promise<string> {
         const handle = await nodeFsPromises.open(
             await this.resolvePath(path, false),
             nodeFsConstants.O_RDONLY | NO_FOLLOW
@@ -121,6 +184,15 @@ export class NodeStorageAdapter implements IStorageAdapter<NodeStorageStat> {
     }
 
     async readBinary(path: string): Promise<ArrayBuffer> {
+        return await this.readBinaryPath(path);
+    }
+
+    /** Read bytes by their exact resolved physical path. */
+    async readBinaryResolved(path: StoragePath): Promise<ArrayBuffer> {
+        return await this.readBinaryPath(path);
+    }
+
+    private async readBinaryPath(path: string): Promise<ArrayBuffer> {
         const handle = await nodeFsPromises.open(
             await this.resolvePath(path, false),
             nodeFsConstants.O_RDONLY | NO_FOLLOW
@@ -134,18 +206,45 @@ export class NodeStorageAdapter implements IStorageAdapter<NodeStorageStat> {
     }
 
     async write(path: string, data: string, options?: UXDataWriteOptions): Promise<void> {
+        await this.writePath(path, data, options);
+    }
+
+    /** Write text to an exact resolved physical path. */
+    async writeResolved(path: StoragePath, data: string, options?: UXDataWriteOptions): Promise<void> {
+        await this.writePath(path, data, options);
+    }
+
+    private async writePath(path: string, data: string, options?: UXDataWriteOptions): Promise<void> {
         const fullPath = await this.resolvePath(path, false);
         await nodeFsPromises.mkdir(nodePath.dirname(fullPath), { recursive: true });
         await this.writeFile(fullPath, data, options, false);
     }
 
     async writeBinary(path: string, data: ArrayBuffer, options?: UXDataWriteOptions): Promise<void> {
+        await this.writeBinaryPath(path, data, options);
+    }
+
+    /** Write bytes to an exact resolved physical path. */
+    async writeBinaryResolved(path: StoragePath, data: ArrayBuffer, options?: UXDataWriteOptions): Promise<void> {
+        await this.writeBinaryPath(path, data, options);
+    }
+
+    private async writeBinaryPath(path: string, data: ArrayBuffer, options?: UXDataWriteOptions): Promise<void> {
         const fullPath = await this.resolvePath(path, false);
         await nodeFsPromises.mkdir(nodePath.dirname(fullPath), { recursive: true });
         await this.writeFile(fullPath, new Uint8Array(data), options, false);
     }
 
     async append(path: string, data: string, options?: UXDataWriteOptions): Promise<void> {
+        await this.appendPath(path, data, options);
+    }
+
+    /** Append text to an exact resolved physical path. */
+    async appendResolved(path: StoragePath, data: string, options?: UXDataWriteOptions): Promise<void> {
+        await this.appendPath(path, data, options);
+    }
+
+    private async appendPath(path: string, data: string, options?: UXDataWriteOptions): Promise<void> {
         const fullPath = await this.resolvePath(path, false);
         await nodeFsPromises.mkdir(nodePath.dirname(fullPath), { recursive: true });
         await this.writeFile(fullPath, data, options, true);
@@ -153,6 +252,15 @@ export class NodeStorageAdapter implements IStorageAdapter<NodeStorageStat> {
 
     /** Atomically rename or move an entry without leaving the injected root. */
     async rename(sourcePath: string, targetPath: string): Promise<void> {
+        await this.renamePath(sourcePath, targetPath);
+    }
+
+    /** Rename or move exact resolved physical paths without leaving the injected root. */
+    async renameResolved(sourcePath: StoragePath, targetPath: StoragePath): Promise<void> {
+        await this.renamePath(sourcePath, targetPath);
+    }
+
+    private async renamePath(sourcePath: string, targetPath: string): Promise<void> {
         const fullSourcePath = await this.resolvePath(sourcePath, false);
         const fullTargetPath = await this.resolvePath(targetPath, false);
         await nodeFsPromises.mkdir(nodePath.dirname(fullTargetPath), { recursive: true });

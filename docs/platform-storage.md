@@ -61,6 +61,62 @@ Writes create missing parent directories. Listing returns direct child paths rel
 
 The File System Access API does not expose portable creation times or permit setting file times. Consumers must not rely on identical timestamp fidelity across the two adapters.
 
+## Unicode path resolution
+
+The following APIs are unreleased additions after Commonlib 0.3.0. Node and
+File System Access hosts can use the same NFC comparison and component
+resolution while retaining the names listed by their filesystem. Hosts still
+own the selected identity mode and its database migration.
+
+```ts
+import { UnicodeResolvingNodeStorageAdapter } from '@vrtmrz/livesync-commonlib/node';
+import { parseFilePath } from '@vrtmrz/livesync-commonlib/storage';
+
+const storage = new UnicodeResolvingNodeStorageAdapter(
+    '/srv/livesync',
+    () => settings.pathNormalizationVersion,
+    () => !settings.handleFilenameCaseSensitive,
+);
+const existing = await storage.resolveLogicalPath(parseFilePath('Café.md'), undefined, false);
+if (existing !== null) {
+    const content = await storage.readResolved(existing);
+}
+```
+
+The browser equivalent is `UnicodeResolvingFileSystemAccessStorageAdapter`
+from `/browser`, constructed with an authorised root handle and the same
+settings callbacks. Version `0` delegates to the existing storage behaviour;
+version `1` resolves every component against complete sibling listings. Normal
+writes preserve existing spelling. Node's explicit `rename` can change a leaf's
+Unicode or letter-case spelling; the browser adapter retains its existing
+operation set and does not add a rename primitive.
+
+`AmbiguousNormalisedPathError` from `/storage` reports multiple equivalent
+names, even when one is a literal match. Preserve that error and directory or
+permission failures. Only absence produces `null`; a failure must not be used
+as permission to create a file or as a successful partial scan.
+
+For another host, compose `createStoragePathResolver({ readDirectory, policy })`
+from `/storage`. `readDirectory` accepts a `StoragePath` and returns immediate
+child names and kinds, or `null` for absence. Propagate other failures. The
+resolver copies one NFC policy and retains no directory cache. For a full scan,
+start at `resolveForWrite(parseFilePath(''))`, then recurse through
+`listResolvedDirectory` entries using the same resolver. Each directory is read
+once. Re-resolve later operations so external changes are visible.
+
+`FilePath` retains original, unprefixed spelling. `StoragePath` records that
+existing components have been resolved; it does not guarantee existence or
+reserve a target. `parseDocumentPath` marks an original document-path input,
+and `splitDocumentPath` separates one recognised namespace before host routing.
+Use `joinDocumentPath` to restore it. `getStoragePathComparisonKey` and
+`getDocumentPathComparisonKey` return distinct comparison-only types; the latter
+preserves the namespace. Keep the original path beside each key. The old
+`FilePathWithPrefix` and `FilePathWithPrefixLC` remain available for compatibility.
+
+The [design](design_docs/storage_path_resolution.md) defines the detailed
+contract. These primitives do not enable NFC in WebApp or Bridge; each host
+still needs verified storage, event, cache, and remote-admission integration.
+
 ## Bundling boundary
 
 Browser consumers import only `@vrtmrz/livesync-commonlib/browser`. Packed-package tests build that entry with browser conditions and verify that the Node implementation is absent. Node consumers import `@vrtmrz/livesync-commonlib/node`; the root and context entries do not load Node built-ins.

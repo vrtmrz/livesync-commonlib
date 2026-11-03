@@ -6,7 +6,7 @@ This document is for Commonlib developers. Package consumers should begin with t
 
 The source tree is larger than the supported package surface. Consumers may import only paths in the generated package export map:
 
-- `src/index.ts`, `src/context.ts`, `src/settings.ts`, `src/remoteConfigurations.ts`, `src/p2p/index.ts`, `src/platform/browser/index.ts`, and `src/platform/node/index.ts` define the focused entries;
+- `src/index.ts`, `src/context.ts`, `src/storage.ts`, `src/settings.ts`, `src/remoteConfigurations.ts`, `src/p2p/index.ts`, `src/platform/browser/index.ts`, and `src/platform/node/index.ts` define the focused entries;
 - `src/conflicts.ts` defines the host-owned conflict-check queue contract; `src/concurrency/keyedPendingWork.ts` remains package-private;
 - `src/replication/index.ts` defines the focused provider-capability and interaction contract for hosts which compose replication;
 - `src/diagnostics/index.ts` defines read-only Usage and integrity inspection, report projection, and formatting; hosts own the run dialogue and output destination;
@@ -18,6 +18,16 @@ The source tree is larger than the supported package surface. Consumers may impo
 - colocated `*.integration.spec.ts` files, `test/integration`, and the integration runner own checks against disposable CouchDB and S3-compatible services.
 
 Files elsewhere under `src` are implementation details unless a focused entry re-exports them or the compatibility inventory names them. Do not use the source layout, TypeScript path aliases, or the presence of generated declarations as evidence of a supported consumer import.
+
+## Storage path boundary
+
+The unreleased `/storage` entry owns namespace helpers, comparison keys, and
+strict component resolution. The [design](design_docs/storage_path_resolution.md)
+and [decision record](adr/2026_11_shared_storage_path_resolution.md) separate
+that contract from host handles, caches, watchers, and migration. See the
+[platform guide](platform-storage.md#unicode-path-resolution) for composition.
+The [Unicode identity contract](unicode-path-identity.md) retains its existing
+Metadata, remote-admission, and database-migration rules.
 
 ## Module filenames
 

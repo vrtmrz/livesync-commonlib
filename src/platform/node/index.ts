@@ -30,6 +30,7 @@ export const builtinModules = nodeBuiltinModules;
 /** Returns whether a module specifier refers to a Node built-in. */
 export const isBuiltin = nodeIsBuiltin;
 
+export { UnicodeResolvingNodeStorageAdapter } from "./UnicodeResolvingNodeStorageAdapter.ts";
 export {
     NodeStorageAdapter,
     createNodeStorage,
