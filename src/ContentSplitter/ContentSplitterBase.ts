@@ -1,4 +1,5 @@
-import { MAX_DOC_SIZE_BIN, ChunkAlgorithms, type SavingEntry } from "@lib/common/types.ts";
+import { MAX_DOC_SIZE_BIN, ChunkAlgorithms } from "@lib/common/types.ts";
+import type { SplitSource } from "@lib/common/models/document.type";
 import { createTextBlob } from "@lib/common/utils.ts";
 import { shouldSplitAsPlainText } from "@lib/string_and_binary/path.ts";
 import { type ContentSplitterOptions, type SplitOptions, MAX_CHUNKS_SIZE_ON_UI } from "./ContentSplitter.ts";
@@ -35,7 +36,7 @@ export abstract class ContentSplitterCore {
      * @param entry The loaded entry to be split into chunks
      */
     abstract splitContent(
-        entry: SavingEntry
+        entry: SplitSource
     ): Promise<AsyncGenerator<string, void, unknown> | Generator<string, void, unknown>>;
 }
 
@@ -62,7 +63,7 @@ export abstract class ContentSplitterBase extends ContentSplitterCore {
         options: SplitOptions
     ): Promise<AsyncGenerator<string, void, unknown> | Generator<string, void, unknown>>;
 
-    getParamsFor(entry: SavingEntry): SplitOptions {
+    getParamsFor(entry: SplitSource): SplitOptions {
         const settings = this.options.settingService.currentSettings();
         const maxChunkSize = Math.floor(MAX_DOC_SIZE_BIN * ((settings.customChunkSize || 0) * 1 + 1));
         const pieceSize = maxChunkSize;
@@ -101,7 +102,7 @@ export abstract class ContentSplitterBase extends ContentSplitterCore {
      * @returns A generator that yields the split chunks
      */
     async splitContent(
-        entry: SavingEntry
+        entry: SplitSource
     ): Promise<AsyncGenerator<string, void, unknown> | Generator<string, void, unknown>> {
         await this.initialised;
         const options = this.getParamsFor(entry);

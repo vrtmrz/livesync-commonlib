@@ -53,6 +53,7 @@ replication-preparation, and host-adapter boundaries.
 | `@vrtmrz/livesync-commonlib/conflicts` | Keyed conflict-check scheduling with bounded concurrency and explicit completion | Focused, package-tested pre-1.0 contract |
 | `@vrtmrz/livesync-commonlib/context`               | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/diagnostics` | Read-only Usage and integrity inspection, name projection, and reports | Focused pre-1.0 diagnostic contract |
+| `@vrtmrz/livesync-commonlib/documents` | Document information views and raw shape validation | Unreleased; see [document contracts](docs/documents.md) for the validation limits and migration status |
 | `@vrtmrz/livesync-commonlib/hashing`               | Chunk ID calculation and exact file-content hashing                            | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/browser`               | Rooted File System Access API storage                                             | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/node`                  | Rooted Node storage, Node standard I/O, and selected Node capabilities            | Supported platform façade; keeps Node-only dependencies behind an explicit boundary         |

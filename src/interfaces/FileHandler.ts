@@ -1,3 +1,4 @@
+import type { DocumentPathRef } from "@lib/common/models/document.type";
 import type { FilePath, FilePathWithPrefix, MetaEntry } from "@lib/common/models/db.type";
 import type { UXFileInfo, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/models/fileaccess.type";
 
@@ -65,7 +66,7 @@ export interface IFileHandler {
     ): Promise<boolean>;
 
     dbToStorage(
-        entryInfo: MetaEntry | FilePathWithPrefix,
+        entryInfo: DocumentPathRef | FilePathWithPrefix,
         info: UXFileInfoStub | UXFileInfo | FilePath | null,
         force?: boolean
     ): Promise<boolean>;

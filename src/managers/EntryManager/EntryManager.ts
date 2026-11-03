@@ -1,11 +1,17 @@
+import type {
+    CompatibleFileToSave,
+    FileToSave,
+    DeletedFileRef,
+    FileMetadataResponse,
+    MaterialisedFile,
+} from "@lib/common/models/document.type";
 import {
     type FilePathWithPrefix,
     type FilePath,
     type LoadedEntry,
     type EntryDoc,
     REMOTE_COUCHDB,
-    type SavingEntry,
-    type MetaEntry,
+    type AnyEntry,
 } from "@lib/common/types";
 import type { ChunkManager } from "@lib/managers/ChunkManager";
 import type { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters";
@@ -18,6 +24,8 @@ import {
     getDBEntryByPath,
     getDBEntryFromMeta,
     getDBEntryMetaByPath,
+    getFileMetadataByPath,
+    getFileByPath,
     isTargetFile,
     prepareChunk,
     putDBEntry,
@@ -83,6 +91,38 @@ export class EntryManager {
         return await prepareChunk(this, piece);
     }
 
+    getFileMetadata(
+        path: FilePathWithPrefix | FilePath,
+        opt?: PouchDB.Core.GetOptions,
+        includeDeleted?: false
+    ): Promise<false | FileMetadataResponse>;
+    getFileMetadata(
+        path: FilePathWithPrefix | FilePath,
+        opt: PouchDB.Core.GetOptions | undefined,
+        includeDeleted: true
+    ): Promise<false | FileMetadataResponse | DeletedFileRef>;
+    getFileMetadata(
+        path: FilePathWithPrefix | FilePath,
+        opt: PouchDB.Core.GetOptions | undefined,
+        includeDeleted: boolean
+    ): Promise<false | FileMetadataResponse | DeletedFileRef>;
+    async getFileMetadata(
+        path: FilePathWithPrefix | FilePath,
+        opt?: PouchDB.Core.GetOptions,
+        includeDeleted = false
+    ): Promise<false | FileMetadataResponse | DeletedFileRef> {
+        return await getFileMetadataByPath(this.serviceHost, this, path, opt, includeDeleted);
+    }
+
+    async getFile(
+        path: FilePathWithPrefix | FilePath,
+        opt?: PouchDB.Core.GetOptions,
+        waitForReady = true,
+        localOnly = false
+    ): Promise<false | MaterialisedFile> {
+        return await getFileByPath(this.serviceHost, this, path, opt, waitForReady, localOnly);
+    }
+
     async getDBEntryMeta(
         path: FilePathWithPrefix | FilePath,
         opt?: PouchDB.Core.GetOptions,
@@ -101,7 +141,7 @@ export class EntryManager {
         return await getDBEntryByPath(this.serviceHost, this, path, opt, dump, waitForReady, includeDeleted, localOnly);
     }
     async getDBEntryFromMeta(
-        meta: LoadedEntry | MetaEntry,
+        meta: AnyEntry,
         dump = false,
         waitForReady = true,
         localOnly = false
@@ -119,17 +159,17 @@ export class EntryManager {
         return await storeDeletionByPathAtRevision(this.serviceHost, this, path, baseRevision);
     }
 
-    async putDBEntry(note: SavingEntry, onlyChunks?: boolean, conflictBaseRev?: string) {
+    async putDBEntry(note: CompatibleFileToSave, onlyChunks?: boolean, conflictBaseRev?: string) {
         await this.checkPathIdentity();
         return await putDBEntry(this.serviceHost, this, note, onlyChunks, conflictBaseRev);
     }
 
-    async putDBEntryWithLiveBaseRevision(note: SavingEntry, baseRevision: string, onlyChunks?: boolean) {
+    async putDBEntryWithLiveBaseRevision(note: CompatibleFileToSave, baseRevision: string, onlyChunks?: boolean) {
         await this.checkPathIdentity();
         return await putDBEntryWithLiveBaseRevision(this.serviceHost, this, note, baseRevision, onlyChunks);
     }
     /** Store unknown ancestry as a fresh root; return the Metadata write result or `false`. */
-    async putDBEntryAsIndependentRoot(note: SavingEntry) {
+    async putDBEntryAsIndependentRoot(note: CompatibleFileToSave) {
         await this.checkPathIdentity();
         return await putDBEntryAsIndependentRoot(this.serviceHost, this, note);
     }

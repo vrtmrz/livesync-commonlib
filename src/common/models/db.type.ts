@@ -1,3 +1,4 @@
+import type { DocumentIdentity, FileProperties, DeletionState } from "./document.type";
 import type { TaggedType } from "octagonal-wheels/common/types";
 import type { EntryTypes, SYNCINFO_ID } from "./db.const";
 
@@ -14,12 +15,7 @@ export type EntryTypeNotesWithLegacy = EntryTypeNotes | EntryTypes["NOTE_LEGACY"
 /**
  * Represents an entry in the database.
  */
-export interface DatabaseEntry {
-    /**
-     * The ID of the document.
-     */
-    _id: DocumentID;
-
+export interface DatabaseEntry extends DocumentIdentity {
     /**
      * The revision of the document.
      */
@@ -39,24 +35,7 @@ export interface DatabaseEntry {
 /**
  * Represents the base structure for an entry that represents a file.
  */
-export type EntryBase = {
-    /**
-     * The creation time of the file.
-     */
-    ctime: number;
-    /**
-     * The modification time of the file.
-     */
-    mtime: number;
-    /**
-     * The size of the file.
-     */
-    size: number;
-    /**
-     * Deleted flag.
-     */
-    deleted?: boolean;
-};
+export type EntryBase = FileProperties & Pick<DeletionState, "deleted">;
 
 export type EdenChunk = {
     data: string;
@@ -117,14 +96,10 @@ export type PlainEntry = DatabaseEntry &
         type: EntryTypes["NOTE_PLAIN"];
     };
 
-export type InternalFileEntry = DatabaseEntry &
-    NewEntry &
-    EntryBase & {
-        deleted?: boolean;
-        // type: "newnote";
-    };
+/** Compatibility alias; feature ownership is determined by the path namespace. */
+export type InternalFileEntry = NewEntry;
 
-export type AnyEntry = NoteEntry | NewEntry | PlainEntry | InternalFileEntry;
+export type AnyEntry = NoteEntry | NewEntry | PlainEntry;
 
 export type LoadedEntry = AnyEntry & {
     data: string | string[];

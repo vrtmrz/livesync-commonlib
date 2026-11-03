@@ -2,8 +2,6 @@
 // There may be a few redundant or duplicated functions during the migration,
 // but for the most part, the code in this file should be correct as things stand.
 
-import type { MetaEntry } from "./models/db.type";
-
 export function isErrorOf(ex: unknown, statusCode: number): boolean {
     if (!ex || typeof ex !== "object") {
         throw new Error(`Expected an object error, but got ${typeof ex}`);
@@ -32,7 +30,7 @@ export function isUnauthorizedError(ex: unknown): boolean {
     return isErrorOf(ex, 401);
 }
 
-function isEntryWithPath(entry: unknown): entry is MetaEntry {
+function isEntryWithPath(entry: unknown): entry is { path: string } {
     if (!entry || typeof entry !== "object") return false;
     return "path" in entry && typeof entry.path === "string";
 }

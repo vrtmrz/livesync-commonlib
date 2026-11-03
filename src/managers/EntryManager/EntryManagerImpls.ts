@@ -1,7 +1,14 @@
+import type {
+    CompatibleFileToSave,
+    FileToSave,
+    CurrentFileDocument,
+    DeletedFileRef,
+    FileMetadataResponse,
+    MaterialisedFile,
+} from "@lib/common/models/document.type";
 import type PouchDB from "pouchdb-core";
 import { Logger, LOG_LEVEL_VERBOSE, LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
 import {
-    type SavingEntry,
     type EntryLeaf,
     type DocumentID,
     type EntryDoc,
@@ -16,6 +23,7 @@ import {
     REMOTE_COUCHDB,
     type ObsidianLiveSyncSettings,
     type MetaEntry,
+    type AnyEntry,
     RemoteTypes,
     type NoteEntry,
 } from "@lib/common/types";
@@ -53,7 +61,7 @@ type PutDBEntryRevisionTarget =
 export async function createChunks(
     managers: NecessaryManagers<"chunkManager" | "hashManager" | "splitter">,
     dispFilename: string,
-    note: SavingEntry
+    note: FileToSave
 ) {
     const { chunkManager, splitter } = managers;
     let bufferedChunk = [] as EntryLeaf[];
@@ -164,7 +172,7 @@ export async function createChunks(
 export async function putDBEntry(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
     managers: NecessaryManagers<"localDatabase" | "chunkManager" | "hashManager" | "splitter">,
-    note: SavingEntry,
+    note: CompatibleFileToSave,
     onlyChunks?: boolean,
     conflictBaseRev?: string
 ) {
@@ -183,7 +191,7 @@ export async function putDBEntry(
 export async function putDBEntryWithLiveBaseRevision(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
     managers: NecessaryManagers<"localDatabase" | "chunkManager" | "hashManager" | "splitter">,
-    note: SavingEntry,
+    note: CompatibleFileToSave,
     baseRevision: string,
     onlyChunks?: boolean
 ) {
@@ -209,7 +217,7 @@ export async function putDBEntryWithLiveBaseRevision(
 export async function putDBEntryAsIndependentRoot(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
     managers: NecessaryManagers<"localDatabase" | "chunkManager" | "hashManager" | "splitter">,
-    note: SavingEntry
+    note: CompatibleFileToSave
 ) {
     return await putDBEntryInternal(host, managers, note, false, { mode: "independent-root" });
 }
@@ -217,7 +225,7 @@ export async function putDBEntryAsIndependentRoot(
 async function putDBEntryInternal(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
     managers: NecessaryManagers<"localDatabase" | "chunkManager" | "hashManager" | "splitter">,
-    note: SavingEntry,
+    note: CompatibleFileToSave,
     onlyChunks: boolean | undefined,
     revisionTarget: PutDBEntryRevisionTarget
 ) {
@@ -257,7 +265,7 @@ async function putDBEntryInternal(
             };
         }
 
-        const newDoc: PlainEntry | NewEntry = {
+        const newDoc: CurrentFileDocument = {
             children: chunks,
             _id: note._id,
             path: note.path,
@@ -368,13 +376,13 @@ export async function prepareChunk(
     return { isNew: true, id: `${IDPrefixes.Chunk}${chunkId}` as DocumentID, piece: piece };
 }
 
-export async function getDBEntryMetaByPath(
+async function readFileDocumentByPath(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
     { localDatabase }: NecessaryManagers<"localDatabase">,
     path: FilePathWithPrefix | FilePath,
     opt?: PouchDB.Core.GetOptions,
     includeDeleted = false
-): Promise<false | LoadedEntry> {
+): Promise<false | EntryDocResponse> {
     if (!isTargetFile(host, path)) {
         return false;
     }
@@ -416,34 +424,8 @@ export async function getDBEntryMetaByPath(
             return false;
         }
 
-        // retrieve metadata only
-        if (!obj.type || (obj.type && obj.type == "notes") || obj.type == "newnote" || obj.type == "plain") {
-            const note = obj as EntryBase;
-            let children: string[] = [];
-            let type: "plain" | "newnote" = "plain";
-            if (obj.type == "newnote" || obj.type == "plain") {
-                children = obj.children;
-                type = obj.type;
-            }
-            const doc: LoadedEntry & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta = {
-                data: "",
-                _id: (note as EntryDoc)._id,
-                path: path,
-                ctime: note.ctime,
-                mtime: note.mtime,
-                size: note.size,
-                // _deleted: obj._deleted,
-                _rev: obj._rev,
-                _conflicts: obj._conflicts,
-                children: children,
-                datatype: type,
-                deleted: deleted,
-                _revisions: obj?._revisions ?? undefined,
-                _revs_info: obj?._revs_info ?? undefined,
-                type: type,
-                eden: "eden" in obj ? obj.eden : {},
-            };
-            return doc;
+        if (!obj.type || obj.type === "notes" || obj.type === "newnote" || obj.type === "plain") {
+            return obj;
         }
     } catch (ex) {
         if (isErrorOfMissingDoc(ex)) {
@@ -454,7 +436,105 @@ export async function getDBEntryMetaByPath(
     return false;
 }
 
-export function isLegacyNote(meta: LoadedEntry | MetaEntry) {
+function projectCompatibilityMetadata(
+    obj: EntryDocResponse,
+    path: FilePathWithPrefix | FilePath
+): false | (LoadedEntry & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta) {
+    const deleted = obj._deleted || (obj as unknown as { deleted?: boolean }).deleted;
+    // retrieve metadata only
+    if (!obj.type || (obj.type && obj.type == "notes") || obj.type == "newnote" || obj.type == "plain") {
+        const note = obj as EntryBase;
+        let children: string[] = [];
+        let type: "plain" | "newnote" | "notes" = "plain";
+        let datatype: "plain" | "newnote" = "plain";
+        let data: string | string[] = "";
+        if (obj.type == "newnote" || obj.type == "plain") {
+            children = obj.children;
+            type = obj.type;
+            datatype = obj.type;
+        } else if (
+            "data" in obj &&
+            (typeof obj.data === "string" ||
+                (Array.isArray(obj.data) && obj.data.every((part) => typeof part === "string")))
+        ) {
+            // Inline legacy content has no Chunk references from which to reload it.
+            // Retain its discriminator and body until the legacy reader decodes it.
+            type = "notes";
+            datatype = "newnote";
+            data = obj.data;
+        }
+        const doc: LoadedEntry & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta = {
+            data,
+            _id: (note as EntryDoc)._id,
+            path: path,
+            ctime: note.ctime,
+            mtime: note.mtime,
+            size: note.size,
+            // _deleted: obj._deleted,
+            _rev: obj._rev,
+            _conflicts: obj._conflicts,
+            children: children,
+            datatype,
+            deleted: deleted,
+            _revisions: obj?._revisions ?? undefined,
+            _revs_info: obj?._revs_info ?? undefined,
+            type: type,
+            eden: "eden" in obj ? obj.eden : {},
+        };
+        return doc;
+    }
+    return false;
+}
+
+export async function getDBEntryMetaByPath(
+    host: NecessaryServicesInterfaces<"path" | "setting", never>,
+    managers: NecessaryManagers<"localDatabase">,
+    path: FilePathWithPrefix | FilePath,
+    opt?: PouchDB.Core.GetOptions,
+    includeDeleted = false
+): Promise<false | LoadedEntry> {
+    const document = await readFileDocumentByPath(host, managers, path, opt, includeDeleted);
+    return document === false ? false : projectCompatibilityMetadata(document, path);
+}
+
+/** Read file Metadata without a content placeholder, or identify a body-less tombstone. */
+export async function getFileMetadataByPath(
+    host: NecessaryServicesInterfaces<"path" | "setting", never>,
+    managers: NecessaryManagers<"localDatabase">,
+    path: FilePathWithPrefix | FilePath,
+    opt?: PouchDB.Core.GetOptions,
+    includeDeleted = false
+): Promise<false | FileMetadataResponse | DeletedFileRef> {
+    const document = await readFileDocumentByPath(host, managers, path, opt, includeDeleted);
+    if (document === false) return false;
+    if (document._deleted === true) {
+        return { _id: document._id, _rev: document._rev, path, deleted: true, _deleted: true };
+    }
+    const projected = projectCompatibilityMetadata(document, path);
+    if (projected === false) return false;
+    if ((!document.type || document.type === "notes") && projected.type !== "notes") return false;
+    const { data, datatype: _datatype, ...metadata } = projected;
+    if (projected.type === "notes") {
+        return { ...metadata, type: "notes", children: [], data };
+    }
+    return { ...metadata, type: projected.type, children: "children" in projected ? projected.children : [] };
+}
+
+/** Reconstruct file content and retain the exact revision returned by the read. */
+export async function getFileByPath(
+    host: NecessaryServicesInterfaces<"path" | "setting", never>,
+    managers: NecessaryManagers<"localDatabase" | "chunkManager">,
+    path: FilePathWithPrefix | FilePath,
+    opt?: PouchDB.Core.GetOptions,
+    waitForReady = true,
+    localOnly = false
+): Promise<false | MaterialisedFile> {
+    const loaded = await getDBEntryByPath(host, managers, path, opt, false, waitForReady, false, localOnly);
+    if (loaded === false || (loaded.type !== "plain" && loaded.type !== "newnote") || !loaded._rev) return false;
+    return { ...loaded, _rev: loaded._rev, data: typeof loaded.data === "string" ? [loaded.data] : loaded.data };
+}
+
+export function isLegacyNote(meta: AnyEntry): meta is NoteEntry {
     return !meta.type || (meta.type && meta.type == "notes");
 }
 function complementEntryMeta(note: NoteEntry) {
@@ -647,7 +727,7 @@ async function respondEntryFromMeta(
 export async function getDBEntryFromMeta(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
     { localDatabase, chunkManager }: NecessaryManagers<"localDatabase" | "chunkManager">,
-    meta: LoadedEntry | MetaEntry,
+    meta: AnyEntry,
     dump = false,
     waitForReady = true,
     localOnly = false
@@ -660,8 +740,7 @@ export async function getDBEntryFromMeta(
 
     if (isLegacyNote(meta)) {
         // simple note
-        const note = meta as NoteEntry;
-        return respondOldFashionedEntry(note, dump);
+        return respondOldFashionedEntry(meta, dump);
     }
     if (meta.type == "newnote" || meta.type == "plain") {
         // newnote or plain

@@ -441,7 +441,11 @@ export class ChunkFetcher {
             }
             const classification = classifyFetchedChunks(pendingIDs, fetched);
             this.logFetchedChunks(pendingIDs, classification);
-            const { chunks, missingIds, invalidIds } = classification;
+            const { chunks: payloads, missingIds, invalidIds } = classification;
+            // The existing storage and arrival APIs retain their EntryLeaf contract.
+            // Preserve the original payloads, including optional revisions and type,
+            // at this compatibility adapter; classification only proves ID and data.
+            const chunks = payloads as EntryLeaf[];
             try {
                 if (chunks.length > 0 && this.options.source) {
                     await this.options.source.storeChunks(chunks);

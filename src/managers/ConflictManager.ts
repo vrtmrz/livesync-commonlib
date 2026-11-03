@@ -5,7 +5,7 @@ import {
     type EntryDoc,
     type FilePathWithPrefix,
     type diff_result_leaf,
-    type LoadedEntry,
+    type DatabaseEntry,
     MISSING_OR_ERROR,
     NOT_CONFLICTED,
     type DIFF_CHECK_RESULT_AUTO,
@@ -360,7 +360,7 @@ export class ConflictManager {
             return false;
         }
     }
-    async tryAutoMergeSensibly(path: FilePathWithPrefix, test: LoadedEntry, conflicts: string[]) {
+    async tryAutoMergeSensibly(path: FilePathWithPrefix, test: Pick<DatabaseEntry, "_rev">, conflicts: string[]) {
         const conflictedRev = conflicts[0];
         let commonBase = "";
         try {

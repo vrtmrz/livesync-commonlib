@@ -1,3 +1,4 @@
+import type { FileContentView } from "../common/models/document.type";
 import { withScope } from "octagonal-wheels/resource/scope";
 import {
     DOCID_SYNC_PARAMETERS,
@@ -6,9 +7,7 @@ import {
     NODEINFO_DOCID,
     SYNCINFO_ID,
     VERSIONING_DOCID,
-    type AnyEntry,
     type EntryDoc,
-    type LoadedEntry,
     type MetaEntry,
 } from "../common/types.ts";
 import type {
@@ -798,8 +797,9 @@ async function readObservationContent(
     }
 
     try {
-        const loaded: LoadedEntry = {
-            ...(observation.document as AnyEntry),
+        const loaded: FileContentView = {
+            path: observation.document.path,
+            type: observation.document.type,
             data,
             datatype: observation.document.type,
         };

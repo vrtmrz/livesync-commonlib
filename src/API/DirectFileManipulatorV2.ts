@@ -9,8 +9,6 @@ import {
     type EntryHasPath,
     type FilePath,
     type EntryDoc,
-    type NewEntry,
-    type PlainEntry,
     type LoadedEntry,
     DEFAULT_SETTINGS,
     type HashAlgorithm,
@@ -63,6 +61,12 @@ import { HeadlessDatabaseService } from "@lib/services/implements/headless/Headl
 import { ServiceContext } from "@lib/services/base/ServiceBase.ts";
 import type { InjectableSettingService } from "@lib/services/implements/injectable/InjectableSettingService.ts";
 import { DirectFileWatchOwner, isNoteEntry } from "./DirectFileWatchOwner.ts";
+import type {
+    CurrentFileContent,
+    CurrentFileMetadata,
+    FileMetadataResponse,
+    MaterialisedFile,
+} from "@lib/common/models/document.type";
 
 export type DirectFileManipulatorOptions = {
     url: string;
@@ -104,8 +108,8 @@ export type DirectFileManipulatorRuntimeOptions = Readonly<{
     fetch?: typeof globalThis.fetch;
 }>;
 
-export type ReadyEntry = (NewEntry | PlainEntry) & { data: string[] };
-export type MetaEntry = (NewEntry | PlainEntry) & { children: string[] };
+export type ReadyEntry = CurrentFileContent;
+export type MetaEntry = CurrentFileMetadata;
 
 function isReadyEntry(doc: EntryDoc | false): doc is ReadyEntry {
     if (!doc) return false;
@@ -368,12 +372,10 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     }
 
     /**
-     * Get specific document from the Remote Database by path.
-     * @param path
-     * @param metaOnly if it has been enabled, the note does not contains the content.
-     * @returns
+     * Read a document by path using the historical, broad `LoadedEntry` compatibility contract.
+     * Prefer `getMetadata` for Metadata or `getFile` for a reconstructed current file.
      */
-    async get(path: FilePathWithPrefix, metaOnly = false) {
+    async get(path: FilePathWithPrefix, metaOnly = false): Promise<false | LoadedEntry> {
         if (metaOnly) {
             return await this.liveSyncLocalDB.getDBEntryMeta(path);
         } else {
@@ -382,11 +384,26 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     }
 
     /**
-     * Get specific document from the Remote Database by ID.
-     * @param path
-     * @param metaOnly if it has been enabled, the note does not contains the content.
-     * @returns
+     * Read file Metadata by path using the explicit shared Metadata contract.
      */
+    async getMetadata(path: FilePathWithPrefix): Promise<false | FileMetadataResponse> {
+        return await this.liveSyncLocalDB.getFileMetadata(path);
+    }
+
+    /**
+     * Reconstruct the current file at `path` using the explicit materialised-file contract.
+     */
+    async getFile(path: FilePathWithPrefix): Promise<false | MaterialisedFile> {
+        return await this.liveSyncLocalDB.getFile(path);
+    }
+
+    /**
+     * Read a current document by ID. Metadata-only reads return current Metadata; content reads return
+     * ordered content parts. Non-current documents return `false`, while errors from the raw read propagate.
+     */
+    getById(id: string, metaOnly: true): Promise<false | MetaEntry>;
+    getById(id: string, metaOnly?: false): Promise<false | ReadyEntry>;
+    getById(id: string, metaOnly: boolean): Promise<false | MetaEntry | ReadyEntry>;
     async getById(id: string, metaOnly = false): Promise<false | MetaEntry | ReadyEntry> {
         // TODO: TREAT FOR CONFLICTED FILES or OLD REVISIONS.
         // Logger(`GET: START: ${id}`, LOG_LEVEL_VERBOSE)
@@ -399,7 +416,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         return this.getByMeta(meta);
     }
     async getByMeta(doc: MetaEntry): Promise<ReadyEntry> {
-        const docX = await this.liveSyncLocalDB.getDBEntryFromMeta(doc as LoadedEntry);
+        const docX = await this.liveSyncLocalDB.getDBEntryFromMeta(doc);
         if (!isReadyEntry(docX)) {
             throw new Error(`Corrupted document: ${doc.path}`);
         }
@@ -490,13 +507,29 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         // } while (true);
         // return;
     }
-    async *_enumerate(startKey: string, endKey: string, opt: { metaOnly: boolean }) {
+    _enumerate(startKey: string, endKey: string, opt: { metaOnly: true }): AsyncGenerator<MetaEntry, void, unknown>;
+    _enumerate(startKey: string, endKey: string, opt: { metaOnly: false }): AsyncGenerator<ReadyEntry, void, unknown>;
+    _enumerate(
+        startKey: string,
+        endKey: string,
+        opt: { metaOnly: boolean }
+    ): AsyncGenerator<MetaEntry | ReadyEntry, void, unknown>;
+    async *_enumerate(
+        startKey: string,
+        endKey: string,
+        opt: { metaOnly: boolean }
+    ): AsyncGenerator<MetaEntry | ReadyEntry, void, unknown> {
         if (opt.metaOnly) return yield* this.liveSyncLocalDB.findEntries(startKey, endKey, {});
         for await (const f of this.liveSyncLocalDB.findEntries(startKey, endKey, {})) {
             yield await this.getByMeta(f);
         }
     }
-    async *enumerateAllNormalDocs(opt: { metaOnly: boolean }) {
+    enumerateAllNormalDocs(opt: { metaOnly: true }): AsyncGenerator<MetaEntry, void, unknown>;
+    enumerateAllNormalDocs(opt: { metaOnly: false }): AsyncGenerator<ReadyEntry, void, unknown>;
+    enumerateAllNormalDocs(opt: { metaOnly: boolean }): AsyncGenerator<MetaEntry | ReadyEntry, void, unknown>;
+    async *enumerateAllNormalDocs(
+        opt: { metaOnly: boolean }
+    ): AsyncGenerator<MetaEntry | ReadyEntry, void, unknown> {
         // const opt = {};
         const targets = [
             this._enumerate("", "h:", opt),

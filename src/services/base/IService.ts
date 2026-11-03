@@ -1,3 +1,4 @@
+import type { DocumentPathRef, FileChangeRef, FileMetadataNotification } from "@lib/common/models/document.type";
 import type { ValueStore, ValueDeleter } from "@vrtmrz/value-store";
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { type LOG_LEVEL } from "octagonal-wheels/common/logger";
@@ -119,7 +120,7 @@ export interface IPathService {
         setting: PathIDSettings,
         prefix?: string
     ): Promise<DocumentID>;
-    getPath(entry: AnyEntry): FilePathWithPrefix;
+    getPath(entry: DocumentPathRef): FilePathWithPrefix;
     markChangesAreSame(
         old: UXFileInfo | AnyEntry | FilePathWithPrefix,
         newMtime: number,
@@ -309,9 +310,9 @@ export type ReplicatorFactoryCallback = (
 ) => Promise<ReplicatorInstance | undefined | false>;
 export type ReplicatorFactoryHandler = MultipleHandlerFunction<ReplicatorFactoryCallback>;
 export interface IReplicationService {
-    processSynchroniseResult(doc: MetaEntry): Promise<boolean>;
+    processSynchroniseResult(doc: FileMetadataNotification): Promise<boolean>;
 
-    processOptionalSynchroniseResult(doc: LoadedEntry): Promise<boolean>;
+    processOptionalSynchroniseResult(doc: FileChangeRef): Promise<boolean>;
     processVirtualDocument(docs: PouchDB.Core.ExistingDocument<EntryDoc>): Promise<boolean>;
     onBeforeReplicate(showMessage: boolean): Promise<boolean>;
     /** Prepare provider state which exists only for the central remote. */

@@ -223,6 +223,8 @@ await writeConsumerFile(
                 "type-smoke.ts",
                 "handler-outcome-types.ts",
                 "blob-compatibility-types.ts",
+                "document-view-contract-types.ts",
+                "dfm-document-contract-types.ts",
                 "runtime-tools-types.ts",
                 "service-feature-types.ts",
             ],
@@ -497,6 +499,17 @@ const before = {
 const contextApi = await import("${packageName}/context");
 const rootApi = await import("${packageName}");
 const settingsApi = await import("${packageName}/settings");
+const documentApi = await import("${packageName}/documents");
+const minimalChunk = { _id: "raw-id", data: "", type: "unexpected" };
+assert.equal(documentApi.inspectFetchedChunkPayload(minimalChunk).value, minimalChunk);
+assert.equal(documentApi.isFetchedChunkPayload(minimalChunk), true);
+assert.throws(() => documentApi.assertFetchedChunkPayload({ _id: "raw-id", data: 42 }), TypeError);
+assert.equal(documentApi.isRawRevisionRef({ _id: "raw-id", _rev: "opaque" }), true);
+const rawMetadata = { _id: "raw", path: "", type: "plain", ctime: 0, mtime: 0, size: 0, children: ["same", "same"], eden: {} };
+assert.equal(documentApi.inspectRawCurrentFileMetadata(rawMetadata).value, rawMetadata);
+assert.equal(documentApi.isRawCurrentFileMetadata(rawMetadata), true);
+assert.throws(() => documentApi.assertRawCurrentFileMetadata({ ...rawMetadata, children: [42] }), TypeError);
+
 const hashingApi = await import("${packageName}/hashing");
 const diagnosticsApi = await import("${packageName}/diagnostics");
 const usage = await diagnosticsApi.analyseDatabaseUsage({ source: {
@@ -716,6 +729,8 @@ await writeConsumerFile(
 
 for (const filename of [
     "blob-compatibility-types.ts",
+    "document-view-contract-types.ts",
+    "dfm-document-contract-types.ts",
     "blob-compatibility-runtime.mjs",
     "runtime-tools-types.ts",
     "runtime-tools-runtime.mjs",
@@ -949,6 +964,7 @@ assert.deepEqual(
         "./conflicts",
         "./context",
         "./diagnostics",
+        "./documents",
         "./hashing",
         "./node",
         "./p2p",
@@ -962,7 +978,7 @@ assert.deepEqual(
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 15);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 16);
 
 console.log(
     JSON.stringify(

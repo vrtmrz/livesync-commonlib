@@ -1,7 +1,7 @@
 import { Minimatch, type MinimatchOptions } from "minimatch";
+import type { DocumentPathRef } from "@lib/common/models/document.type";
 import { getWebCrypto } from "@lib/mods.ts";
 import {
-    type AnyEntry,
     type DocumentID,
     type EntryHasPath,
     type FilePath,
@@ -129,10 +129,10 @@ export function id2path_base(id: DocumentID, entry?: EntryHasPath): FilePathWith
     return (prefix + body) as FilePathWithPrefix;
 }
 
-export function getPath(entry: AnyEntry) {
+export function getPath(entry: DocumentPathRef) {
     return id2path_base(entry._id, entry);
 }
-export function getPathWithoutPrefix(entry: AnyEntry) {
+export function getPathWithoutPrefix(entry: DocumentPathRef) {
     const f = getPath(entry);
     return stripAllPrefixes(f);
 }

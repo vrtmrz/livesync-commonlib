@@ -11,6 +11,8 @@ import {
     isTargetFile,
     prepareChunk,
     getDBEntryMetaByPath,
+    getFileMetadataByPath,
+    getFileByPath,
     getDBEntryFromMeta,
     getDBEntryByPath,
     deleteDBEntryByPath,
@@ -21,6 +23,7 @@ import {
 } from "./EntryManagerImpls";
 import type {
     DocumentID,
+    AnyEntry,
     EntryDoc,
     FilePathWithPrefix,
     LoadedEntry,
@@ -41,17 +44,28 @@ import { LayeredChunkManager } from "@lib/managers/LayeredChunkManager";
 import { HashManager } from "@lib/managers/HashManager/HashManager";
 import type { IPathService, ISettingService } from "@lib/services/base/IService";
 import { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters";
-import { createTextBlob, isDocContentSame } from "@lib/common/utils";
+import { createTextBlob, isDocContentSame, readAsBlob } from "@lib/common/utils";
 import type { NecessaryServicesInterfaces } from "@lib/interfaces/ServiceModule";
 import type { WriteResult } from "@lib/managers/LayeredChunkManager/types";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
 import { EntryManager } from "./EntryManager";
 import { ConflictManager } from "@lib/managers/ConflictManager";
+import { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
+import { DirectFileManipulator } from "@lib/API/DirectFileManipulatorV2";
+import { createLiveSyncEventHub } from "@lib/hub/hub";
+import {
+    ServiceDatabaseFileAccessBase,
+    type ServiceDatabaseFileAccessDependencies,
+} from "@lib/serviceModules/ServiceDatabaseFileAccessBase";
+
 
 // Set up PouchDB with memory adapter
 PouchDB.plugin(MemoryAdapter);
 PouchDB.plugin(HttpAdapter);
-PouchDB.plugin(replication);
+// Public read facades can register the replication getter before this fixture.
+if (!Object.getOwnPropertyDescriptor(PouchDB.prototype, "replicate")) {
+    PouchDB.plugin(replication);
+}
 let dbCounter = 0;
 
 /**
@@ -164,6 +178,222 @@ describe("EntryManagerImpls", () => {
     afterEach(async () => {
         chunkManager?.destroy();
         await db.destroy();
+    });
+
+    describe("legacy inline-content read contracts", () => {
+        it.each(["notes", undefined] as const)(
+            "preserves inline content through path lookup for type=%s",
+            async (type) => {
+                const path = "legacy-inline.md" as FilePathWithPrefix;
+                const data = "Legacy content 日本語";
+                const legacy = {
+                    _id: path as unknown as DocumentID,
+                    path,
+                    ctime: 1,
+                    mtime: 2,
+                    size: new TextEncoder().encode(data).length,
+                    eden: {},
+                    data,
+                    ...(type ? { type } : {}),
+                };
+                await db.put(legacy as EntryDoc);
+                const host = createHost(mockSettingService, mockPathService);
+                const managers = { localDatabase: db, chunkManager };
+
+                const direct = await getDBEntryFromMeta(host, managers, legacy as AnyEntry);
+                expect(direct).not.toBe(false);
+                expect(direct && direct.data).toBe(data);
+                expect((await db.get(legacy._id) as { data?: string }).data).toBe(data);
+
+                const loaded = await getDBEntryByPath(host, managers, path);
+                expect(loaded).not.toBe(false);
+                expect(loaded && (Array.isArray(loaded.data) ? loaded.data.join("") : loaded.data)).toBe(data);
+            }
+        );
+    });
+
+    describe("historical Base64 inline-content reads", () => {
+        it.each(["notes", undefined] as const)(
+            "preserves decoded legacy bytes through path lookup for type=%s",
+            async (type) => {
+                const path = "legacy-attachment.bin" as FilePathWithPrefix;
+                const expected = new Uint8Array([0, 255, 1]);
+                const legacy = {
+                    _id: path as unknown as DocumentID,
+                    path,
+                    ctime: 1,
+                    mtime: 2,
+                    size: expected.byteLength,
+                    eden: {},
+                    data: "AP8B",
+                    ...(type ? { type } : {}),
+                };
+                await db.put(legacy as EntryDoc);
+                const host = createHost(mockSettingService, mockPathService);
+                const managers = { localDatabase: db, chunkManager };
+                const direct = await getDBEntryFromMeta(host, managers, legacy as AnyEntry);
+                expect(direct).not.toBe(false);
+                if (direct === false) throw new Error("Expected direct legacy content");
+                expect(new Uint8Array(await readAsBlob(direct).arrayBuffer())).toEqual(expected);
+
+                const loaded = await getDBEntryByPath(host, managers, path);
+                expect(loaded).not.toBe(false);
+                if (loaded === false) throw new Error("Expected path legacy content");
+                expect(new Uint8Array(await readAsBlob(loaded).arrayBuffer())).toEqual(expected);
+            }
+        );
+    });
+
+    function publicReadApis() {
+        const entryManager = new EntryManager({
+            database: db,
+            chunkManager,
+            hashManager,
+            splitter,
+            settingService: mockSettingService,
+            pathService: mockPathService,
+        });
+        const local = Object.create(LiveSyncLocalDB.prototype) as LiveSyncLocalDB;
+        Object.defineProperty(local, "managers", { value: { entryManager } });
+        const direct = Object.create(DirectFileManipulator.prototype) as DirectFileManipulator;
+        direct.liveSyncLocalDB = local;
+        const access = new ServiceDatabaseFileAccessBase({
+            events: createLiveSyncEventHub(),
+            API: { addLog: vi.fn() },
+            vault: { isTargetFile: vi.fn().mockResolvedValue(true) },
+            storageAccess: {},
+            path: mockPathService,
+            database: { localDatabase: local },
+        } as unknown as ServiceDatabaseFileAccessDependencies);
+        return { local, direct, access };
+    }
+
+    describe("public file read contracts", () => {
+        it.each(["notes", undefined] as const)(
+            "compatibility: reads inline Base64 through public APIs for type=%s",
+            async (type) => {
+                const path = "public-legacy.bin" as FilePathWithPrefix;
+                const stored = await db.put({
+                    _id: path as unknown as DocumentID,
+                    path,
+                    ctime: 1,
+                    mtime: 2,
+                    size: 3,
+                    data: "AP8B",
+                    ...(type ? { type } : {}),
+                } as EntryDoc);
+                const { local, direct, access } = publicReadApis();
+                const chunks = vi.spyOn(chunkManager, "read");
+                const results = [
+                    await local.getDBEntry(path),
+                    await direct.get(path),
+                    await access.fetchEntry(path, undefined, true, true),
+                    await local.getFile(path),
+                    await direct.getFile(path),
+                ];
+                for (const result of results) {
+                    expect(result).not.toBe(false);
+                    if (result === false) throw new Error("Expected legacy content");
+                    expect(result._rev).toBe(stored.rev);
+                    expect(new Uint8Array(await readAsBlob(result).arrayBuffer())).toEqual(new Uint8Array([0, 255, 1]));
+                }
+                expect(chunks).not.toHaveBeenCalled();
+                expect((await db.get(stored.id) as { data?: string }).data).toBe("AP8B");
+            }
+        );
+
+        it.each(["notes", undefined] as const)("compatibility: retains empty inline content for type=%s", async (type) => {
+            const path = "empty-legacy.bin" as FilePathWithPrefix;
+            await db.put({
+                _id: path as unknown as DocumentID,
+                path,
+                ctime: 1,
+                mtime: 2,
+                size: 0,
+                data: "",
+                ...(type ? { type } : {}),
+            } as EntryDoc);
+            const { local } = publicReadApis();
+            const result = await local.getFile(path);
+            expect(result).not.toBe(false);
+            if (result === false) throw new Error("Expected empty legacy content");
+            expect(result.data).toEqual([""]);
+            expect(readAsBlob(result).size).toBe(0);
+        });
+
+        it("keeps current Metadata separate from its materialised content", async () => {
+            const { _id, path, ctime, mtime, size, data } = createSavingEntry("current-contract.md", "current content");
+            const entry = { _id, path, ctime, mtime, size, data };
+            const host = createHost(mockSettingService, mockPathService);
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+            const raw = await db.get(entry._id);
+            expect(raw).not.toHaveProperty("data");
+            expect(raw).not.toHaveProperty("datatype");
+            const { local, direct } = publicReadApis();
+            const metadata = await local.getFileMetadata(entry.path);
+            expect(metadata).not.toBe(false);
+            expect(metadata).not.toHaveProperty("data");
+            expect(metadata).not.toHaveProperty("datatype");
+            expect(metadata).toMatchObject({ type: "plain", path: entry.path });
+            const file = await direct.getFile(entry.path);
+            expect(file).not.toBe(false);
+            if (file === false || metadata === false) throw new Error("Expected current file");
+            expect(file._rev).toBe(metadata._rev);
+            expect(Array.isArray(file.data)).toBe(true);
+            expect(await readAsBlob(file).text()).toBe("current content");
+        });
+
+        it("reads the exact requested legacy revision through the file-access boundary", async () => {
+            const path = "legacy-history.bin" as FilePathWithPrefix;
+            const legacy = { _id: path as unknown as DocumentID, path, type: "notes" as const, ctime: 1, mtime: 2, size: 3, data: "AP8B" };
+            const first = await db.put(legacy as EntryDoc);
+            await db.put({ ...legacy, _rev: first.rev, data: "BAgQ", mtime: 3 } as EntryDoc);
+            const { access } = publicReadApis();
+            const selected = await access.fetchEntry(path, first.rev, true, true);
+            expect(selected).not.toBe(false);
+            if (selected === false) throw new Error("Expected selected legacy revision");
+            expect(selected._rev).toBe(first.rev);
+            expect(new Uint8Array(await readAsBlob(selected).arrayBuffer())).toEqual(new Uint8Array([0, 255, 1]));
+        });
+
+        it("retains logical-deletion content only for an explicit included read", async () => {
+            const path = "deleted-legacy.bin" as FilePathWithPrefix;
+            await db.put({ _id: path as unknown as DocumentID, path, type: "notes", ctime: 1, mtime: 2, size: 3, data: "AP8B", deleted: true } as EntryDoc);
+            const host = createHost(mockSettingService, mockPathService);
+            const managers = { localDatabase: db, chunkManager };
+            expect(await getDBEntryByPath(host, managers, path)).toBe(false);
+            const included = await getDBEntryByPath(host, managers, path, undefined, false, true, true);
+            expect(included).toMatchObject({ deleted: true, data: "AP8B" });
+            expect(await getFileByPath(host, managers, path)).toBe(false);
+            const metadata = await getFileMetadataByPath(host, managers, path, undefined, true);
+            expect(metadata).toMatchObject({ type: "notes", deleted: true, data: "AP8B" });
+            expect(metadata).not.toHaveProperty("_deleted", true);
+        });
+
+        it.each(["notes", undefined])("does not invent current Metadata for an inline document without content (%s)", async (type) => {
+            const path = "incomplete-legacy.md" as FilePathWithPrefix;
+            await db.put({ _id: path as unknown as DocumentID, path, type, ctime: 1, mtime: 2, size: 0 } as EntryDoc);
+            const { local } = publicReadApis();
+            expect(await local.getFileMetadata(path)).toBe(false);
+        });
+
+        it("represents an included tombstone without fabricated file content or properties", async () => {
+            const entry = createSavingEntry("tombstone-contract.md", "before deletion");
+            const host = createHost(mockSettingService, mockPathService);
+            const stored = await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+            if (stored === false) throw new Error("Expected the fixture to be stored");
+            const removed = await db.remove(entry._id, stored.rev);
+            const { local } = publicReadApis();
+            expect(await local.getFileMetadata(entry.path)).toBe(false);
+            expect(await local.getFile(entry.path)).toBe(false);
+            expect(await local.getFileMetadata(entry.path, undefined, true)).toEqual({
+                _id: entry._id,
+                _rev: removed.rev,
+                path: entry.path,
+                _deleted: true,
+                deleted: true,
+            });
+        });
     });
 
     describe("isTargetFile", () => {

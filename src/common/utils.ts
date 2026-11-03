@@ -1,3 +1,4 @@
+import type { ContentDescription, DeletionState, FileContentView } from "./models/document.type";
 import { LRUCache } from "octagonal-wheels/memory/LRUCache";
 import { isPlainText } from "@lib/string_and_binary/path.ts";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
@@ -115,21 +116,21 @@ export function createBlob(data: string | string[] | Uint8Array<ArrayBuffer> | A
     return toBlob(data);
 }
 
-export function isTextDocument(doc: LoadedEntry) {
+export function isTextDocument(doc: ContentDescription) {
     if (doc.type == "plain") return true;
     if (doc.datatype == "plain") return true;
     if (isPlainText(doc.path)) return true;
     return false;
 }
 
-export function readAsBlob(doc: LoadedEntry) {
+export function readAsBlob(doc: FileContentView) {
     if (isTextDocument(doc)) {
         return createTextBlob(doc.data);
     } else {
         return createBinaryBlob(decodeBinary(doc.data));
     }
 }
-export function readContent(doc: LoadedEntry) {
+export function readContent(doc: FileContentView) {
     if (isTextDocument(doc)) {
         return getDocData(doc.data);
     } else {
@@ -338,7 +339,7 @@ export function isLoadedEntry(doc: DatabaseEntry): doc is LoadedEntry {
     return "type" in doc && (doc.type == "newnote" || doc.type == "plain") && "data" in doc;
 }
 
-export function isDeletedEntry(doc: LoadedEntry): boolean {
+export function isDeletedEntry(doc: DeletionState): boolean {
     return doc._deleted || doc.deleted || false;
 }
 export function createSavingEntryFromLoadedEntry(doc: LoadedEntry): SavingEntry {

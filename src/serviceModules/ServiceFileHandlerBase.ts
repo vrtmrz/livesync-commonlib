@@ -1,7 +1,7 @@
+import type { DocumentPathRef, FileMetadataNotification } from "@lib/common/models/document.type";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import { withLocks } from "octagonal-wheels/concurrency/lock";
 import type {
-    AnyEntry,
     FileEventItem,
     FilePath,
     FilePathWithPrefix,
@@ -400,10 +400,10 @@ export abstract class ServiceFileHandlerBase
         return await this.storeFileToDBFromRevision(fresh, false, false, preferredBasePath, true, snapshotRetry + 1);
     }
 
-    getPath(entry: AnyEntry): FilePathWithPrefix {
+    getPath(entry: DocumentPathRef): FilePathWithPrefix {
         return this.path.getPath(entry);
     }
-    getPathWithoutPrefix(entry: AnyEntry): FilePathWithPrefix {
+    getPathWithoutPrefix(entry: DocumentPathRef): FilePathWithPrefix {
         return stripAllPrefixes(this.path.getPath(entry));
     }
 
@@ -1080,7 +1080,7 @@ export abstract class ServiceFileHandlerBase
     }
 
     async dbToStorage(
-        entryInfo: MetaEntry | FilePathWithPrefix,
+        entryInfo: DocumentPathRef | FilePathWithPrefix,
         info: UXFileInfoStub | UXFileInfo | FilePath | null,
         force?: boolean
     ): Promise<boolean> {
@@ -1092,7 +1092,7 @@ export abstract class ServiceFileHandlerBase
 
     /** Fetch the current metadata and reflect it while the caller holds its lock. */
     private async dbToStorageCore(
-        entryInfo: MetaEntry | FilePathWithPrefix,
+        entryInfo: DocumentPathRef | FilePathWithPrefix,
         info: UXFileInfoStub | UXFileInfo | FilePath | null,
         force?: boolean
     ): Promise<boolean> {
@@ -1820,7 +1820,7 @@ export abstract class ServiceFileHandlerBase
         this._log(ex, LOG_LEVEL_VERBOSE);
     }
 
-    async _anyProcessReplicatedDoc(entry: MetaEntry): Promise<boolean> {
+    async _anyProcessReplicatedDoc(entry: FileMetadataNotification): Promise<boolean> {
         return await this.serializedByFileEventPaths([this.getPath(entry)], async () => {
             if (!(await this.vault.isTargetFile(entry.path))) {
                 this._log(`File ${entry.path} is not the target file`, LOG_LEVEL_VERBOSE);

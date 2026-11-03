@@ -1,3 +1,4 @@
+import type { DocumentPathRef } from "@lib/common/models/document.type";
 import type {
     DocumentID,
     EntryHasPath,
@@ -106,7 +107,7 @@ export abstract class PathService<T extends ServiceContext = ServiceContext>
         );
     }
 
-    getPath(entry: AnyEntry): FilePathWithPrefix {
+    getPath(entry: DocumentPathRef): FilePathWithPrefix {
         return this.id2path(entry._id, entry);
     }
 

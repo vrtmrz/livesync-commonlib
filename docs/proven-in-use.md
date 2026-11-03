@@ -1,5 +1,30 @@
 # Maintained-host examples and evidence
 
+## Document information contracts
+
+The unreleased `/documents` entry exposes information views, save/read
+contracts, and raw shape checks. Commonlib's unit suites cover minimal Chunk
+responses, revision and current-Metadata shapes, invalid fields, empty content,
+original-object identity, and differing `type`/`datatype` interpretation.
+These contracts do not establish successful persistence or replace provenance
+checks.
+
+Memory-PouchDB tests reproduce the oldest `notes` and missing-`type` path-read
+failure before its correction. They verify text and Base64 bytes through the
+EntryManager, public LiveSyncLocalDB, DFM, and database-file-access methods,
+including exact-revision restoration, empty content, and deletion distinctions.
+The public-method fixture injects the local managers; it does not exercise host
+initialisation, network replication, or the Obsidian lifecycle. DFM tests retain
+ID admission, callback, enumeration, and raw-error policies.
+
+Packed consumer fixtures check minimal helper and save inputs, Metadata/content
+separation, required read revisions, DFM mode-specific results, and raw IDs which
+remain unbranded. Runtime smoke checks exercise the focused validators. The
+Self-hosted LiveSync consumer adopts smaller path and notification contracts,
+while ordinary reflection continues to re-read current state. This candidate
+has not been published or qualified by real Obsidian runs; exact dependency
+adoption remains a separate integration step.
+
 Commonlib is extracted from the implementation shared by [Self-hosted LiveSync](https://github.com/vrtmrz/obsidian-livesync) and its host applications. The package is therefore exercised by a substantial maintained consumer, but it does not yet claim a separate ecosystem of independent applications or a stable end-to-end SDK.
 
 The useful evidence is host- and contract-specific. Focused Commonlib tests establish reusable result semantics; Self-hosted LiveSync tests establish how those contracts compose into the Obsidian plug-in, CLI, WebApp, and WebPeer. The Obsidian plug-in and CLI retain the strongest device and long-running synchronisation evidence. The browser applications add focused adapter and runtime tests, browser smoke tests, a cross-application P2P scenario ending at the production CLI, and public Pages smoke validation.

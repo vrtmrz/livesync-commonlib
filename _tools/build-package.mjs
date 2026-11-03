@@ -179,6 +179,7 @@ function createExports() {
         "./conflicts": exportTarget("conflicts"),
         "./context": exportTarget("context"),
         "./diagnostics": exportTarget("diagnostics/index"),
+        "./documents": exportTarget("documents"),
         "./hashing": exportTarget("hashing"),
         "./node": exportTarget("platform/node/index"),
         "./p2p": exportTarget("p2p/index"),
@@ -282,6 +283,7 @@ async function copyStaticFiles() {
         "service-feature-composition.md",
         "settings-lifecycle.md",
         "setup-uri.md",
+        "documents.md",
         "storage-events-and-reflection.md",
         "unicode-path-identity.md",
     ]) {

@@ -1,3 +1,10 @@
+import type {
+    CompatibleFileToSave,
+    FileToSave,
+    DeletedFileRef,
+    FileMetadataResponse,
+    MaterialisedFile,
+} from "@lib/common/models/document.type";
 import {
     type EntryDoc,
     type EntryLeaf,
@@ -11,8 +18,7 @@ import {
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
     type LoadedEntry,
-    type MetaEntry,
-    type SavingEntry,
+    type AnyEntry,
     type diff_result_leaf,
     SuffixDatabaseName,
 } from "@lib/common/types.ts";
@@ -613,6 +619,38 @@ export class LiveSyncLocalDB {
     isTargetFile(filenameSrc: string) {
         return this.managers.entryManager.isTargetFile(filenameSrc);
     }
+    getFileMetadata(
+        path: FilePathWithPrefix | FilePath,
+        opt?: PouchDB.Core.GetOptions,
+        includeDeleted?: false
+    ): Promise<false | FileMetadataResponse>;
+    getFileMetadata(
+        path: FilePathWithPrefix | FilePath,
+        opt: PouchDB.Core.GetOptions | undefined,
+        includeDeleted: true
+    ): Promise<false | FileMetadataResponse | DeletedFileRef>;
+    getFileMetadata(
+        path: FilePathWithPrefix | FilePath,
+        opt: PouchDB.Core.GetOptions | undefined,
+        includeDeleted: boolean
+    ): Promise<false | FileMetadataResponse | DeletedFileRef>;
+    async getFileMetadata(
+        path: FilePathWithPrefix | FilePath,
+        opt?: PouchDB.Core.GetOptions,
+        includeDeleted = false
+    ): Promise<false | FileMetadataResponse | DeletedFileRef> {
+        return await this.managers.entryManager.getFileMetadata(path, opt, includeDeleted);
+    }
+
+    async getFile(
+        path: FilePathWithPrefix | FilePath,
+        opt?: PouchDB.Core.GetOptions,
+        waitForReady = true,
+        localOnly = false
+    ): Promise<false | MaterialisedFile> {
+        return await this.managers.entryManager.getFile(path, opt, waitForReady, localOnly);
+    }
+
     async getDBEntryMeta(
         path: FilePathWithPrefix | FilePath,
         opt?: PouchDB.Core.GetOptions,
@@ -632,7 +670,7 @@ export class LiveSyncLocalDB {
         return await this.managers.entryManager.getDBEntry(path, opt, dump, waitForReady, includeDeleted, localOnly);
     }
     async getDBEntryFromMeta(
-        meta: LoadedEntry | MetaEntry,
+        meta: AnyEntry,
         dump = false,
         waitForReady = true,
         localOnly = false
@@ -645,14 +683,14 @@ export class LiveSyncLocalDB {
     async storeDeletionAtRevision(path: FilePathWithPrefix | FilePath, baseRevision: string) {
         return await this.managers.entryManager.storeDeletionAtRevision(path, baseRevision);
     }
-    async putDBEntry(note: SavingEntry, onlyChunks?: boolean, conflictBaseRev?: string) {
+    async putDBEntry(note: CompatibleFileToSave, onlyChunks?: boolean, conflictBaseRev?: string) {
         return await this.managers.entryManager.putDBEntry(note, onlyChunks, conflictBaseRev);
     }
-    async putDBEntryWithLiveBaseRevision(note: SavingEntry, baseRevision: string, onlyChunks?: boolean) {
+    async putDBEntryWithLiveBaseRevision(note: CompatibleFileToSave, baseRevision: string, onlyChunks?: boolean) {
         return await this.managers.entryManager.putDBEntryWithLiveBaseRevision(note, baseRevision, onlyChunks);
     }
     /** Preserve existing branches and delegate a fresh root write to the entry manager. */
-    async putDBEntryAsIndependentRoot(note: SavingEntry) {
+    async putDBEntryAsIndependentRoot(note: CompatibleFileToSave) {
         return await this.managers.entryManager.putDBEntryAsIndependentRoot(note);
     }
 

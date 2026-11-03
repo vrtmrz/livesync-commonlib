@@ -1,4 +1,4 @@
-import type { SavingEntry } from "@lib/common/types";
+import type { SplitSource } from "@lib/common/models/document.type";
 import type { ContentSplitterOptions } from "./ContentSplitter";
 import { ContentSplitterCore, type ContentSplitterBase } from "./ContentSplitterBase";
 import { ContentSplitterRabinKarp } from "./ContentSplitterRabinKarp";
@@ -30,7 +30,7 @@ export class ContentSplitter extends ContentSplitterCore {
         return this._activeSplitter.initialise(options);
     }
     async splitContent(
-        entry: SavingEntry
+        entry: SplitSource
     ): Promise<AsyncGenerator<string, void, unknown> | Generator<string, void, unknown>> {
         await this.initialised;
         return this._activeSplitter.splitContent(entry);

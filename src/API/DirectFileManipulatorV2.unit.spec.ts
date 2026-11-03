@@ -247,6 +247,22 @@ describe("DirectFileManipulator", () => {
         expect(getByMeta).not.toHaveBeenCalled();
     });
 
+    it("returns false for non-current IDs and propagates missing raw reads", async () => {
+        const missing = Object.assign(new Error("missing document"), { status: 404, name: "not_found" });
+        const getRaw = vi.fn().mockResolvedValue({ _id: "h:chunk", type: "leaf", data: "body" });
+        const getByMeta = vi.fn();
+        const manipulator = Object.assign(Object.create(DirectFileManipulator.prototype), {
+            liveSyncLocalDB: { getRaw },
+            getByMeta,
+        }) as DirectFileManipulator;
+
+        await expect(manipulator.getById("h:chunk", true)).resolves.toBe(false);
+        expect(getByMeta).not.toHaveBeenCalled();
+
+        getRaw.mockRejectedValueOnce(missing);
+        await expect(manipulator.getById("h:missing", true)).rejects.toBe(missing);
+    });
+
     it("enables path obfuscation when an obfuscation passphrase is supplied", () => {
         const options: DirectFileManipulatorOptions = {
             url: "https://example.com/couchdb",

@@ -63,7 +63,7 @@ export interface EntryNodeInfo extends DatabaseEntry {
     v20220607?: boolean;
 }
 
-export type EntryBody = NoteEntry | NewEntry | PlainEntry | InternalFileEntry;
+export type EntryBody = AnyEntry;
 
 export type EntryDoc =
     | EntryBody

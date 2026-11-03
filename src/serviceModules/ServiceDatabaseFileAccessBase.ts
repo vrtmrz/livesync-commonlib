@@ -1,9 +1,9 @@
+import type { FileToSave, DeletionState } from "@lib/common/models/document.type";
 import type {
     UXFileInfoStub,
     FilePathWithPrefix,
     UXFileInfo,
     DocumentID,
-    SavingEntry,
     MetaEntry,
     LoadedEntry,
     FilePath,
@@ -234,17 +234,13 @@ export class ServiceDatabaseFileAccessBase
         const idMain = await this.path.path2id(fullPath);
 
         const id = (idPrefix + idMain) as DocumentID;
-        const d: SavingEntry = {
+        const d: FileToSave & DeletionState = {
             _id: id,
             path: fullPathOnDB,
             data: content,
             ctime: file.stat.ctime,
             mtime: file.stat.mtime,
             size: file.stat.size,
-            children: [],
-            datatype: datatype,
-            type: datatype,
-            eden: {},
         };
         //upsert should locked
         const msg = `STORAGE -> DB (${datatype}) `;

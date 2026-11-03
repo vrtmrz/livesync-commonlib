@@ -1,4 +1,5 @@
-import type { DocumentID, EntryLeaf } from "@lib/common/types.ts";
+import type { DocumentID } from "@lib/common/types.ts";
+import type { FetchedChunkPayload } from "@lib/common/models/document.type";
 
 const REMOTE_MISSING_RETRY_STEP_MS = 2_000;
 const REMOTE_MISSING_RETRY_MAX_DELAY_MS = 10_000;
@@ -28,14 +29,14 @@ export function decideMissingChunkAction({
 }
 
 export type FetchedChunkClassification = {
-    chunks: EntryLeaf[];
+    chunks: FetchedChunkPayload[];
     invalidChunks: unknown[];
     missingIds: DocumentID[];
     invalidIds: DocumentID[];
 };
 
-function isValidChunk(chunk: unknown): chunk is EntryLeaf {
-    const candidate = chunk as Partial<EntryLeaf> | null | undefined;
+function isValidChunk(chunk: unknown): chunk is FetchedChunkPayload {
+    const candidate = chunk as Partial<FetchedChunkPayload> | null | undefined;
     return !!candidate && typeof candidate._id === "string" && typeof candidate.data === "string";
 }
 
@@ -43,11 +44,11 @@ export function classifyFetchedChunks(
     requestedIds: readonly DocumentID[],
     fetched: readonly unknown[]
 ): FetchedChunkClassification {
-    const chunks: EntryLeaf[] = [];
+    const chunks: FetchedChunkPayload[] = [];
     const invalidChunks: unknown[] = [];
-    const observedIds = new Set<DocumentID>();
+    const observedIds = new Set<string>();
     for (const chunk of fetched) {
-        const candidate = chunk as Partial<EntryLeaf> | null | undefined;
+        const candidate = chunk as Partial<FetchedChunkPayload> | null | undefined;
         if (typeof candidate?._id === "string") observedIds.add(candidate._id);
         if (isValidChunk(chunk)) chunks.push(chunk);
         else invalidChunks.push(chunk);
