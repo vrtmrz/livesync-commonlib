@@ -531,6 +531,22 @@ describe("LiveSyncCouchDBReplicator remote administration settlement", () => {
 });
 
 describe("LiveSyncCouchDBReplicator connection settings", () => {
+    it.each(["sync", "pullOnly", "pushOnly"] as const)(
+        "refreshes the Seed before %s connectivity checks, including explicit reconstruction",
+        async (syncMode) => {
+            const replicator = createOneShotReplicator({ close: vi.fn().mockResolvedValue(undefined) });
+            vi.spyOn(replicator, "processSync").mockResolvedValue("DONE");
+            const setting = { useRequestAPI: true, batch_size: 20, batches_limit: 20 } as RemoteDBSettings;
+
+            await expect(replicator.openOneShotReplication(setting, false, false, syncMode)).resolves.toBe(true);
+
+            expect(replicator.ensurePBKDF2Salt).toHaveBeenCalledWith(setting, false, false);
+            expect(vi.mocked(replicator.ensurePBKDF2Salt).mock.invocationCallOrder[0]).toBeLessThan(
+                vi.mocked(replicator.checkReplicationConnectivity).mock.invocationCallOrder[0]
+            );
+        }
+    );
+
     it("settles an invalid connection setting through the asynchronous facet contract", async () => {
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         const connection = replicator.connectRemoteCouchDBWithSetting(
@@ -546,61 +562,68 @@ describe("LiveSyncCouchDBReplicator connection settings", () => {
         await expect(connection).resolves.toBe("Empty passphrases cannot be used without explicit permission");
     });
 
-    it("projects the supplied setting's effective encryption options into the owned connection", async () => {
-        const connect = vi.fn().mockResolvedValue("unused");
-        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
-        replicator.env = {
-            services: {
-                remote: { connect },
-            },
-        } as unknown as LiveSyncCouchDBReplicator["env"];
-        const setting = {
-            couchDB_URI: "https://example.test",
-            couchDB_DBNAME: "remote",
-            couchDB_CustomHeaders: "",
-            couchDB_USER: "user",
-            couchDB_PASSWORD: "password",
-            disableRequestURI: false,
-            enableCompression: false,
-            encrypt: false,
-            E2EEAlgorithm: E2EEAlgorithms.ForceV1,
-            passphrase: "",
-            permitEmptyPassphrase: false,
-            useDynamicIterationCount: false,
-            useJWT: false,
-            useRequestAPI: false,
-        } as RemoteDBSettings;
+    it.each([undefined, false, true])(
+        "projects the supplied setting's encryption and cache policy into the owned connection (%s)",
+        async (headersOnly) => {
+            const connect = vi.fn().mockResolvedValue("unused");
+            const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+            replicator.env = {
+                services: {
+                    remote: { connect },
+                },
+            } as unknown as LiveSyncCouchDBReplicator["env"];
+            const setting = {
+                couchDB_URI: "https://example.test",
+                couchDB_DBNAME: "remote",
+                couchDB_CustomHeaders: "",
+                couchDB_USER: "user",
+                couchDB_PASSWORD: "password",
+                disableRequestURI: false,
+                enableCompression: false,
+                encrypt: false,
+                E2EEAlgorithm: E2EEAlgorithms.ForceV1,
+                passphrase: "",
+                permitEmptyPassphrase: false,
+                useDynamicIterationCount: false,
+                useJWT: false,
+                useRequestAPI: false,
+                useCouchDBCacheControlHeadersOnly: headersOnly,
+            } as RemoteDBSettings;
 
-        await replicator.connectRemoteCouchDBWithSetting(setting, false, false, true, {
-            allowNativeFallback: false,
-            encryptionAlgorithm: E2EEAlgorithms.V2,
-        });
+            await replicator.connectRemoteCouchDBWithSetting(setting, false, false, true, {
+                allowNativeFallback: false,
+                encryptionAlgorithm: E2EEAlgorithms.V2,
+                useCouchDBCacheControlHeadersOnly: !headersOnly,
+            });
 
-        expect(connect.mock.calls[0][11]).toEqual({
-            allowNativeFallback: false,
-            encryptionAlgorithm: E2EEAlgorithms.ForceV1,
-            encryptInternalMetadata: false,
-        });
+            expect(connect.mock.calls[0][11]).toEqual({
+                allowNativeFallback: false,
+                encryptionAlgorithm: E2EEAlgorithms.ForceV1,
+                encryptInternalMetadata: false,
+                useCouchDBCacheControlHeadersOnly: headersOnly === true,
+            });
 
-        await replicator.connectRemoteCouchDBWithSetting(
-            {
-                ...setting,
-                encrypt: true,
-                E2EEAlgorithm: E2EEAlgorithms.V2,
-                usePathObfuscation: true,
+            await replicator.connectRemoteCouchDBWithSetting(
+                {
+                    ...setting,
+                    encrypt: true,
+                    E2EEAlgorithm: E2EEAlgorithms.V2,
+                    usePathObfuscation: true,
+                    encryptInternalMetadata: true,
+                    passphrase: "secret",
+                },
+                false,
+                false,
+                true
+            );
+
+            expect(connect.mock.calls[1][11]).toMatchObject({
+                encryptionAlgorithm: E2EEAlgorithms.V2,
                 encryptInternalMetadata: true,
-                passphrase: "secret",
-            },
-            false,
-            false,
-            true
-        );
-
-        expect(connect.mock.calls[1][11]).toMatchObject({
-            encryptionAlgorithm: E2EEAlgorithms.V2,
-            encryptInternalMetadata: true,
-        });
-    });
+                useCouchDBCacheControlHeadersOnly: headersOnly === true,
+            });
+        }
+    );
 });
 
 describe("LiveSyncCouchDBReplicator remote preferred tweak values", () => {

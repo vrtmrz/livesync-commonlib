@@ -1,5 +1,13 @@
 # Updates
 
+## Unreleased
+
+### Fixed
+
+- Encrypted CouchDB reads no longer reuse responses from a previous Security Seed when a remote Rebuild preserves document revisions. (Self-hosted LiveSync #1234)
+    - Reads revalidate cached responses using URLs derived from the startup time and Seed together. Ordinary and directional replication refresh the Seed before connectivity checks and transfer.
+    - The optional `useCouchDBCacheControlHeadersOnly` setting defaults to `false`. Set it to `true` only for a server or proxy which rejects the cache query parameter; affected native caches may then reuse stale responses after Rebuild.
+
 ## 0.3.0
 
 2nd November, 2026

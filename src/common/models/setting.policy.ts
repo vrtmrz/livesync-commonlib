@@ -134,6 +134,7 @@ export const SETTINGS_PROPERTY_POLICY = {
     jwtSub: SettingPolicies.ConnectionCredentials,
     jwtExpDuration: SettingPolicies.Default,
     useRequestAPI: SettingPolicies.Default,
+    useCouchDBCacheControlHeadersOnly: SettingPolicies.Default,
     accessKey: SettingPolicies.ConnectionCredentials,
     secretKey: SettingPolicies.ConnectionCredentials,
     bucket: SettingPolicies.LocalConnection,

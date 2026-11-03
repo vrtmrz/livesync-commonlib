@@ -252,7 +252,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             value.couchDB_CustomHeaders, value.useJWT, value.jwtAlgorithm, value.jwtKey,
             value.jwtExpDuration, value.jwtKid, value.jwtSub, value.encrypt, value.passphrase,
             value.E2EEAlgorithm, value.enableCompression, value.pathNormalizationVersion,
-            value.readChunksOnline, value.useRequestAPI,
+            value.readChunksOnline, value.useRequestAPI, value.useCouchDBCacheControlHeadersOnly === true,
         ]);
         const binding = identity(snapshot);
         let connection: OwnedCouchDBConnection<EntryDoc> | undefined;
@@ -928,7 +928,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     return false;
                 }
                 if (
-                    (await this.ensurePBKDF2Salt(setting, showResult, !retrying)) === false ||
+                    (await this.ensurePBKDF2Salt(setting, showResult, false)) === false ||
                     cancellationRequested()
                 ) {
                     return false;
@@ -1746,6 +1746,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 ...connectionOptions,
                 encryptionAlgorithm: settings.E2EEAlgorithm,
                 encryptInternalMetadata: usesEncryptedInternalMetadata(settings),
+                useCouchDBCacheControlHeadersOnly: settings.useCouchDBCacheControlHeadersOnly === true,
             }
         );
     }

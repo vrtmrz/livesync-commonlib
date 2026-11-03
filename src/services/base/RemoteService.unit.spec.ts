@@ -142,9 +142,49 @@ async function connect(service: TestRemoteService, skipInfo = true) {
 }
 
 describe("RemoteService request activity", () => {
-    it.each(["Metadata", "chunk"] as const)(
-        "reads current encrypted %s after a rebuild preserves its ID and revision",
-        async (kind) => {
+    it.each([false, true])("carries headers-only cache compatibility through the request and fallback (%s)", async (fallback) => {
+        type AdapterFetch = (request: string | Request, options?: RequestInit) => Promise<Response>;
+        let adapterFetch: AdapterFetch | undefined;
+        const database = { close: vi.fn().mockResolvedValue(undefined), transform: vi.fn() };
+        const FakePouchDB = vi.fn(function (_uri: string, configuration: { fetch: AdapterFetch }) {
+            adapterFetch = configuration.fetch;
+            return database;
+        });
+        const { service, webCompatFetch, nativeFetch } = createService(
+            async () => createDatabaseInfoResponse(),
+            FakePouchDB as never
+        );
+        if (fallback) webCompatFetch.mockRejectedValue(new TypeError("CORS fixture"));
+        const getSeed = vi.fn(async () => new Uint8Array([1, 2, 3, 4]));
+        const opened = await service.connect(
+            "https://example.com/db",
+            { username: "user", password: "password", type: "basic" },
+            false, "secret", false, false, true, false, {}, false, getSeed,
+            { encryptionAlgorithm: E2EEAlgorithms.V2, useCouchDBCacheControlHeadersOnly: true }
+        );
+        if (typeof opened === "string") throw new Error(opened);
+        try {
+            await adapterFetch!("https://example.com/db/metadata?rev=1-current", { method: "GET" });
+            for (const fetch of fallback ? [webCompatFetch, nativeFetch] : [webCompatFetch]) {
+                expect(fetch).toHaveBeenCalledWith(
+                    "https://example.com/db/metadata?rev=1-current",
+                    expect.objectContaining({ cache: "no-store" })
+                );
+            }
+            expect(getSeed).not.toHaveBeenCalled();
+        } finally {
+            await opened.close();
+        }
+    });
+
+    it.each([
+        ["Metadata", E2EEAlgorithms.V2],
+        ["chunk", E2EEAlgorithms.V2],
+        ["Metadata", E2EEAlgorithms.V1],
+        ["chunk", E2EEAlgorithms.V1],
+    ] as const)(
+        "reads current encrypted %s after a rebuild preserves its ID and revision (%s)",
+        async (kind, algorithm) => {
             const passphrase = "remote-cache-regression-secret";
             const document =
                 kind === "Metadata"
@@ -175,13 +215,14 @@ describe("RemoteService request activity", () => {
                 true
             );
             let serverDocument = await writer.incoming(document);
-            // An earlier connection left this response in the browser HTTP cache.
             const cachedDocument = structuredClone(serverDocument);
-            const { service } = createService(async (_request, options) => {
-                // CouchDB validates a cached response with its revision ETag.
-                const bypassCache = options?.cache === "no-store" || options?.cache === "reload";
-                const response =
-                    !bypassCache && cachedDocument._rev === serverDocument._rev ? cachedDocument : serverDocument;
+            const httpCache = new Map<string, typeof serverDocument>();
+            const { service } = createService(async (request) => {
+                // Model a native cache which revalidates an existing body even with no-store.
+                const url = typeof request === "string" ? request : request.url;
+                const cached = httpCache.get(url);
+                const response = cached?._rev === serverDocument._rev ? cached : structuredClone(serverDocument);
+                httpCache.set(url, response);
                 return new Response(JSON.stringify(response), {
                     headers: { "content-type": "application/json", etag: `"${response._rev}"` },
                 });
@@ -197,7 +238,8 @@ describe("RemoteService request activity", () => {
                 false,
                 {},
                 false,
-                async () => seed
+                async () => seed,
+                { encryptionAlgorithm: algorithm }
             );
             expect(typeof opened).not.toBe("string");
             if (typeof opened === "string") throw new Error(opened);
