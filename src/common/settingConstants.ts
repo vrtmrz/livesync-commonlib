@@ -425,7 +425,7 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     },
     useCouchDBCacheControlHeadersOnly: {
         name: "Use headers only for HTTP cache control (compatibility)",
-        desc: "Enable only if your CouchDB server or proxy rejects the additional cache query parameter. Older cached encrypted responses may then be reused after a remote Rebuild.",
+        desc: "Remove the query parameter used to invalidate cached responses (the same URL behaviour as in 1.0.44 and earlier). Enable only if your CouchDB server or proxy rejects the additional cache query parameter. Older cached encrypted responses may then be reused after a remote Rebuild.",
     },
     hideFileWarningNotice: {
         name: "Show status icon instead of file warnings banner",
