@@ -316,7 +316,8 @@ Please enable them from the settings screen after setup is complete.`,
             settings.useRequestAPI,
             async () => {
                 throw new Error("A version document does not require decryption.");
-            }
+            },
+            { useCouchDBCacheControlHeadersOnly: settings.useCouchDBCacheControlHeadersOnly === true }
         );
         if (typeof connection === "string") throw new Error(connection);
         try {

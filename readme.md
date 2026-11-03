@@ -40,6 +40,11 @@ ordinary replication before resuming local writers. Existing hosts can omit
 this optimisation. Resume cursors retain their existing meaning; this resource
 does not provide an arbitrary-time checkpoint jump or On Demand repair.
 
+Unreleased CouchDB work separates encrypted HTTP responses by Security Seed
+while retaining conditional revalidation within a Seed. See
+[CouchDB response caching](docs/couchdb-http-cache.md) for the request,
+replication-preparation, and host-adapter boundaries.
+
 ## Package entry points
 
 | Entry point                                        | Intended use                                                                      | Current contract status                                                                     |

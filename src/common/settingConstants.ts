@@ -423,6 +423,10 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         name: "Use Request API to avoid `inevitable` CORS problem",
         desc: "If enabled, the request API will be used to avoid `inevitable` CORS problems. This is a workaround and may not work in all cases. PLEASE READ THE DOCUMENTATION BEFORE USING THIS OPTION. This is a less-secure option.",
     },
+    useCouchDBCacheControlHeadersOnly: {
+        name: "Use headers only for HTTP cache control (compatibility)",
+        desc: "Enable only if your CouchDB server or proxy rejects the additional cache query parameter. Older cached encrypted responses may then be reused after a remote Rebuild.",
+    },
     hideFileWarningNotice: {
         name: "Show status icon instead of file warnings banner",
         desc: "If enabled, the ⛔ icon will be shown inside the status instead of the file warnings banner. No details will be shown.",

@@ -16,6 +16,22 @@ import { prepareSettingsForLoad, SettingsMigrationReviewCodes } from "./setting.
 import type { ObsidianLiveSyncSettings } from "./setting.type";
 
 describe("prepareSettingsForLoad", () => {
+    it("defaults headers-only CouchDB cache compatibility off and preserves stored choices", () => {
+        expect(prepareSettingsForLoad(undefined).settings).toHaveProperty("useCouchDBCacheControlHeadersOnly", false);
+        expect(prepareSettingsForLoad({ liveSync: true }).settings).toHaveProperty(
+            "useCouchDBCacheControlHeadersOnly",
+            false
+        );
+        for (const value of [false, true]) {
+            const first = prepareSettingsForLoad({ liveSync: true, useCouchDBCacheControlHeadersOnly: value });
+            expect(first.settings).toHaveProperty("useCouchDBCacheControlHeadersOnly", value);
+            expect(prepareSettingsForLoad(first.settings).settings).toHaveProperty(
+                "useCouchDBCacheControlHeadersOnly",
+                value
+            );
+        }
+    });
+
     it("enables internal Metadata protection only for genuinely new settings", () => {
         expect(prepareSettingsForLoad(undefined).settings.encryptInternalMetadata).toBe(true);
         const existing = prepareSettingsForLoad({

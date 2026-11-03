@@ -57,6 +57,8 @@ export interface CouchDBConnection {
      * Seems stable, so promoted to the normal setting.
      */
     useRequestAPI: boolean;
+    /** Control CouchDB HTTP caching through headers alone. Defaults to false. */
+    useCouchDBCacheControlHeadersOnly?: boolean;
 }
 /**
  * Interface representing the settings for periodic replication.

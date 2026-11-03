@@ -201,6 +201,7 @@ export const SETTINGS_SCHEMA_DEFAULTS: ObsidianLiveSyncSettings = {
     jwtSub: "",
     jwtExpDuration: 5,
     useRequestAPI: false,
+    useCouchDBCacheControlHeadersOnly: false,
     bucketPrefix: "",
     chunkSplitterVersion: ChunkAlgorithms.RabinKarp,
     E2EEAlgorithm: E2EEAlgorithms.V2,

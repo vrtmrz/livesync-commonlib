@@ -1,4 +1,4 @@
-import type { CouchDBCredentials, EntryDoc } from "@lib/common/types";
+import { E2EEAlgorithms, type CouchDBCredentials, type EntryDoc } from "@lib/common/types";
 import type { IRemoteService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import {
@@ -18,6 +18,7 @@ import type { SettingService } from "@lib/services/base/SettingService";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
 import { createInstanceLogFunction, MARK_LOG_NETWORK_ERROR, type LogFunction } from "@lib/services/lib/logUtils";
 import { runWithTrackedPhysicalRequest } from "@lib/services/lib/remoteActivity.ts";
+import { createCouchDBHttpCache } from "@lib/services/lib/couchdbHttpCache.ts";
 import type PouchDB from "pouchdb-core";
 import type { PouchDBConstructor } from "@lib/pouchdb/PouchDBConstructor.ts";
 import { LiveSyncError } from "@lib/common/LSError";
@@ -258,6 +259,15 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
             return "Network is offline";
         }
         const connectionScope = createRemoteConnectionScope(connectionOptions.signal);
+        const encryptionAlgorithm =
+            connectionOptions.encryptionAlgorithm ?? this._settingService.currentSettings().E2EEAlgorithm;
+        const prepareCachedRequest = createCouchDBHttpCache(
+            uri,
+            typeof passphrase === "string" && passphrase !== "false" && encryptionAlgorithm !== E2EEAlgorithms.ForceV1
+                ? getPBKDF2Salt
+                : undefined,
+            connectionOptions.useCouchDBCacheControlHeadersOnly === true
+        );
         // let authHeader = await this._authHeader.getAuthorizationHeader(auth);
         const conf: PouchDB.HttpAdapter.HttpAdapterConfiguration = {
             adapter: "http",
@@ -295,6 +305,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                     if (!("username" in auth)) {
                         headers.append("authorization", authHeader);
                     }
+                    const cachedRequest = await prepareCachedRequest(requestSrc, opts);
                     try {
                         // const response: Response = await (useRequestAPI
                         //     ? this.nativeFetch(url.toString(), { ...opts, headers })
@@ -330,10 +341,9 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                         // }
                         // this.clearErrors();
                         const signal = connectionScope.combine(opts?.signal);
-                        // A rebuild can replace ciphertext while preserving document revision ETags.
                         const response = await this.performFetch(
-                            requestSrc,
-                            { ...opts, headers, signal, cache: "no-store" },
+                            cachedRequest.request,
+                            { ...opts, headers, signal, cache: cachedRequest.cache },
                             useRequestAPI ? FetchMethod.native : FetchMethod.webCompat
                         );
                         return response;
@@ -354,8 +364,8 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                             //     headers,
                             // });
                             const resp2 = await this.performFetch(
-                                requestSrc,
-                                { ...opts, headers, cache: "no-store" },
+                                cachedRequest.request,
+                                { ...opts, headers, cache: cachedRequest.cache },
                                 FetchMethod.native
                             );
                             if (resp2.status / 100 == 2) {
@@ -392,8 +402,6 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                 // return await fetch(url, opts);
             },
         };
-        const encryptionAlgorithm =
-            connectionOptions.encryptionAlgorithm ?? this._settingService.currentSettings().E2EEAlgorithm;
         let db: PouchDB.Database<EntryDoc>;
         try {
             db = new this._pouchDB<EntryDoc>(uri, conf);
