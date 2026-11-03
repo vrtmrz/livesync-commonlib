@@ -234,11 +234,11 @@ Hub runtime. `/node` and `/browser` expose their platform integrations through
 the existing bundling boundaries.
 
 Commonlib owns `UnicodeResolvingNodeStorageAdapter` and delegates
-its resolution to the common implementation. Retain its Legacy delegation and
-thin compatibility methods while the CLI adopts the focused API. File System
-Access uses the same resolver, including the host paths which operate directly
-on handles. Bridge supplies a Deno directory reader and uses the same contract
-at its storage boundary.
+its resolution to the common implementation. The current CLI candidate adopts
+the focused API while retaining Legacy delegation and thin compatibility
+methods. File System Access uses the same resolver, including host paths which
+operate directly on handles. Bridge supplies a Deno directory reader and uses
+the same contract in an unreleased integration candidate.
 
 Keep the resolver free of persistent mappings, cross-operation caches, watchers,
 retry owners, and disposal requirements. A full scan descends through the
@@ -255,11 +255,29 @@ is already absent; preserve that event path rather than trying to recover its
 spelling from a live directory lookup. Check rename events as an ordered change
 of state, including hosts which report them as deletion and creation.
 
-Adoption proceeds through the Node extraction and shared contract, then WebApp
-and Bridge integration. Bridge also needs explicit NFC settings and direct-API
-admission support. Preserve current remote mismatch rejection and the Legacy
-operating guidance until each host's integration is verified. This design
-does not add automatic migration or translation between identity modes.
+## Current adoption and publication status
+
+The shared `/storage` contract, Node and File System Access adapters, and
+explicit `DirectFileManipulator` path-version option are unreleased additions
+after the published Commonlib `0.3.0` artefact. They require a new immutable
+package version; a source checkout with version string `0.3.0` is not the
+registry artefact.
+
+The CLI candidate uses the shared Node resolver, and the current Obsidian
+candidate uses shared namespace and comparison helpers while retaining Vault
+APIs and its alias guard. The matching Journal and P2P host adoption remains
+unreleased in Self-hosted LiveSync [#1309](https://github.com/vrtmrz/obsidian-livesync/pull/1309).
+The browser resolver is a general primitive, not WebApp NFC support: WebApp
+remains Legacy-only and rejects an explicit version `1` at startup. WebPeer
+has no Vault filesystem and is not an NFC filesystem host.
+
+Bridge's Deno integration is also an unreleased candidate. NFC mode is an
+explicit per-peer opt-in, and every peer in a group must use the same path
+version. Its ordinary case-mismatch check remains enabled; the Bridge-wide
+`disableCheckingConfigMismatch: true` override disables that case check only
+and does not bypass path-version admission. Preserve the existing coordinated
+Rebuild/Fetch migration and remote mismatch protection. This design adds no
+automatic migration or translation between identity modes.
 
 ## Verification
 

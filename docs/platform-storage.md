@@ -114,8 +114,13 @@ preserves the namespace. Keep the original path beside each key. The old
 `FilePathWithPrefix` and `FilePathWithPrefixLC` remain available for compatibility.
 
 The [design](design_docs/storage_path_resolution.md) defines the detailed
-contract. These primitives do not enable NFC in WebApp or Bridge; each host
-still needs verified storage, event, cache, and remote-admission integration.
+contract. These primitives do not enable NFC automatically in a host
+application. WebApp remains Legacy-only and rejects explicit version `1` at
+startup. The Bridge Deno integration is an unreleased candidate; version `1`
+is an explicit peer opt-in, and every peer in a group must use the same path
+version. Its ordinary case-mismatch check remains separate from path-version
+admission. See [Unicode path identity](unicode-path-identity.md#supported-hosts)
+for the current publication and host-adoption boundaries.
 
 ## Bundling boundary
 

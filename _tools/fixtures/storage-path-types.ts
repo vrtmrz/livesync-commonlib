@@ -67,3 +67,11 @@ await browser.readResolved(logical);
 // @ts-expect-error Physical enumeration requires a resolved parent.
 await resolver.listResolvedDirectory(logical);
 void [sourceDocument, wrongDomain];
+
+import type { DirectFileManipulator } from "@vrtmrz/livesync-commonlib";
+type DirectPathVersion = ConstructorParameters<typeof DirectFileManipulator>[0]["pathNormalizationVersion"];
+const legacyDirectPathVersion: DirectPathVersion = undefined;
+const nfcDirectPathVersion: DirectPathVersion = 1;
+// @ts-expect-error Only supported identity versions are accepted by direct database integrations.
+const unsupportedDirectPathVersion: DirectPathVersion = 2;
+void [legacyDirectPathVersion, nfcDirectPathVersion, unsupportedDirectPathVersion];

@@ -315,6 +315,13 @@ Commonlib 0.3.0 provides [Unicode NFC path identity](docs/unicode-path-identity.
 
 ## Direct database watches
 
+An unreleased extension lets direct CouchDB integrations select
+`pathNormalizationVersion: 1` in `DirectFileManipulator` options. Omitted or
+`0` retains Legacy identity. The configured mode must match the database;
+NFC does not relabel a populated Legacy database. A confirmed empty database
+can declare the selected feature before its first Metadata write. Hosts still
+own physical path resolution and the coordinated migration of existing data.
+
 Direct CouchDB reads use the same Chunk arrival waiting and bounded retry processing as application replication. They retrieve missing Chunks through the prepared source connection, including its decryption transforms, without writing fetched Chunks back to that source.
 
 Existing integrations can use `DirectFileManipulator.beginWatch(callback, checkIsInterested?, onCheckpoint?)`. The file callback retains its `(doc: ReadyEntry, seq?: string | number)` signature. Resolving it acknowledges delivery. An incomplete read or rejected delivery remains pending and retries after delays from one second up to 30 seconds, while other documents continue. At most four file-processing operations run concurrently. A newer change for the same document supersedes its pending read, including deletion, rename, or exclusion by `checkIsInterested`.

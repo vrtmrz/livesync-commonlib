@@ -101,14 +101,35 @@ does not itself perform the required reconstruction.
 
 ## Supported hosts
 
-Commonlib 0.3.0 supports NFC identity with CouchDB, Journal, and P2P for
-maintained CLI and Obsidian host integrations. The application adoption status
-is recorded in the publication note above.
-`PathService` owns logical ID derivation. The CLI resolves NFC-equivalent names
-against directory entries while preserving the actual entry spelling; its
-generic Node storage contract remains exact-path access. Obsidian supplies its
-normalised storage paths and preserves an existing physical spelling when it
-is NFC-equivalent to the received path.
+The published Commonlib `0.3.0` package includes NFC protocol support for
+Journal and P2P. The matching Self-hosted LiveSync CLI and Obsidian host
+adoption remains an unreleased candidate tracked by
+[pull request #1309](https://github.com/vrtmrz/obsidian-livesync/pull/1309);
+the package protocol support alone does not mean those host integrations have
+shipped.
+
+The shared `/storage` resolver, Node and File System Access adapters, and
+explicit `DirectFileManipulator` path-version option are later unpublished
+additions described in the [shared storage path design](design_docs/storage_path_resolution.md).
+They are not in the registry artefact `0.3.0` and require a new immutable
+Commonlib package version. A source checkout carrying the same version string
+does not make these additions part of the published artefact.
+
+| Consumer surface | Published baseline | Current candidate status |
+| --- | --- | --- |
+| CLI and Obsidian with CouchDB | NFC identity is released in Commonlib `0.1.42` and Self-hosted LiveSync `1.0.38`. | The unreleased LiveSync candidate adds the shared Node resolver in the CLI and shared namespace/comparison helpers in Obsidian. |
+| CLI and Obsidian with Journal or P2P | Commonlib `0.3.0` publishes the NFC protocol support. | Matching host adoption remains unreleased pending [LiveSync #1309](https://github.com/vrtmrz/obsidian-livesync/pull/1309). |
+| Bridge | Legacy version `0` remains the default baseline. | The Bridge candidate enables version `1` only by explicit peer opt-in; every peer in a group must use the same path version. Its ordinary case-mismatch check remains separate from the required version check. |
+| WebApp | Legacy version `0` only. | WebApp remains Legacy-only; an explicit version `1` is rejected at startup. The browser storage primitive alone does not enable application support. |
+| WebPeer | A vaultless P2P utility. | It is not an NFC filesystem host. |
+| `DirectFileManipulator` | The published package rejects a remote declaring the NFC feature. | The unpublished option defaults to version `0`, accepts explicit `0` or `1`, and rejects a populated database in the opposite mode. The caller still owns physical path handling. |
+
+`PathService` owns logical ID derivation. In the unreleased LiveSync host
+candidate, the CLI resolves NFC-equivalent names against directory entries
+while preserving the actual entry spelling; its generic Node storage contract
+remains exact-path access. Obsidian supplies its normalised storage paths and
+preserves an existing physical spelling when it is NFC-equivalent to the
+received path.
 
 Journal uses compatibility range `4` for NFC identity, independently of
 encryption and path obfuscation. Legacy ranges remain unchanged. The existing
@@ -151,9 +172,14 @@ checkpoints; the P2P source mark and target checkpoint handle database
 replacement. These operations do not rewrite IDs or merge histories in place.
 P2P retains its existing source selection during Fetch.
 
-Direct file access refuses a remote which
-declares the NFC feature. Other host adapters must establish physical path
-resolution before offering this setting. The regression tests cover ASCII,
+Published Commonlib direct file access refuses a remote which declares the NFC
+feature. The unpublished `DirectFileManipulator` addition exposes explicit
+`pathNormalizationVersion` options, defaulting to `0`: missing or `0` retains
+Legacy and rejects an NFC database; `1` accepts NFC and rejects a populated
+Legacy database before feature negotiation can change its declaration. A
+confirmed empty database follows the existing first-write feature contract.
+Direct integrations must establish physical path resolution before offering
+this setting; database admission alone does not provide that host behaviour. The regression tests cover ASCII,
 NFC, NFD, and mixed paths through in-memory PouchDB Metadata lookup, with and
 without path obfuscation, plus database admission, reconstruction ordering,
 collisions, and physical path handling. These tests do not establish native

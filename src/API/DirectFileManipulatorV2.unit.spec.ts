@@ -66,7 +66,7 @@ describe("DirectFileManipulator", () => {
         expect(refreshSettings).not.toHaveBeenCalled();
     });
 
-    it("rejects direct access to a remote using NFC path identity", async () => {
+    it("rejects a malformed remote feature declaration", async () => {
         const ready = promiseWithResolvers<void>();
         const refreshSettings = vi.fn();
         const db = {
@@ -74,9 +74,8 @@ describe("DirectFileManipulator", () => {
                 _id: VERSIONING_DOCID,
                 type: "versioninfo",
                 version: 13,
-                used_features: ["nfc-path-identity-v1"],
+                used_features: "nfc-path-identity-v1",
             })),
-            allDocs: vi.fn(),
             put: vi.fn(),
         };
         const manipulator = {
@@ -94,9 +93,152 @@ describe("DirectFileManipulator", () => {
         await DirectFileManipulator.prototype.init.call(manipulator);
 
         await expect(ready.promise).rejects.toThrow("Direct database version or features are not compatible.");
+        expect(db.put).not.toHaveBeenCalled();
+        expect(refreshSettings).not.toHaveBeenCalled();
+    });
+
+    it.each([undefined, 0] as const)("rejects an NFC remote when path identity is legacy (%s)", async (version) => {
+        const ready = promiseWithResolvers<void>();
+        const refreshSettings = vi.fn();
+        const db = {
+            get: vi.fn(async () => ({
+                _id: VERSIONING_DOCID,
+                type: "versioninfo",
+                version: 13,
+                used_features: ["nfc-path-identity-v1"],
+            })),
+            allDocs: vi.fn(),
+            put: vi.fn(),
+        };
+        const manipulator = {
+            services: { appLifecycle: { onReady: vi.fn().mockResolvedValue(undefined) } },
+            options: { encryptInternalMetadata: false },
+            settings: { encryptInternalMetadata: false, pathNormalizationVersion: version },
+            liveSyncLocalDB: {
+                initializeDatabase: vi.fn().mockResolvedValue(true),
+                localDatabase: db,
+                refreshSettings,
+            },
+            ready,
+        } as unknown as DirectFileManipulator;
+
+        await DirectFileManipulator.prototype.init.call(manipulator);
+
+        await expect(ready.promise).rejects.toThrow(
+            "The database and settings use different path identity versions. Rebuild from the authoritative Vault or Fetch with matching settings before synchronising."
+        );
         expect(db.get).toHaveBeenCalledOnce();
         expect(db.put).not.toHaveBeenCalled();
         expect(refreshSettings).not.toHaveBeenCalled();
+    });
+
+    it("accepts an NFC remote when path identity is configured", async () => {
+        const ready = promiseWithResolvers<void>();
+        const refreshSettings = vi.fn();
+        const db = {
+            get: vi.fn(async () => ({
+                _id: VERSIONING_DOCID,
+                type: "versioninfo",
+                version: 13,
+                used_features: ["nfc-path-identity-v1"],
+            })),
+            allDocs: vi.fn(),
+            put: vi.fn(),
+        };
+        const manipulator = {
+            services: { appLifecycle: { onReady: vi.fn().mockResolvedValue(undefined) } },
+            options: { encryptInternalMetadata: false },
+            settings: { encryptInternalMetadata: false, pathNormalizationVersion: 1 },
+            liveSyncLocalDB: {
+                initializeDatabase: vi.fn().mockResolvedValue(true),
+                localDatabase: db,
+                refreshSettings,
+            },
+            ready,
+        } as unknown as DirectFileManipulator;
+
+        await DirectFileManipulator.prototype.init.call(manipulator);
+
+        await expect(ready.promise).resolves.toBeUndefined();
+        expect(db.put).not.toHaveBeenCalled();
+        expect(refreshSettings).toHaveBeenCalledOnce();
+    });
+
+    it("rejects NFC over populated legacy Metadata without changing the remote", async () => {
+        const ready = promiseWithResolvers<void>();
+        const refreshSettings = vi.fn();
+        const legacyVersion = {
+            _id: VERSIONING_DOCID,
+            type: "versioninfo",
+            version: 13,
+            used_features: [],
+        };
+        const metadata = { _id: "note.md", type: "plain", path: "note.md" };
+        const db = {
+            get: vi.fn(async () => legacyVersion),
+            allDocs: vi.fn(async () => ({ rows: [{ id: metadata._id, doc: metadata }] })),
+            put: vi.fn(),
+        };
+        const manipulator = {
+            services: { appLifecycle: { onReady: vi.fn().mockResolvedValue(undefined) } },
+            options: { encryptInternalMetadata: false },
+            settings: { encryptInternalMetadata: false, pathNormalizationVersion: 1 },
+            liveSyncLocalDB: {
+                initializeDatabase: vi.fn().mockResolvedValue(true),
+                localDatabase: db,
+                refreshSettings,
+            },
+            ready,
+        } as unknown as DirectFileManipulator;
+
+        await DirectFileManipulator.prototype.init.call(manipulator);
+
+        await expect(ready.promise).rejects.toThrow(
+            "The database and settings use different path identity versions. Rebuild from the authoritative Vault or Fetch with matching settings before synchronising."
+        );
+        expect(db.get).toHaveBeenCalledTimes(2);
+        expect(db.allDocs).toHaveBeenCalledOnce();
+        expect(db.put).not.toHaveBeenCalled();
+        expect(legacyVersion.used_features).toEqual([]);
+        expect(metadata).toEqual({ _id: "note.md", type: "plain", path: "note.md" });
+        expect(refreshSettings).not.toHaveBeenCalled();
+    });
+
+    it("declares NFC during negotiation for a confirmed empty remote", async () => {
+        const ready = promiseWithResolvers<void>();
+        const refreshSettings = vi.fn();
+        const missing = { status: 404, name: "not_found" };
+        const db = {
+            get: vi.fn(async () => {
+                throw missing;
+            }),
+            allDocs: vi.fn(async () => ({ rows: [] })),
+            info: vi.fn(async () => ({ doc_count: 0 })),
+            put: vi.fn(async () => ({ ok: true })),
+        };
+        const manipulator = {
+            services: { appLifecycle: { onReady: vi.fn().mockResolvedValue(undefined) } },
+            options: { encryptInternalMetadata: false },
+            settings: { encryptInternalMetadata: false, pathNormalizationVersion: 1 },
+            liveSyncLocalDB: {
+                initializeDatabase: vi.fn().mockResolvedValue(true),
+                localDatabase: db,
+                refreshSettings,
+            },
+            ready,
+        } as unknown as DirectFileManipulator;
+
+        await DirectFileManipulator.prototype.init.call(manipulator);
+
+        await expect(ready.promise).resolves.toBeUndefined();
+        expect(db.put).toHaveBeenCalledOnce();
+        expect(db.put).toHaveBeenCalledWith({
+            _id: VERSIONING_DOCID,
+            version: 13,
+            type: "versioninfo",
+            used_features: ["nfc-path-identity-v1"],
+        });
+        expect(refreshSettings).toHaveBeenCalledOnce();
     });
 
     it.each([
@@ -282,6 +424,44 @@ describe("DirectFileManipulator", () => {
         if (!getSettings) throw new Error("DirectFileManipulator.settings getter is unavailable");
 
         expect(getSettings.call({ options } as DirectFileManipulator).syncInternalFiles).toBe(expected);
+    });
+
+    it.each([
+        { version: undefined, expected: 0 },
+        { version: 0, expected: 0 },
+        { version: 1, expected: 1 },
+    ])("maps pathNormalizationVersion $version to settings", ({ version, expected }) => {
+        const options: DirectFileManipulatorOptions = {
+            url: "https://example.com/couchdb",
+            database: "vault",
+            username: "alice",
+            password: "secret",
+            passphrase: undefined,
+            obfuscatePassphrase: undefined,
+            ...(version === undefined ? {} : { pathNormalizationVersion: version as 0 | 1 }),
+        };
+        const getSettings = Object.getOwnPropertyDescriptor(DirectFileManipulator.prototype, "settings")?.get;
+        if (!getSettings) throw new Error("DirectFileManipulator.settings getter is unavailable");
+
+        expect(getSettings.call({ options } as DirectFileManipulator).pathNormalizationVersion).toBe(expected);
+    });
+
+    it("rejects an unsupported runtime pathNormalizationVersion option", () => {
+        const options = {
+            url: "https://example.com/couchdb",
+            database: "vault",
+            username: "alice",
+            password: "secret",
+            passphrase: undefined,
+            obfuscatePassphrase: undefined,
+            pathNormalizationVersion: 2,
+        } as unknown as DirectFileManipulatorOptions;
+        const getSettings = Object.getOwnPropertyDescriptor(DirectFileManipulator.prototype, "settings")?.get;
+        if (!getSettings) throw new Error("DirectFileManipulator.settings getter is unavailable");
+
+        expect(() => getSettings.call({ options } as DirectFileManipulator)).toThrow(
+            "Unsupported path normalisation version: 2"
+        );
     });
 
     it("uses the dedicated path-obfuscation passphrase when it differs from the encryption passphrase", async () => {
