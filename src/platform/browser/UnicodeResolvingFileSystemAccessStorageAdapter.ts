@@ -6,10 +6,25 @@ import type { FilePath, PathComparisonSettings, StorageEntry, StoragePath } from
 import { createStoragePathResolver, type StoragePathResolver } from "../storagePathResolution.ts";
 import { FileSystemAccessStorageAdapter, type FileSystemAccessStorageStat } from "./storage.ts";
 
-/** Browser storage adapter which resolves NFC paths against actual directory names. */
+/**
+ * Resolve NFC-equivalent logical paths against current File System Access directory names.
+ *
+ * @remarks
+ * Each operation snapshots Unicode and case settings. Version `0` delegates to
+ * the existing adapter; version `1` resolves names and rejects observed aliases
+ * before I/O. Physical spelling and the host adapter's mutation semantics remain
+ * unchanged. Resolution does not reserve paths against concurrent changes.
+ */
 export class UnicodeResolvingFileSystemAccessStorageAdapter implements IStorageAdapter<FileSystemAccessStorageStat> {
     private readonly storage: FileSystemAccessStorageAdapter;
 
+    /**
+     * Bind a host-owned root and callbacks for each operation's comparison settings.
+     *
+     * @param rootHandle - Host-selected directory handle with the required permissions.
+     * @param getPathNormalizationVersion - Supplies `0` or `1`; defaults to Legacy `0`.
+     * @param isCaseInsensitive - Whether comparisons ignore case; defaults to false.
+     */
     constructor(
         rootHandle: FileSystemDirectoryHandle,
         private readonly getPathNormalizationVersion: () => number = () => 0,
@@ -18,10 +33,21 @@ export class UnicodeResolvingFileSystemAccessStorageAdapter implements IStorageA
         this.storage = new FileSystemAccessStorageAdapter(rootHandle);
     }
 
+    /** Whether the current settings select NFC path resolution. */
     get isUnicodePathNormalizationEnabled(): boolean {
         return this.snapshotPolicy().pathNormalizationVersion === 1;
     }
 
+    /**
+     * Resolve a logical path under one snapshot of the current settings.
+     *
+     * @param path - Original root-relative file path.
+     * @param caseInsensitive - Override this lookup's case rule without changing settings.
+     * @param allowMissing - Keep a missing write suffix when true; defaults to true.
+     * @returns The physical target, or `null` for an absent path when `allowMissing`
+     * is false in NFC mode. Legacy mode returns the validated original path.
+     * @throws Propagates NFC ambiguity and reader failures, and rejects invalid input.
+     */
     async resolveLogicalPath(
         path: FilePath,
         caseInsensitive?: boolean,
@@ -35,12 +61,14 @@ export class UnicodeResolvingFileSystemAccessStorageAdapter implements IStorageA
         return allowMissing ? await resolver.resolveForWrite(logicalPath) : await resolver.resolveExisting(logicalPath);
     }
 
+    /** Read metadata for a physical path without performing another logical lookup. */
     async statExact(path: StoragePath): Promise<FileSystemAccessStorageStat | null> {
         const policy = this.snapshotPolicy();
         if (policy.pathNormalizationVersion === 0) return await this.storage.trystat(path);
         return await this.storage.statResolved(path);
     }
 
+    /** List a physical directory, rejecting equivalent child names in NFC mode. */
     async listExact(path: StoragePath): Promise<{ files: string[]; folders: string[] }> {
         const policy = this.snapshotPolicy();
         if (policy.pathNormalizationVersion === 0) return await this.storage.list(path);
@@ -48,12 +76,14 @@ export class UnicodeResolvingFileSystemAccessStorageAdapter implements IStorageA
         return this.groupStorageEntries(entries ?? []);
     }
 
+    /** Check whether the logical path exists under the current Unicode policy. */
     async exists(path: string): Promise<boolean> {
         const policy = this.snapshotPolicy();
         if (policy.pathNormalizationVersion === 0) return await this.storage.exists(path);
         return (await this.createResolver(policy).resolveExisting(parseFilePath(path))) !== null;
     }
 
+    /** Read logical-path metadata, retaining Legacy adapter behaviour in version `0`. */
     async trystat(path: string): Promise<FileSystemAccessStorageStat | null> {
         const policy = this.snapshotPolicy();
         if (policy.pathNormalizationVersion === 0) return await this.storage.trystat(path);
@@ -61,10 +91,12 @@ export class UnicodeResolvingFileSystemAccessStorageAdapter implements IStorageA
         return resolved === null ? null : await this.storage.statResolved(resolved);
     }
 
+    /** Read logical-path metadata, retaining Legacy adapter behaviour in version `0`. */
     async stat(path: string): Promise<FileSystemAccessStorageStat | null> {
         return await this.trystat(path);
     }
 
+    /** Create a directory at the resolved write target. */
     async mkdir(path: string): Promise<void> {
         const policy = this.snapshotPolicy();
         if (policy.pathNormalizationVersion === 0) return await this.storage.mkdir(path);
@@ -72,6 +104,7 @@ export class UnicodeResolvingFileSystemAccessStorageAdapter implements IStorageA
         await this.storage.mkdirResolved(resolved);
     }
 
+    /** Remove the entry at its resolved physical path. */
     async remove(path: string): Promise<void> {
         const policy = this.snapshotPolicy();
         if (policy.pathNormalizationVersion === 0) return await this.storage.remove(path);
@@ -79,6 +112,7 @@ export class UnicodeResolvingFileSystemAccessStorageAdapter implements IStorageA
         if (resolved !== null) await this.storage.removeResolved(resolved);
     }
 
+    /** Read text from the resolved physical file. */
     async read(path: string): Promise<string> {
         const policy = this.snapshotPolicy();
         if (policy.pathNormalizationVersion === 0) return await this.storage.read(path);
@@ -87,6 +121,7 @@ export class UnicodeResolvingFileSystemAccessStorageAdapter implements IStorageA
         return await this.storage.readResolved(resolved);
     }
 
+    /** Read bytes from the resolved physical file. */
     async readBinary(path: string): Promise<ArrayBuffer> {
         const policy = this.snapshotPolicy();
         if (policy.pathNormalizationVersion === 0) return await this.storage.readBinary(path);
@@ -95,6 +130,7 @@ export class UnicodeResolvingFileSystemAccessStorageAdapter implements IStorageA
         return await this.storage.readBinaryResolved(resolved);
     }
 
+    /** Write text at the resolved target while retaining existing physical spelling. */
     async write(path: string, data: string, options?: UXDataWriteOptions): Promise<void> {
         const policy = this.snapshotPolicy();
         if (policy.pathNormalizationVersion === 0) return await this.storage.write(path, data, options);
@@ -102,6 +138,7 @@ export class UnicodeResolvingFileSystemAccessStorageAdapter implements IStorageA
         await this.storage.writeResolved(resolved, data, options);
     }
 
+    /** Write bytes at the resolved target while retaining existing physical spelling. */
     async writeBinary(path: string, data: ArrayBuffer, options?: UXDataWriteOptions): Promise<void> {
         const policy = this.snapshotPolicy();
         if (policy.pathNormalizationVersion === 0) {
@@ -111,6 +148,7 @@ export class UnicodeResolvingFileSystemAccessStorageAdapter implements IStorageA
         await this.storage.writeBinaryResolved(resolved, data, options);
     }
 
+    /** Append text at the resolved target using the host adapter semantics. */
     async append(path: string, data: string, options?: UXDataWriteOptions): Promise<void> {
         const policy = this.snapshotPolicy();
         if (policy.pathNormalizationVersion === 0) return await this.storage.append(path, data, options);
@@ -118,6 +156,7 @@ export class UnicodeResolvingFileSystemAccessStorageAdapter implements IStorageA
         await this.storage.appendResolved(resolved, data, options);
     }
 
+    /** List logical directory contents, checking equivalent child names in NFC mode. */
     async list(basePath: string): Promise<{ files: string[]; folders: string[] }> {
         const policy = this.snapshotPolicy();
         if (policy.pathNormalizationVersion === 0) return await this.storage.list(basePath);

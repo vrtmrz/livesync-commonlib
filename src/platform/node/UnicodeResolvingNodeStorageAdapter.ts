@@ -9,8 +9,23 @@ type PathResolutionSettings = Readonly<{
     caseInsensitive: boolean;
 }>;
 
-/** Resolves NFC-equivalent logical paths against current Node storage listings. */
+/**
+ * Resolve NFC-equivalent logical paths against current Node directory names.
+ *
+ * @remarks
+ * Each operation snapshots Unicode and case settings. Version `0` delegates to
+ * the existing adapter; version `1` resolves names and rejects observed aliases
+ * before I/O. Physical spelling and the host adapter's mutation semantics remain
+ * unchanged. Resolution does not reserve paths against concurrent changes.
+ */
 export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
+    /**
+     * Bind a host-owned root and callbacks for each operation's comparison settings.
+     *
+     * @param rootPath - Host-selected storage directory.
+     * @param getPathNormalizationVersion - Supplies `0` or `1`; defaults to Legacy `0`.
+     * @param isCaseInsensitive - Whether comparisons ignore case; defaults to false.
+     */
     constructor(
         rootPath: string,
         private readonly getPathNormalizationVersion: () => number = () => 0,
@@ -19,6 +34,7 @@ export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
         super(rootPath);
     }
 
+    /** Whether the current settings select NFC path resolution. */
     get isUnicodePathNormalizationEnabled(): boolean {
         return this.getPathNormalizationVersionSnapshot() === 1;
     }
@@ -43,6 +59,16 @@ export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
         return await this.listPhysicalDirectory(this.asStoragePath(path), settings);
     }
 
+    /**
+     * Resolve a logical path under one snapshot of the current settings.
+     *
+     * @param path - Original root-relative file path.
+     * @param caseInsensitive - Override this lookup's case rule without changing settings.
+     * @param allowMissing - Keep a missing write suffix when true; defaults to true.
+     * @returns The physical target, or `null` for an absent path when `allowMissing`
+     * is false in NFC mode. Legacy mode returns the validated original path.
+     * @throws Propagates NFC ambiguity and reader failures, and rejects invalid input.
+     */
     async resolveLogicalPath(
         path: FilePath,
         caseInsensitive?: boolean,
@@ -56,6 +82,7 @@ export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
         return allowMissing ? await resolver.resolveForWrite(filePath) : await resolver.resolveExisting(filePath);
     }
 
+    /** Check whether the logical path exists under the current Unicode policy. */
     override async exists(path: string, caseInsensitive?: boolean): Promise<boolean> {
         const settings = this.getSettings(caseInsensitive);
         if (settings.pathNormalizationVersion === 0) return await super.exists(path);
@@ -66,16 +93,19 @@ export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
         return (await super.statResolved(resolvedPath)) !== null;
     }
 
+    /** Read logical-path metadata, retaining Legacy adapter behaviour in version `0`. */
     override async trystat(path: string, caseInsensitive?: boolean) {
         const settings = this.getSettings(caseInsensitive);
         return await this.statWithSettings(path, settings);
     }
 
+    /** Read logical-path metadata, retaining Legacy adapter behaviour in version `0`. */
     override async stat(path: string, caseInsensitive?: boolean) {
         const settings = this.getSettings(caseInsensitive);
         return await this.statWithSettings(path, settings);
     }
 
+    /** Create a directory at the resolved write target. */
     override async mkdir(path: string, caseInsensitive?: boolean): Promise<void> {
         const settings = this.getSettings(caseInsensitive);
         if (settings.pathNormalizationVersion === 0) return await super.mkdir(path);
@@ -84,6 +114,7 @@ export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
         await super.mkdirResolved(resolvedPath);
     }
 
+    /** Remove the entry at its resolved physical path. */
     override async remove(path: string, caseInsensitive?: boolean): Promise<void> {
         const settings = this.getSettings(caseInsensitive);
         if (settings.pathNormalizationVersion === 0) return await super.remove(path);
@@ -91,6 +122,7 @@ export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
         await super.removeResolved(resolvedPath);
     }
 
+    /** Read text from the resolved physical file. */
     override async read(path: string, caseInsensitive?: boolean): Promise<string> {
         const settings = this.getSettings(caseInsensitive);
         if (settings.pathNormalizationVersion === 0) return await super.read(path);
@@ -98,6 +130,7 @@ export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
         return await super.readResolved(resolvedPath);
     }
 
+    /** Read bytes from the resolved physical file. */
     override async readBinary(path: string, caseInsensitive?: boolean): Promise<ArrayBuffer> {
         const settings = this.getSettings(caseInsensitive);
         if (settings.pathNormalizationVersion === 0) return await super.readBinary(path);
@@ -105,6 +138,7 @@ export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
         return await super.readBinaryResolved(resolvedPath);
     }
 
+    /** Write text at the resolved target while retaining existing physical spelling. */
     override async write(
         path: string,
         data: string,
@@ -118,6 +152,7 @@ export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
         await super.writeResolved(resolvedPath, data, options);
     }
 
+    /** Write bytes at the resolved target while retaining existing physical spelling. */
     override async writeBinary(
         path: string,
         data: ArrayBuffer,
@@ -131,6 +166,7 @@ export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
         await super.writeBinaryResolved(resolvedPath, data, options);
     }
 
+    /** Append text at the resolved target using the host adapter semantics. */
     override async append(
         path: string,
         data: string,
@@ -144,6 +180,7 @@ export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
         await super.appendResolved(resolvedPath, data, options);
     }
 
+    /** Resolve and perform an explicit rename, including a requested leaf spelling change. */
     override async rename(sourcePath: string, targetPath: string, caseInsensitive?: boolean): Promise<void> {
         const settings = this.getSettings(caseInsensitive);
         if (settings.pathNormalizationVersion === 0) return await super.rename(sourcePath, targetPath);
@@ -155,6 +192,7 @@ export class UnicodeResolvingNodeStorageAdapter extends NodeStorageAdapter {
         await super.renameResolved(resolved.source, resolved.target);
     }
 
+    /** List logical directory contents, checking equivalent child names in NFC mode. */
     override async list(basePath: string, caseInsensitive?: boolean): Promise<{ files: string[]; folders: string[] }> {
         const settings = this.getSettings(caseInsensitive);
         if (settings.pathNormalizationVersion === 0) return await super.list(basePath);
