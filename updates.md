@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.3.1
+
+4th November, 2026
+
+### Fixed
+
+- Encrypted CouchDB reads no longer reuse responses from a previous Security Seed when a remote Rebuild preserves document revisions. (Self-hosted LiveSync #1234)
+    - Reads revalidate cached responses using URLs derived from the startup time and Seed together. Ordinary and directional replication refresh the Seed before connectivity checks and transfer.
+    - The optional `useCouchDBCacheControlHeadersOnly` setting defaults to `false`. Set it to `true` only for a server or proxy which rejects the cache query parameter; affected native caches may then reuse stale responses after Rebuild.
+
+- Node NFC path lookups reject observed symbolic-link components instead of reporting those paths as absent.
+
 ### Added
 
 - Direct CouchDB integrations can select Unicode NFC path identity through `DirectFileManipulator` options.
@@ -10,12 +22,6 @@
 - Node and File System Access integrations can resolve NFC-equivalent paths through shared storage adapters while preserving existing physical names.
     - The `/storage` entry supplies namespace helpers, distinct comparison-key types, and a resolver which rejects ambiguous names and propagates listing failures. Existing string APIs and Legacy behaviour remain available.
     - Hosts opt in with their existing identity settings and retain responsibility for database migration, caches, and file events. This does not enable NFC in WebApp or Bridge automatically.
-
-### Fixed
-
-- Encrypted CouchDB reads no longer reuse responses from a previous Security Seed when a remote Rebuild preserves document revisions. (Self-hosted LiveSync #1234)
-    - Reads revalidate cached responses using URLs derived from the startup time and Seed together. Ordinary and directional replication refresh the Seed before connectivity checks and transfer.
-    - The optional `useCouchDBCacheControlHeadersOnly` setting defaults to `false`. Set it to `true` only for a server or proxy which rejects the cache query parameter; affected native caches may then reuse stale responses after Rebuild.
 
 ## 0.3.0
 
