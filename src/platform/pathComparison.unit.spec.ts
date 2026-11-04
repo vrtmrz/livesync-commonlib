@@ -11,6 +11,10 @@ import {
 } from "./pathComparison.ts";
 
 describe("path comparison and namespaces", () => {
+    it.each([undefined, null, 42, { path: "note.md" }])("rejects non-string document input %j", (input) => {
+        expect(() => parseDocumentPath(input as unknown as string)).toThrow(TypeError);
+    });
+
     it.each([0, 1] as const)("preserves version %s comparison bytes and namespace identity", (version) => {
         for (const sensitive of [false, true]) {
             const settings = { pathNormalizationVersion: version, handleFilenameCaseSensitive: sensitive };

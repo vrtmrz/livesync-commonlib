@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseFilePath } from "./pathComparison.ts";
 import { createStoragePathResolver, AmbiguousNormalisedPathError } from "./storagePathResolution.ts";
-import type { DirectoryEntry, StoragePath } from "./pathTypes.ts";
+import type { DirectoryEntry, StoragePath, StoragePathResolverOptions } from "./pathTypes.ts";
 
 function fixture(initial: Record<string, readonly DirectoryEntry[]>, caseSensitive = true) {
     const directories = new Map(Object.entries(initial));
@@ -14,6 +14,17 @@ const file = (name: string): DirectoryEntry => ({ name, kind: "file" });
 const folder = (name: string): DirectoryEntry => ({ name, kind: "directory" });
 
 describe("storage path resolution", () => {
+    it.each([undefined, 0, "false"])("rejects a non-boolean case policy before invoking the reader (%j)", (value) => {
+        const readDirectory = vi.fn(async () => []);
+        expect(() =>
+            createStoragePathResolver({
+                readDirectory,
+                policy: { pathNormalizationVersion: 1, handleFilenameCaseSensitive: value },
+            } as unknown as StoragePathResolverOptions)
+        ).toThrow("Filename case handling must be explicit");
+        expect(readDirectory).not.toHaveBeenCalled();
+    });
+
     it("resolves mixed parent spelling and retains a missing suffix", async () => {
         const parent = "café".normalize("NFD");
         const leaf = "Ångström.md".normalize("NFD");

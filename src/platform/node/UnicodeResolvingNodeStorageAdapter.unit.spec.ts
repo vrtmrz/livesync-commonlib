@@ -106,6 +106,50 @@ describe("UnicodeResolvingNodeStorageAdapter", () => {
         await Promise.all(tempDirs.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })));
     });
 
+    it("keeps the documented Legacy default when no policy callbacks are supplied", async () => {
+        const root = await createRoot();
+        await fs.writeFile(path.join(root, "note.md"), "before");
+        const storage = new UnicodeResolvingNodeStorageAdapter(root);
+
+        expect(storage.isUnicodePathNormalizationEnabled).toBe(false);
+        await expect(storage.read("note.md")).resolves.toBe("before");
+        await storage.append("note.md", "-after");
+        await expect(fs.readFile(path.join(root, "note.md"), "utf8")).resolves.toBe("before-after");
+    });
+
+    it("keeps the Legacy binary and text lifecycle on exact physical paths", async () => {
+        const root = await createRoot();
+        const folder = "café".normalize("NFD");
+        const textPath = `${folder}/${"résumé.md".normalize("NFD")}`;
+        const renamed = `${folder}/${"naïve.md".normalize("NFD")}`;
+        const binary = `${folder}/bytes.bin`;
+        const bytes = new Uint8Array([0, 255, 128, 7]);
+        const storage = createAdapter(root, 0);
+
+        await storage.mkdir(folder);
+        await storage.writeBinary(binary, bytes.buffer);
+        await expect(storage.readBinary(binary)).resolves.toEqual(bytes.buffer);
+        await expect(storage.stat(binary)).resolves.toMatchObject({ type: "file", size: bytes.length });
+        await expect(storage.trystat(binary)).resolves.toMatchObject({ type: "file", size: bytes.length });
+        await expect(storage.statExact(storagePath(binary))).resolves.toMatchObject({ type: "file" });
+        await storage.write(textPath, "before");
+        await storage.append(textPath, "-after");
+        await storage.rename(textPath, renamed);
+
+        await expect(fs.readFile(path.join(root, renamed), "utf8")).resolves.toBe("before-after");
+        await expect(storage.exists(textPath)).resolves.toBe(false);
+        const listed = await storage.listExact(storagePath(folder));
+        expect(listed.files.sort()).toEqual([binary, renamed].sort());
+        expect(listed.folders).toEqual([]);
+        await expect(storage.listExact(storagePath(""))).resolves.toEqual({ files: [], folders: [folder] });
+        await storage.remove(binary);
+        await storage.remove(renamed);
+        await expect(storage.trystat(binary)).resolves.toBeNull();
+        await expect(storage.list(folder)).resolves.toEqual({ files: [], folders: [] });
+        await storage.remove(folder);
+        await expect(fs.readdir(root)).resolves.toEqual([]);
+    });
+
     it("reads, updates, and deletes an NFD file through its NFC path", async () => {
         const root = await createRoot();
         const folderNfd = "café".normalize("NFD");
@@ -125,26 +169,62 @@ describe("UnicodeResolvingNodeStorageAdapter", () => {
         await expect(storage.read("café/Ångström.md")).rejects.toMatchObject({ code: "ENOENT" });
     });
 
-    it.skipIf(process.platform === "win32")("rejects symlink paths before NFC lookup reports them as absent", async () => {
+    it("round-trips exact binary bytes through an NFC path without changing physical spelling", async () => {
         const root = await createRoot();
-        const outside = await createRoot();
-        await fs.writeFile(path.join(outside, "secret.md"), "outside");
-        await fs.writeFile(path.join(root, "regular.md"), "regular");
-        await fs.symlink(outside, path.join(root, "linked"), "dir");
-        await fs.symlink(path.join(outside, "secret.md"), path.join(root, "unrelated.md"), "file");
+        const folderNfd = "café".normalize("NFD");
+        const fileNfd = "résumé.bin".normalize("NFD");
+        await fs.mkdir(path.join(root, folderNfd));
+        await fs.writeFile(path.join(root, folderNfd, fileNfd), new Uint8Array([9, 8, 7]));
+        const storage = createAdapter(root);
+        const expected = new Uint8Array([0, 1, 127, 128, 255]);
+
+        await storage.writeBinary("café/résumé.bin", expected.buffer);
+
+        const actual = new Uint8Array(await storage.readBinary("café/résumé.bin"));
+        expect(Array.from(actual)).toEqual(Array.from(expected));
+        await expect(fs.readdir(path.join(root, folderNfd))).resolves.toEqual([fileNfd]);
+        await expect(fs.readFile(path.join(root, folderNfd, fileNfd))).resolves.toEqual(Buffer.from(expected));
+    });
+
+    it("appends through a resolved spelling and creates a missing append target", async () => {
+        const root = await createRoot();
+        const folderNfd = "café".normalize("NFD");
+        const fileNfd = "résumé.md".normalize("NFD");
+        await fs.mkdir(path.join(root, folderNfd));
+        await fs.writeFile(path.join(root, folderNfd, fileNfd), "before");
         const storage = createAdapter(root);
 
-        await expect(storage.exists("linked/secret.md")).rejects.toThrow(/symbolic links/i);
-        await expect(storage.read("linked/secret.md")).rejects.toThrow(/symbolic links/i);
-        await expect(
-            storage.resolveLogicalPath("linked/secret.md" as FilePath, undefined, false)
-        ).rejects.toThrow(/symbolic links/i);
-        await expect(storage.readDirectory(storagePath(""))).resolves.toEqual([
-            { name: "regular.md", kind: "file" },
-        ]);
-        await expect(storage.read("regular.md")).resolves.toBe("regular");
-        await expect(fs.readFile(path.join(outside, "secret.md"), "utf8")).resolves.toBe("outside");
+        await storage.append("café/résumé.md", " after");
+        await storage.append("café/new.md", "created by append");
+
+        await expect(fs.readFile(path.join(root, folderNfd, fileNfd), "utf8")).resolves.toBe("before after");
+        await expect(fs.readFile(path.join(root, folderNfd, "new.md"), "utf8")).resolves.toBe("created by append");
+        expect((await fs.readdir(path.join(root, folderNfd))).sort()).toEqual([fileNfd, "new.md"].sort());
     });
+
+    it.skipIf(process.platform === "win32")(
+        "rejects symlink paths before NFC lookup reports them as absent",
+        async () => {
+            const root = await createRoot();
+            const outside = await createRoot();
+            await fs.writeFile(path.join(outside, "secret.md"), "outside");
+            await fs.writeFile(path.join(root, "regular.md"), "regular");
+            await fs.symlink(outside, path.join(root, "linked"), "dir");
+            await fs.symlink(path.join(outside, "secret.md"), path.join(root, "unrelated.md"), "file");
+            const storage = createAdapter(root);
+
+            await expect(storage.exists("linked/secret.md")).rejects.toThrow(/symbolic links/i);
+            await expect(storage.read("linked/secret.md")).rejects.toThrow(/symbolic links/i);
+            await expect(storage.resolveLogicalPath("linked/secret.md" as FilePath, undefined, false)).rejects.toThrow(
+                /symbolic links/i
+            );
+            await expect(storage.readDirectory(storagePath(""))).resolves.toEqual([
+                { name: "regular.md", kind: "file" },
+            ]);
+            await expect(storage.read("regular.md")).resolves.toBe("regular");
+            await expect(fs.readFile(path.join(outside, "secret.md"), "utf8")).resolves.toBe("outside");
+        }
+    );
 
     it("keeps existing parent spelling and requested spelling for new components", async () => {
         const root = await createRoot();
@@ -180,17 +260,23 @@ describe("UnicodeResolvingNodeStorageAdapter", () => {
         await expect(fs.readFile(path.join(root, folderNfd, nameNfc), "utf8")).resolves.toBe("content");
     });
 
-    it("rejects exact NFC/NFD file collisions before reading", async () => {
+    it("rejects NFC/NFD file aliases before reads and writes, preserving every file", async () => {
         const root = await createRoot();
         const nameNfc = "café.md";
         const nameNfd = nameNfc.normalize("NFD");
+        const unrelatedName = "unrelated.md";
         await fs.writeFile(path.join(root, nameNfc), "NFC");
         await fs.writeFile(path.join(root, nameNfd), "NFD");
+        await fs.writeFile(path.join(root, unrelatedName), "untouched");
         const storage = createAdapter(root);
 
         await expect(storage.read(nameNfc)).rejects.toThrow(/ambiguous/i);
+        await expect(storage.write(nameNfc, "overwrite")).rejects.toThrow(/ambiguous/i);
+        await expect(storage.append(nameNfc, " append")).rejects.toThrow(/ambiguous/i);
         await expect(fs.readFile(path.join(root, nameNfc), "utf8")).resolves.toBe("NFC");
         await expect(fs.readFile(path.join(root, nameNfd), "utf8")).resolves.toBe("NFD");
+        await expect(fs.readFile(path.join(root, unrelatedName), "utf8")).resolves.toBe("untouched");
+        expect((await fs.readdir(root)).sort()).toEqual([nameNfc, nameNfd, unrelatedName].sort());
     });
 
     it("rejects NFC-equivalent directory collisions during a full listing", async () => {
@@ -246,6 +332,18 @@ describe("UnicodeResolvingNodeStorageAdapter", () => {
             type: "file",
         });
         await expect(storage.listExact(storagePath("café"))).resolves.toEqual({ files: [], folders: [] });
+        await expect(storage.statExact(storagePath("missing.md"))).resolves.toBeNull();
+        await expect(storage.listExact(storagePath("missing"))).resolves.toEqual({ files: [], folders: [] });
+        await expect(storage.listExact(storagePath(folderNfd))).resolves.toEqual({
+            files: [storagePath(folderNfd + "/" + nameNfd)],
+            folders: [],
+        });
+        await expect(storage.statExact(storagePath(folderNfd + "/" + nameNfd + "/child"))).rejects.toMatchObject({
+            code: "ENOTDIR",
+        });
+        await expect(storage.listExact(storagePath(folderNfd + "/" + nameNfd))).rejects.toMatchObject({
+            code: "ENOTDIR",
+        });
         await expect(storage.list("café")).resolves.toEqual({ files: [folderNfd + "/" + nameNfd], folders: [] });
     });
 
@@ -274,6 +372,72 @@ describe("UnicodeResolvingNodeStorageAdapter", () => {
         await legacyStorage.write("note.md", "legacy");
         await expect(fs.readFile(path.join(root, "Note.md"), "utf8")).resolves.toBe("content");
         await expect(fs.readFile(path.join(root, "note.md"), "utf8")).resolves.toBe("legacy");
+    });
+
+    it("uses one case-policy snapshot per operation and exposes the current NFC mode", async () => {
+        const root = await createRoot();
+        await fs.writeFile(path.join(root, "Note.md"), "upper");
+        await fs.writeFile(path.join(root, "note.md"), "lower");
+        let version = 0;
+        let caseInsensitive = false;
+        const getCaseInsensitive = vi.fn(() => {
+            const snapshot = caseInsensitive;
+            caseInsensitive = true;
+            return snapshot;
+        });
+        const storage = new UnicodeResolvingNodeStorageAdapter(root, () => version, getCaseInsensitive);
+
+        expect(storage.isUnicodePathNormalizationEnabled).toBe(false);
+        version = 1;
+        expect(storage.isUnicodePathNormalizationEnabled).toBe(true);
+        await expect(storage.read("Note.md")).resolves.toBe("upper");
+        expect(getCaseInsensitive).toHaveBeenCalledTimes(1);
+        await expect(storage.read("Note.md")).rejects.toThrow(/ambiguous/i);
+        expect(getCaseInsensitive).toHaveBeenCalledTimes(2);
+        version = 0;
+        expect(storage.isUnicodePathNormalizationEnabled).toBe(false);
+    });
+
+    it("keeps NFC and NFD names separate in Legacy mode", async () => {
+        const root = await createRoot();
+        const nameNfc = "café.md";
+        const nameNfd = nameNfc.normalize("NFD");
+        await fs.writeFile(path.join(root, nameNfd), "NFD contents");
+        const storage = createAdapter(root, 0, true);
+
+        await expect(storage.read(nameNfc)).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(storage.read(nameNfd)).resolves.toBe("NFD contents");
+        await storage.write(nameNfc, "NFC contents");
+
+        expect((await fs.readdir(root)).sort()).toEqual([nameNfc, nameNfd].sort());
+        await expect(fs.readFile(path.join(root, nameNfc), "utf8")).resolves.toBe("NFC contents");
+        await expect(fs.readFile(path.join(root, nameNfd), "utf8")).resolves.toBe("NFD contents");
+    });
+
+    it("returns null for missing metadata but propagates NFC listing and stat failures", async () => {
+        const root = await createRoot();
+        const folderNfd = "café".normalize("NFD");
+        const fileNfd = "résumé.md".normalize("NFD");
+        await fs.mkdir(path.join(root, folderNfd));
+        await fs.writeFile(path.join(root, folderNfd, fileNfd), "content");
+        const storage = createAdapter(root);
+
+        await expect(storage.trystat("café/missing.md")).resolves.toBeNull();
+        await expect(storage.stat("café/missing.md")).resolves.toBeNull();
+        await expect(storage.trystat("café/résumé.md")).resolves.toMatchObject({ type: "file" });
+        await expect(storage.stat("café/résumé.md")).resolves.toMatchObject({ type: "file" });
+
+        const listingError = Object.assign(new Error("permission denied during listing"), { code: "EACCES" });
+        const readDirectory = vi.spyOn(NodeStorageAdapter.prototype, "readDirectory").mockRejectedValue(listingError);
+        await expect(storage.trystat("café/résumé.md")).rejects.toBe(listingError);
+        await expect(storage.stat("café/résumé.md")).rejects.toBe(listingError);
+        readDirectory.mockRestore();
+
+        const statError = Object.assign(new Error("permission denied during stat"), { code: "EACCES" });
+        vi.spyOn(NodeStorageAdapter.prototype, "statResolved").mockRejectedValue(statError);
+        await expect(storage.trystat("café/résumé.md")).rejects.toBe(statError);
+        await expect(storage.stat("café/résumé.md")).rejects.toBe(statError);
+        await expect(fs.readFile(path.join(root, folderNfd, fileNfd), "utf8")).resolves.toBe("content");
     });
 
     it("preserves Node replacement behaviour for a rename to an existing destination", async () => {

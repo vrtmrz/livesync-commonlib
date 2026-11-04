@@ -10,12 +10,13 @@ class MemoryFileHandle {
     readonly kind = "file";
     private data: Uint8Array;
     getFileError: unknown;
+    createWritableError: unknown;
 
     constructor(
         readonly name: string,
-        data = ""
+        data: string | Uint8Array = ""
     ) {
-        this.data = new TextEncoder().encode(data);
+        this.data = typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data);
     }
 
     async getFile(): Promise<File> {
@@ -26,6 +27,7 @@ class MemoryFileHandle {
     }
 
     async createWritable(): Promise<FileSystemWritableFileStream> {
+        if (this.createWritableError) throw this.createWritableError;
         const handle = this;
         return {
             async write(data: FileSystemWriteChunkType) {
@@ -46,6 +48,10 @@ class MemoryFileHandle {
     async text(): Promise<string> {
         return new TextDecoder().decode(this.data);
     }
+
+    bytes(): Uint8Array {
+        return new Uint8Array(this.data);
+    }
 }
 
 class MemoryDirectoryHandle {
@@ -64,7 +70,7 @@ class MemoryDirectoryHandle {
         return child;
     }
 
-    addFile(name: string, content = ""): MemoryFileHandle {
+    addFile(name: string, content: string | Uint8Array = ""): MemoryFileHandle {
         const child = new MemoryFileHandle(name, content);
         this.children.set(name, child);
         return child;
@@ -122,6 +128,53 @@ function browserAdapter(
 }
 
 describe("File System Access storage path resolution", () => {
+    it("keeps the documented Legacy default without coalescing NFC and NFD entries", async () => {
+        const root = new MemoryDirectoryHandle("root");
+        const nfd = "café.md".normalize("NFD");
+        const original = root.addFile(nfd, "original");
+        const adapter = new UnicodeResolvingFileSystemAccessStorageAdapter(
+            root as unknown as FileSystemDirectoryHandle
+        );
+
+        expect(adapter.isUnicodePathNormalizationEnabled).toBe(false);
+        await expect(adapter.exists("café.md")).resolves.toBe(false);
+        await adapter.write("café.md", "new");
+
+        await expect(original.text()).resolves.toBe("original");
+        await expect(adapter.read("café.md")).resolves.toBe("new");
+        expect(root.children.size).toBe(2);
+    });
+
+    it("keeps the Legacy binary and text lifecycle on exact physical handles", async () => {
+        const root = new MemoryDirectoryHandle("root");
+        const folder = "café".normalize("NFD");
+        const textPath = `${folder}/${"résumé.md".normalize("NFD")}`;
+        const binary = `${folder}/bytes.bin`;
+        const bytes = new Uint8Array([0, 255, 128, 7]);
+        const adapter = browserAdapter(root, () => 0);
+
+        await adapter.mkdir(folder);
+        await adapter.writeBinary(binary, bytes.buffer);
+        await expect(adapter.readBinary(binary)).resolves.toEqual(bytes.buffer);
+        await expect(adapter.stat(binary)).resolves.toMatchObject({ type: "file", size: bytes.length });
+        await expect(adapter.trystat(binary)).resolves.toMatchObject({ type: "file", size: bytes.length });
+        await expect(adapter.statExact(asStoragePath(binary))).resolves.toMatchObject({ type: "file" });
+        await adapter.write(textPath, "before");
+        await adapter.append(textPath, "-after");
+
+        await expect(adapter.read(textPath)).resolves.toBe("before-after");
+        const listed = await adapter.listExact(asStoragePath(folder));
+        expect(listed.files.sort()).toEqual([binary, textPath].sort());
+        expect(listed.folders).toEqual([]);
+        await expect(adapter.listExact(asStoragePath(""))).resolves.toEqual({ files: [], folders: [folder] });
+        await adapter.remove(binary);
+        await adapter.remove(textPath);
+        await expect(adapter.trystat(binary)).resolves.toBeNull();
+        await expect(adapter.list(folder)).resolves.toEqual({ files: [], folders: [] });
+        await adapter.remove(folder);
+        expect(root.children.size).toBe(0);
+    });
+
     it("resolves NFD files and parents for reads, updates, stats, and removals", async () => {
         const root = new MemoryDirectoryHandle("root");
         const physicalParent = "café".normalize("NFD");
@@ -144,6 +197,72 @@ describe("File System Access storage path resolution", () => {
         await expect((parent.children.get(physicalName) as MemoryFileHandle).text()).resolves.toBe("after");
         await adapter.remove("café/naïve.md");
         expect(parent.children.has(physicalName)).toBe(false);
+    });
+
+    it("reads and writes binary bytes through NFC paths with NFD physical parents and names", async () => {
+        const root = new MemoryDirectoryHandle("root");
+        const physicalParent = "café".normalize("NFD");
+        const physicalName = "naïve.bin".normalize("NFD");
+        const originalBytes = new Uint8Array([0, 255, 195, 40, 10]);
+        const updatedBytes = new Uint8Array([128, 0, 42, 254]);
+        const parent = root.addDirectory(physicalParent);
+        const file = parent.addFile(physicalName, originalBytes);
+        let readVersion = 1;
+        const readAdapter = browserAdapter(root, () => {
+            const version = readVersion;
+            readVersion = 0;
+            return version;
+        });
+        let writeVersion = 1;
+        const writeAdapter = browserAdapter(root, () => {
+            const version = writeVersion;
+            writeVersion = 0;
+            return version;
+        });
+
+        await expect(new Uint8Array(await readAdapter.readBinary("café/naïve.bin"))).toEqual(originalBytes);
+        await writeAdapter.writeBinary("café/naïve.bin", updatedBytes.buffer);
+
+        expect(parent.children.size).toBe(1);
+        expect(parent.children.has(physicalName)).toBe(true);
+        expect(file.bytes()).toEqual(updatedBytes);
+        await expect(new Uint8Array(await browserAdapter(root).readBinary("café/naïve.bin"))).toEqual(updatedBytes);
+    });
+
+    it("lists exact directory contents with their physical spelling and returns absence as empty", async () => {
+        const root = new MemoryDirectoryHandle("root");
+        const physicalParent = "café".normalize("NFD");
+        const physicalFile = "naïve.md".normalize("NFD");
+        const physicalFolder = "résumé".normalize("NFD");
+        const parent = root.addDirectory(physicalParent);
+        parent.addFile(physicalFile, "content");
+        parent.addDirectory(physicalFolder);
+        const adapter = browserAdapter(root);
+
+        await expect(adapter.listExact(asStoragePath(physicalParent))).resolves.toEqual({
+            files: [physicalParent + "/" + physicalFile],
+            folders: [physicalParent + "/" + physicalFolder],
+        });
+        await expect(adapter.listExact(asStoragePath("missing"))).resolves.toEqual({ files: [], folders: [] });
+    });
+
+    it("rejects aliases and preserves listing permission errors for exact directories", async () => {
+        const root = new MemoryDirectoryHandle("root");
+        root.addFile("é.md", "nfc");
+        root.addFile("e\u0301.md", "nfd");
+        let pathNormalizationVersion = 1;
+        const adapter = browserAdapter(root, () => {
+            const version = pathNormalizationVersion;
+            pathNormalizationVersion = 0;
+            return version;
+        });
+
+        await expect(adapter.listExact(asStoragePath(""))).rejects.toBeInstanceOf(AmbiguousNormalisedPathError);
+
+        root.entriesError = new DOMException("Access denied", "NotAllowedError");
+        await expect(browserAdapter(root).listExact(asStoragePath(""))).rejects.toMatchObject({
+            name: "NotAllowedError",
+        });
     });
 
     it("retains requested spelling for new components under a resolved parent", async () => {
@@ -213,13 +332,47 @@ describe("File System Access storage path resolution", () => {
     it("delegates Legacy paths without NFC matching", async () => {
         const root = new MemoryDirectoryHandle("root");
         const physicalName = "café.md".normalize("NFD");
-        root.addFile(physicalName, "nfd");
+        const physicalFile = root.addFile(physicalName, "nfd");
         const adapter = browserAdapter(root, () => 0);
 
         await expect(adapter.read(physicalName)).resolves.toBe("nfd");
         await expect(adapter.read("café.md")).rejects.toThrow("File not found");
         await adapter.write("café.md", "nfc");
+        await expect(physicalFile.text()).resolves.toBe("nfd");
         expect(root.children.has("café.md")).toBe(true);
+        await expect((root.children.get("café.md") as MemoryFileHandle).text()).resolves.toBe("nfc");
+        expect(root.children.size).toBe(2);
+    });
+
+    it("rejects binary reads of missing files", async () => {
+        const adapter = browserAdapter(new MemoryDirectoryHandle("root"));
+
+        await expect(adapter.readBinary("missing.bin")).rejects.toThrow("File not found: missing.bin");
+    });
+
+    it("preserves existing bytes when a binary write is denied", async () => {
+        const root = new MemoryDirectoryHandle("root");
+        const originalBytes = new Uint8Array([7, 0, 255, 19]);
+        const file = root.addFile("protected.bin", originalBytes);
+        file.createWritableError = new DOMException("Access denied", "NotAllowedError");
+        const adapter = browserAdapter(root);
+
+        await expect(adapter.writeBinary("protected.bin", new Uint8Array([1, 2]).buffer)).rejects.toMatchObject({
+            name: "NotAllowedError",
+        });
+        expect(file.bytes()).toEqual(originalBytes);
+    });
+
+    it("rejects directory file operations without changing the directory contents", async () => {
+        const root = new MemoryDirectoryHandle("root");
+        const directory = root.addDirectory("folder");
+        const existingFile = directory.addFile("note.md", "before");
+        const adapter = browserAdapter(root);
+
+        await expect(adapter.readBinary("folder")).rejects.toMatchObject({ name: "TypeMismatchError" });
+        await expect(adapter.write("folder", "replacement")).rejects.toMatchObject({ name: "TypeMismatchError" });
+        await expect(existingFile.text()).resolves.toBe("before");
+        expect(directory.children.has("note.md")).toBe(true);
     });
 
     it("distinguishes missing paths from permission and parent type errors", async () => {
