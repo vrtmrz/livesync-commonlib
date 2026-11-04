@@ -149,6 +149,10 @@ assert.ok(
     "The stored-event contract linked from the storage-event guide must be included in the package."
 );
 assert.ok(
+    packed.files.some(({ path }) => path === "docs/journal-receive-recovery.md"),
+    "The Journal recovery contract linked from the README must be included in the package."
+);
+assert.ok(
     packed.files.some(({ path }) => path === "docs/releasing.md"),
     "The release guide linked from the developer guide must be included in the package."
 );

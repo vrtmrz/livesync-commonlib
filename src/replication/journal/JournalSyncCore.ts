@@ -23,10 +23,17 @@ import {
     escapeNewLineFromString,
     setAllItems,
     unescapeNewLineFromString,
+    pickBucketSyncSettings,
+    pickEncryptionSettings,
 } from "@lib/common/utils.ts";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import { wrappedDeflate, wrappedInflate } from "@lib/pouchdb/compress.ts";
-import { type CheckPointInfo, CheckPointInfoDefault } from "./JournalSyncTypes.ts";
+import {
+    type CheckPointInfo,
+    CheckPointInfoDefault,
+    type JournalReceiveFailureStage,
+    type StoppedJournal,
+} from "./JournalSyncTypes.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import {
     JournalStorageReadStatuses,
@@ -54,6 +61,48 @@ import { assertDatabasePathIdentity } from "@lib/pouchdb/pathIdentityCompatibili
 const RECORD_SPLIT = `\n`;
 const UNIT_SPLIT = `\u001f`;
 type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
+class JournalReceiveFailure extends Error {
+    constructor(
+        readonly stage: JournalReceiveFailureStage,
+        readonly key?: string
+    ) {
+        super("Journal receive failed at " + stage);
+    }
+}
+
+type StoppedJournalState = {
+    snapshot: StoppedJournal;
+    database: PouchDB.Database<EntryDoc>;
+    store: SimpleStore<CheckPointInfo>;
+    configuration: string;
+    checkpointGeneration: number;
+};
+
+function parseJournalRecord(value: string): ProcessingEntry {
+    const parsed: unknown = JSON.parse(value);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        throw new TypeError("Invalid Journal record");
+    }
+    const record = parsed as Record<string, unknown>;
+    if (typeof record._id !== "string" || record._id.length === 0) {
+        throw new TypeError("Invalid Journal document identifier");
+    }
+    if (record._id.startsWith("h:")) {
+        if (record._id.length <= 2 || typeof record._rev !== "string" || typeof record.data !== "string") {
+            throw new TypeError("Invalid Journal Chunk record");
+        }
+    } else if (typeof record._rev !== "string" || record._rev.length === 0) {
+        throw new TypeError("Invalid Journal Metadata revision");
+    }
+    return parsed as ProcessingEntry;
+}
+
+type ReceivedJournalChunk = {
+    key: string;
+    docs: ProcessingEntry[];
+    alreadyProcessed?: boolean;
+    failure?: JournalReceiveFailure;
+};
 
 const te = new TextEncoder();
 function serializeDoc(doc: EntryDoc): Uint8Array {
@@ -88,6 +137,47 @@ export class JournalSyncCore {
     store: SimpleStore<CheckPointInfo>;
     requestedStop = false;
     private syncParamsHandler?: SyncParamsHandler;
+    private receiveTask?: Promise<boolean>;
+    private stoppedJournal?: StoppedJournalState;
+    private checkpointGeneration = 0;
+
+    private receiveConfiguration(): string {
+        return JSON.stringify([
+            pickBucketSyncSettings({ ...this.currentSettings, ...this._settings }),
+            pickEncryptionSettings(this.currentSettings),
+            this.currentSettings.pathNormalizationVersion,
+            this.currentSettings.handleFilenameCaseSensitive,
+        ]);
+    }
+
+    private matchesStoppedContext(stopped: StoppedJournalState): boolean {
+        return (
+            stopped.database === this.db &&
+            stopped.store === this.store &&
+            stopped.configuration === this.receiveConfiguration() &&
+            stopped.checkpointGeneration === this.checkpointGeneration
+        );
+    }
+
+    /** Return the current failure for presentation before an explicit single-Journal skip. */
+    getStoppedJournal(): StoppedJournal | undefined {
+        if (this.stoppedJournal && !this.matchesStoppedContext(this.stoppedJournal)) {
+            this.stoppedJournal = undefined;
+        }
+        return this.stoppedJournal?.snapshot;
+    }
+
+    /**
+     * Acknowledge only the exact failure presented to the user, then resume receipt.
+     * Stale snapshots, another active receive, and a later Stop request are rejected.
+     * Any subsequent Journal failure stops the resumed operation normally.
+     */
+    skipStoppedJournalAndResume(stopped: StoppedJournal, showMessage = false): Promise<boolean> {
+        if (!stopped || this.receiveTask || this.requestedStop || this.getStoppedJournal() !== stopped) {
+            return Promise.resolve(false);
+        }
+        return this.startReceive(showMessage, this.stoppedJournal);
+    }
 
     getInitialSyncParameters(): Promise<SyncParameters> {
         return Promise.resolve({
@@ -230,11 +320,13 @@ export class JournalSyncCore {
     }
 
     async updateCheckPointInfo(func: (infoFrom: CheckPointInfo) => CheckPointInfo) {
+        this.stoppedJournal = undefined;
+        this.checkpointGeneration++;
         const checkPointKey = `bucketsync-checkpoint-${this.hash}` as DocumentID;
         const old = await this.getCheckpointInfo();
         const newInfo = func(old);
-        this._currentCheckPointInfo = newInfo;
         await this.store.set(checkPointKey, newInfo);
+        this._currentCheckPointInfo = newInfo;
         return newInfo;
     }
 
@@ -434,6 +526,13 @@ export class JournalSyncCore {
             const decrypted = await this.decryptDataV2(u, set);
             return decrypted;
         } catch (ex) {
+            if (
+                ex instanceof SyncParamsFetchError ||
+                ex instanceof SyncParamsNotFoundError ||
+                ex instanceof SyncParamsUpdateError
+            ) {
+                throw ex;
+            }
             Logger(`Failed to decrypt in v2. Falling back to v1: ${key}`, LOG_LEVEL_INFO);
             try {
                 const r = await this.decryptDataV1(u, set);
@@ -441,8 +540,6 @@ export class JournalSyncCore {
                 return r;
             } catch (ex2) {
                 Logger(`Could not decrypt in v1: ${key}`, LOG_LEVEL_VERBOSE);
-                Logger(ex, LOG_LEVEL_VERBOSE);
-                Logger(ex2, LOG_LEVEL_VERBOSE);
                 throw ex2;
             }
         }
@@ -704,98 +801,122 @@ export class JournalSyncCore {
     }
 
     async processDocuments(allDocs: ProcessingEntry[]) {
-        let applyTotal = 0;
-        let wholeItems = 0;
         try {
-            // Sort transferred into chunks and docs.
-            const chunks = [] as typeof allDocs;
-            const docs = [] as typeof allDocs;
-            allDocs.forEach((e) => {
-                if (e._id.startsWith("h:")) {
-                    chunks.push(e);
-                } else {
-                    docs.push(e);
-                }
-            });
-
-            // Chunk saving.
-            // Chunks always have the same content, hence revision comparisons are unnecessary
-            try {
-                const e1 = (await this.db.allDocs({ include_docs: true, keys: [...chunks.map((e) => e._id)] })).rows;
-                const e2 = e1.map((e) => (e as { id?: string }).id ?? undefined);
-                const existChunks = new Set(e2.filter((e) => e !== undefined));
-                const saveChunks = chunks
-                    .filter((e) => !existChunks.has(e._id))
-                    .map((e) => ({ ...e, _rev: undefined as string | undefined }));
-                const ret = await this.db.bulkDocs<EntryDoc>(saveChunks, { new_edits: true });
-                const saveError = ret.filter((e) => "error" in e).map((e) => e.id);
-
-                saveChunks
-                    .filter((e) => saveError.indexOf(e._id) === -1)
-                    .forEach((doc) =>
-                        this.env.services.context.events.emitEvent(REMOTE_CHUNK_FETCHED, doc as EntryLeaf)
-                    );
-
-                await this.updateCheckPointInfo((info) => ({
-                    ...info,
-                    knownIDs: setAllItems(
-                        info.knownIDs,
-                        chunks.map((e) => this.getDocKey(e))
-                    ),
-                }));
-            } catch (ex) {
-                Logger(`Applying chunks failed`, LOG_LEVEL_INFO);
-                Logger(ex, LOG_LEVEL_VERBOSE);
-            }
-
-            // Docs saving.
-            // Docs have different revisions, hence revision comparisons and merging are necessary.
-            const params = docs.map((e) => [e._id, [e._rev]] as const);
-            const docsRevs = params.reduce(
-                (acc, [id, revs]) => {
-                    return { ...acc, [id]: [...(acc[id] ?? []), ...revs] };
-                },
-                {} as { [key: string]: string[] }
-            );
-            const diffRevs = await this.db.revsDiff(docsRevs);
-            const saveDocs = docs.filter(
-                (e) =>
-                    e._id in diffRevs &&
-                    "missing" in diffRevs[e._id] &&
-                    (diffRevs[e._id].missing?.indexOf(e._rev) ?? 0) !== -1
-            );
-
-            await this.db.bulkDocs<EntryDoc>(saveDocs, { new_edits: false });
-
-            const writeDoc = !this.env.services.setting.currentSettings().suspendParseReplicationResult;
-            if (writeDoc) {
-                await this.processReplication(saveDocs satisfies PouchDB.Core.ExistingDocument<EntryDoc>[]);
-            }
-
-            await this.updateCheckPointInfo((info) => ({
-                ...info,
-                knownIDs: setAllItems(
-                    info.knownIDs,
-                    docs.map((e) => this.getDocKey(e))
-                ),
-            }));
-
-            applyTotal += saveDocs.length;
-            wholeItems += docs.length;
-            Logger(
-                `Applied ${applyTotal} of ${wholeItems} docs (${wholeItems - applyTotal} skipped)`,
-                LOG_LEVEL_VERBOSE
-            );
+            await this.processDocumentsForReceive(allDocs);
             return true;
-        } catch (ex) {
-            Logger(`Applying journal failed`, LOG_LEVEL_INFO);
-            Logger(ex, LOG_LEVEL_VERBOSE);
+        } catch {
+            Logger("Applying journal failed", LOG_LEVEL_INFO);
             return false;
         }
     }
 
+    private async processDocumentsForReceive(allDocs: ProcessingEntry[], key?: string): Promise<void> {
+        let applyTotal = 0;
+        let wholeItems = 0;
+        // Sort transferred documents into Chunks and Metadata.
+        const chunks = [] as typeof allDocs;
+        const docs = [] as typeof allDocs;
+        allDocs.forEach((entry) => {
+            if (entry._id.startsWith("h:")) {
+                chunks.push(entry);
+            } else {
+                docs.push(entry);
+            }
+        });
+
+        // Chunks have stable content, so revision comparisons are unnecessary.
+        const chunkRows = (await this.db.allDocs({ include_docs: true, keys: [...chunks.map((entry) => entry._id)] }))
+            .rows;
+        const chunkReadFailures = chunkRows.filter((row) => "error" in row && row.error !== "not_found");
+        if (chunkReadFailures.length > 0) {
+            throw new Error("Could not inspect existing Chunks");
+        }
+        const existingChunkIDs = new Set(
+            chunkRows
+                .map((row) => (row as { id?: string }).id ?? undefined)
+                .filter((id): id is string => id !== undefined)
+        );
+        const saveChunks = chunks
+            .filter((entry) => !existingChunkIDs.has(entry._id))
+            .map((entry) => ({ ...entry, _rev: undefined as string | undefined }));
+
+        let chunkResults: (PouchDB.Core.Error | PouchDB.Core.Response)[];
+        try {
+            chunkResults = await this.db.bulkDocs<EntryDoc>(saveChunks, { new_edits: true });
+        } catch (error) {
+            throw new JournalReceiveFailure("chunk-write", key);
+        }
+
+        const failedChunkRows = chunkResults.filter((row) => "error" in row);
+        const persistedChunkIDs = new Set(chunkResults.filter((row) => !("error" in row)).map((row) => row.id));
+        saveChunks
+            .filter((entry) => persistedChunkIDs.has(entry._id))
+            .forEach((entry) => this.env.services.context.events.emitEvent(REMOTE_CHUNK_FETCHED, entry as EntryLeaf));
+
+        if (failedChunkRows.length > 0 || saveChunks.some((entry) => !persistedChunkIDs.has(entry._id))) {
+            throw new JournalReceiveFailure("chunk-write", key);
+        }
+
+        await this.updateCheckPointInfo((info) => ({
+            ...info,
+            knownIDs: setAllItems(
+                info.knownIDs,
+                chunks.map((entry) => this.getDocKey(entry))
+            ),
+        }));
+
+        // Metadata revisions must retain the transferred revision ancestry.
+        const params = docs.map((entry) => [entry._id, [entry._rev]] as const);
+        const docsRevs = params.reduce(
+            (acc, [id, revs]) => {
+                return { ...acc, [id]: [...(acc[id] ?? []), ...revs] };
+            },
+            {} as { [key: string]: string[] }
+        );
+        const diffRevs = await this.db.revsDiff(docsRevs);
+        const saveDocs = docs.filter(
+            (entry) =>
+                entry._id in diffRevs &&
+                "missing" in diffRevs[entry._id] &&
+                (diffRevs[entry._id].missing?.indexOf(entry._rev) ?? 0) !== -1
+        );
+
+        let metadataResults: (PouchDB.Core.Error | PouchDB.Core.Response)[];
+        try {
+            metadataResults = await this.db.bulkDocs<EntryDoc>(saveDocs, { new_edits: false });
+        } catch (error) {
+            throw new JournalReceiveFailure("metadata-write", key);
+        }
+        const failedMetadataRows = metadataResults.filter((row) => "error" in row);
+        if (failedMetadataRows.length > 0) {
+            throw new JournalReceiveFailure("metadata-write", key);
+        }
+
+        const writeDoc = !this.currentSettings.suspendParseReplicationResult;
+        if (writeDoc) {
+            // Re-deliver all Metadata in the Journal so a retry also reflects revisions
+            // persisted before an earlier partial write failed.
+            await this.processReplication(docs satisfies PouchDB.Core.ExistingDocument<EntryDoc>[]);
+        }
+
+        await this.updateCheckPointInfo((info) => ({
+            ...info,
+            knownIDs: setAllItems(
+                info.knownIDs,
+                docs.map((entry) => this.getDocKey(entry))
+            ),
+        }));
+
+        applyTotal += saveDocs.length;
+        wholeItems += docs.length;
+        Logger(
+            "Applied " + applyTotal + " of " + wholeItems + " docs (" + (wholeItems - applyTotal) + " skipped)",
+            LOG_LEVEL_VERBOSE
+        );
+    }
+
     private _createReceiveReadableStream(files: string[]) {
-        return new ReadableStream({
+        return new ReadableStream<string>({
             pull: (controller) => {
                 if (this.requestedStop || files.length === 0) {
                     controller.close();
@@ -811,128 +932,291 @@ export class JournalSyncCore {
 
     private _createReceiveTransformStream(logLevel: LOG_LEVEL) {
         let count = 0;
-        return new TransformStream({
-            transform: async (key: string, controller) => {
+        return new TransformStream<string, ReceivedJournalChunk>({
+            transform: async (key, controller) => {
                 count++;
-                Logger(`Receiving Journal: ${count}`, logLevel, "receivejournal");
+                Logger("Receiving Journal: " + count, logLevel, "receivejournal");
 
-                const checkPointInfo = await this.getCheckpointInfo();
-                if (checkPointInfo.sentFiles.has(key) || checkPointInfo.receivedFiles.has(key)) {
-                    Logger(`Receiving Journal: ${key} is already processed`, LOG_LEVEL_VERBOSE);
-                    await this.updateCheckPointInfo((info) => ({
-                        ...info,
-                        receivedFiles: info.receivedFiles.add(key),
-                    }));
-                    return; // Skip
+                const checkpointInfo = await this.getCheckpointInfo();
+                if (checkpointInfo.sentFiles.has(key) || checkpointInfo.receivedFiles.has(key)) {
+                    Logger("Receiving Journal: " + key + " is already processed", LOG_LEVEL_VERBOSE);
+                    controller.enqueue({ key, docs: [], alreadyProcessed: true });
+                    return;
                 }
 
-                try {
-                    const encryptedData = await this.storage.download(key, true);
-                    if (encryptedData === false) {
-                        throw new Error("Download Error");
-                    }
-
-                    const data = await this.decryptDownloaded(
+                const enqueueFailure = (stage: JournalReceiveFailureStage) => {
+                    controller.enqueue({
                         key,
-                        encryptedData as Uint8Array<ArrayBuffer>,
-                        this.currentSettings
-                    );
+                        docs: [],
+                        failure: new JournalReceiveFailure(stage, key),
+                    });
+                };
 
-                    const decompressed = await wrappedInflate(new Uint8Array(data), { consume: true });
-                    if (decompressed.length == 0) {
-                        controller.enqueue({ key, docs: [] });
+                let downloadResult: JournalStorageReadResult<Uint8Array>;
+                try {
+                    downloadResult = await this.storage.downloadWithResult(key, true);
+                } catch (error) {
+                    controller.error(error);
+                    return;
+                }
+                if (downloadResult.status === JournalStorageReadStatuses.NOT_FOUND) {
+                    enqueueFailure("download");
+                    return;
+                }
+                if (downloadResult.status === JournalStorageReadStatuses.UNAVAILABLE) {
+                    controller.error(new Error("Journal download unavailable"));
+                    return;
+                }
+
+                const settings = this.currentSettings;
+                let data: Uint8Array<ArrayBuffer>;
+                try {
+                    data = await this.decryptDownloaded(key, downloadResult.value as Uint8Array<ArrayBuffer>, settings);
+                } catch (error) {
+                    if (
+                        error instanceof SyncParamsFetchError ||
+                        error instanceof SyncParamsNotFoundError ||
+                        error instanceof SyncParamsUpdateError
+                    ) {
+                        controller.error(error);
+                    } else {
+                        enqueueFailure("decrypt");
+                    }
+                    return;
+                }
+
+                let decompressed: Uint8Array<ArrayBuffer>;
+                try {
+                    decompressed = await wrappedInflate(new Uint8Array(data), { consume: true });
+                } catch {
+                    enqueueFailure("inflate");
+                    return;
+                }
+                if (decompressed.length === 0) {
+                    controller.enqueue({ key, docs: [] });
+                    return;
+                }
+                if (decompressed[decompressed.length - 1] !== 0x0a) {
+                    enqueueFailure("parse");
+                    return;
+                }
+
+                let idxFrom = 0;
+                const decoder = new TextDecoder("utf-8", { fatal: true });
+                const result = [] as ProcessingEntry[];
+                while (idxFrom < decompressed.length) {
+                    const idxTo = decompressed.indexOf(0x0a, idxFrom);
+                    if (idxTo === -1 || idxTo === idxFrom) {
+                        enqueueFailure("parse");
+                        return;
+                    }
+                    const piece = decompressed.slice(idxFrom, idxTo);
+                    let strPiece: string;
+                    try {
+                        strPiece = decoder.decode(piece);
+                    } catch {
+                        enqueueFailure("decode");
                         return;
                     }
 
-                    let idxFrom = 0;
-                    let idxTo = 0;
-                    const d = new TextDecoder();
-                    const result = [] as ProcessingEntry[];
-                    do {
-                        idxTo = decompressed.indexOf(0x0a, idxFrom);
-                        if (idxTo == -1) break;
-                        const piece = decompressed.slice(idxFrom, idxTo);
-                        const strPiece = d.decode(piece);
-                        if (strPiece.startsWith("~")) {
-                            const separatorIndex = strPiece.indexOf(UNIT_SPLIT);
-                            if (separatorIndex === -1) {
-                                throw new Error("Invalid journal chunk record: missing separator");
-                            }
-                            const idPart = strPiece.substring(1, separatorIndex);
-                            const dataPart = strPiece.substring(separatorIndex + 1);
-                            result.push({
-                                _id: idPart as DocumentID,
-                                data: unescapeNewLineFromString(dataPart),
-                                type: "leaf",
-                                _rev: "",
-                            });
-                        } else {
-                            result.push(JSON.parse(strPiece));
+                    if (strPiece.startsWith("~")) {
+                        const separatorIndex = strPiece.indexOf(UNIT_SPLIT);
+                        if (separatorIndex === -1) {
+                            enqueueFailure("parse");
+                            return;
                         }
-                        idxFrom = idxTo + 1;
-                    } while (idxTo > 0);
-
-                    controller.enqueue({ key, docs: result });
-                } catch (ex) {
-                    controller.error(ex);
+                        const idPart = strPiece.substring(1, separatorIndex);
+                        if (!idPart.startsWith("h:") || idPart.length <= 2) {
+                            enqueueFailure("parse");
+                            return;
+                        }
+                        const dataPart = strPiece.substring(separatorIndex + 1);
+                        result.push({
+                            _id: idPart as DocumentID,
+                            data: unescapeNewLineFromString(dataPart),
+                            type: "leaf",
+                            _rev: "",
+                        });
+                    } else {
+                        try {
+                            result.push(parseJournalRecord(strPiece));
+                        } catch {
+                            enqueueFailure("parse");
+                            return;
+                        }
+                    }
+                    idxFrom = idxTo + 1;
                 }
+
+                controller.enqueue({ key, docs: result });
             },
         });
     }
 
     private _createReceiveWritableStream() {
         let downloaded = 0;
-        return new WritableStream({
+        return new WritableStream<ReceivedJournalChunk>({
             write: async (chunk) => {
                 const { key, docs } = chunk;
-                if (docs.length > 0) {
-                    const success = await this.processDocuments(docs);
-                    if (!success) {
-                        throw new Error(`Could not process downloaded journals for ${key}`);
-                    }
+                const checkpointInfo = await this.getCheckpointInfo();
+                if (
+                    chunk.alreadyProcessed ||
+                    checkpointInfo.sentFiles.has(key) ||
+                    checkpointInfo.receivedFiles.has(key)
+                ) {
+                    await this.updateCheckPointInfo((info) => {
+                        const receivedFiles = new Set(info.receivedFiles);
+                        receivedFiles.add(key);
+                        return { ...info, receivedFiles };
+                    });
+                    return;
                 }
 
-                await this.updateCheckPointInfo((info) => ({
-                    ...info,
-                    receivedFiles: info.receivedFiles.add(key),
-                }));
+                let failure = chunk.failure;
+                if (!failure && docs.length > 0) {
+                    try {
+                        await this.processDocumentsForReceive(docs, key);
+                    } catch (error) {
+                        if (error instanceof JournalReceiveFailure) {
+                            failure = error;
+                        } else {
+                            throw error;
+                        }
+                    }
+                }
+                if (failure) throw new JournalReceiveFailure(failure.stage, key);
+
+                await this.updateCheckPointInfo((info) => {
+                    const receivedFiles = new Set(info.receivedFiles);
+                    receivedFiles.add(key);
+                    return { ...info, receivedFiles };
+                });
                 downloaded++;
                 this.updateInfo({ arrived: downloaded, maxPullSeq: downloaded, lastSyncPullSeq: downloaded });
-                Logger(`Processing journal: ${key} has been processed`, LOG_LEVEL_INFO);
+                Logger("Processing journal: " + key + " has been processed", LOG_LEVEL_INFO);
             },
         });
     }
 
-    async receiveRemoteJournal(showMessage = false) {
-        await assertDatabasePathIdentity(this.db, this.currentSettings);
-        this.updateInfo({ syncStatus: "JOURNAL_RECEIVE" });
-        return await shareRunningResult("receive_journal_stream", async () => {
-            this.requestedStop = false;
-            const logLevel = showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
+    /** Receive until completion, a failure, or an explicit Stop request. */
+    receiveRemoteJournal(showMessage = false): Promise<boolean> {
+        return this.receiveTask ?? this.startReceive(showMessage);
+    }
 
+    private startReceive(showMessage: boolean, stopped?: StoppedJournalState): Promise<boolean> {
+        this.stoppedJournal = undefined;
+        this.requestedStop = false;
+        const task = Promise.resolve()
+            .then(() => this.performReceive(showMessage, stopped))
+            .finally(() => {
+                if (this.receiveTask === task) this.receiveTask = undefined;
+            });
+        this.receiveTask = task;
+        return task;
+    }
+
+    private async performReceive(showMessage: boolean, stopped?: StoppedJournalState): Promise<boolean> {
+        const database = this.db;
+        const store = this.store;
+        const configuration = this.receiveConfiguration();
+        await assertDatabasePathIdentity(database, this.currentSettings);
+        this.updateInfo({ syncStatus: "JOURNAL_RECEIVE" });
+        const logLevel = showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
+        let skippedKey: string | undefined;
+        try {
             Logger("Receiving Journal: Getting list of remote journal", logLevel, "receivejournal");
-            const files = await this._getRemoteJournals();
-            if (files.length == 0) {
-                Logger(`Receiving Journal: No journals needs to be downloaded`, logLevel, "receivejournal");
+            let files = await this._getRemoteJournals();
+            if (this.requestedStop) {
+                this.updateInfo({ syncStatus: "CLOSED" });
+                return false;
+            }
+            if (stopped) {
+                const checkpoint = await this.getCheckpointInfo();
+                const nextKey = files.find(
+                    (key) => !checkpoint.sentFiles.has(key) && !checkpoint.receivedFiles.has(key)
+                );
+                if (this.requestedStop || !this.matchesStoppedContext(stopped) || nextKey !== stopped.snapshot.key) {
+                    Logger(
+                        "The stopped Journal has changed. Retry replication before choosing a Journal to skip.",
+                        LOG_LEVEL_NOTICE,
+                        "receivejournal"
+                    );
+                    this.updateInfo({ syncStatus: this.requestedStop ? "CLOSED" : "ERRORED" });
+                    return false;
+                }
+                await this.updateCheckPointInfo((info) => ({
+                    ...info,
+                    receivedFiles: setAllItems(new Set(info.receivedFiles), [stopped.snapshot.key]),
+                }));
+                skippedKey = stopped.snapshot.key;
+                files = files.filter((key) => key !== skippedKey);
+                Logger(
+                    "Skipping Journal " +
+                        skippedKey +
+                        " at " +
+                        stopped.snapshot.stage +
+                        " by explicit request. Content or history may remain missing.",
+                    LOG_LEVEL_NOTICE,
+                    "receivejournal"
+                );
+            }
+            if (this.requestedStop) {
+                this.updateInfo({ syncStatus: "CLOSED" });
+                return false;
+            }
+            if (files.length === 0) {
+                Logger("Receiving Journal: No journals needs to be downloaded", logLevel, "receivejournal");
                 this.updateInfo({ syncStatus: "COMPLETED" });
                 return true;
             }
-
             const readable = this._createReceiveReadableStream(files);
             const transform = this._createReceiveTransformStream(logLevel);
             const writable = this._createReceiveWritableStream();
-
-            try {
-                await readable.pipeThrough(transform).pipeTo(writable);
-                this.updateInfo({ syncStatus: "COMPLETED" });
-                return true;
-            } catch (ex) {
-                Logger(`Receive Journal Error`, logLevel);
-                Logger(ex, LOG_LEVEL_VERBOSE);
-                this.updateInfo({ syncStatus: "ERRORED" });
+            await readable.pipeThrough(transform).pipeTo(writable);
+            if (this.requestedStop) {
+                Logger("Receive Journal closed after the active operation", LOG_LEVEL_NOTICE, "receivejournal");
+                this.updateInfo({ syncStatus: "CLOSED" });
                 return false;
             }
-        });
+            this.updateInfo({ syncStatus: "COMPLETED" });
+            return true;
+        } catch (error) {
+            Logger(
+                this.requestedStop
+                    ? "Receive Journal closed after an active operation failed"
+                    : "Receive Journal Error",
+                this.requestedStop ? LOG_LEVEL_NOTICE : logLevel,
+                "receivejournal"
+            );
+            if (error instanceof JournalReceiveFailure) {
+                Logger(
+                    "Receive Journal " + (error.key ?? "item") + " failed at " + error.stage,
+                    logLevel,
+                    "receivejournal"
+                );
+                if (
+                    !this.requestedStop &&
+                    error.key &&
+                    database === this.db &&
+                    store === this.store &&
+                    configuration === this.receiveConfiguration()
+                ) {
+                    this.stoppedJournal = {
+                        snapshot: Object.freeze({ key: error.key, stage: error.stage }),
+                        database,
+                        store,
+                        configuration,
+                        checkpointGeneration: this.checkpointGeneration,
+                    };
+                }
+            }
+            this.updateInfo({ syncStatus: this.requestedStop ? "CLOSED" : "ERRORED" });
+            return false;
+        } finally {
+            if (skippedKey) {
+                Logger("Receiving Journal: explicitly skipped " + skippedKey, LOG_LEVEL_NOTICE, "receivejournal");
+            }
+        }
     }
 
     async sync(showResult = false) {
@@ -955,6 +1239,7 @@ export class JournalSyncCore {
     }
 
     requestStop() {
+        this.stoppedJournal = undefined;
         this.requestedStop = true;
     }
 

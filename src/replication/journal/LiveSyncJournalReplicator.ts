@@ -23,7 +23,7 @@ import { MinioStorageAdapter } from "./objectstore/MinioStorageAdapter.ts";
 
 import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
-import type { CheckPointInfo } from "./JournalSyncTypes.ts";
+import type { CheckPointInfo, StoppedJournal } from "./JournalSyncTypes.ts";
 import type { SimpleStore } from "@lib/common/utils.ts";
 
 import { getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
@@ -473,6 +473,22 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     async replicateAllToServerWithOutcome(setting: RemoteDBSettings, showingNotice?: boolean) {
         return await this.runDirectionalReplicationWithOutcome(setting, showingNotice, (client) =>
             client.sendLocalJournal(showingNotice)
+        );
+    }
+
+    /** Return the stopped Journal from the current transfer client without creating another client. */
+    getStoppedJournal(): StoppedJournal | undefined {
+        return this._client?.getStoppedJournal();
+    }
+
+    /** Recheck connectivity and compatibility, skip the confirmed Journal, and resume receipt. */
+    async skipStoppedJournalAndResume(
+        setting: RemoteDBSettings,
+        stopped: StoppedJournal,
+        showingNotice = true
+    ): Promise<boolean> {
+        return await this.runDirectionalReplication(setting, showingNotice, (client) =>
+            client.skipStoppedJournalAndResume(stopped, showingNotice)
         );
     }
 

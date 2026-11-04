@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Fixed
+
+- A Journal which fails during decoding, record processing, or writing remains
+  unacknowledged, so the next receive attempt retries it before later Journals.
+
+### Added
+
+- Hosts can offer 'Skip stopped Journal and resume' to acknowledge the single
+  Journal represented by the current stopped failure and continue receiving.
+    - The operation skips no later Journal; a subsequent failure stops receipt
+      again. Partial writes remain, and warnings identify the Journal key and
+      failure stage.
+    - A skipped Journal can leave content or history incomplete. Use the
+      existing Reset journal received history operation to replay after
+      correcting the failure, if the remote Journals remain available and
+      readable. See the [recovery contract](docs/journal-receive-recovery.md).
+
 ## 0.3.1
 
 4th November, 2026
