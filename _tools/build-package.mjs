@@ -186,6 +186,7 @@ function createExports() {
         "./rpc": exportTarget("rpc/index"),
         "./remote-configurations": exportTarget("remoteConfigurations"),
         "./settings": exportTarget("settings"),
+        "./storage": exportTarget("storage"),
         "./setup-uri": exportTarget("setupUri"),
         "./ui-commands": exportTarget("uiCommands"),
     };
@@ -275,6 +276,8 @@ async function copyStaticFiles() {
         "p2p-transport-lifecycle.md",
         "platform-standard-io.md",
         "platform-storage.md",
+        "design_docs/storage_path_resolution.md",
+        "adr/2026_11_shared_storage_path_resolution.md",
         "proven-in-use.md",
         "remote-configurations.md",
         "remote-feature-compatibility.md",
@@ -285,7 +288,9 @@ async function copyStaticFiles() {
         "storage-events-and-reflection.md",
         "unicode-path-identity.md",
     ]) {
-        await cp(resolve(root, "docs", document), resolve(packageDirectory, "docs", document));
+        const target = resolve(packageDirectory, "docs", document);
+        await mkdir(dirname(target), { recursive: true });
+        await cp(resolve(root, "docs", document), target);
     }
 }
 

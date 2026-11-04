@@ -34,6 +34,31 @@ Inspect the lockfile diff before committing it. A dependency-only maintenance ch
 
 When a named host-specific risk is not established by the Commonlib owner checks, run the relevant downstream workflow against an exact Self-hosted LiveSync ref which consumes the package. It installs the tarball produced from the selected Commonlib commit and runs LiveSync type checks, unit tests, plug-in and application builds, and CLI E2E. Real Obsidian E2E remains local-only and is appropriate when the named risk concerns actual plug-in composition, storage, UI, or platform behaviour. These checks are conditional on the risk; LiveSync adoption is not a general release prerequisite.
 
+## Coordinating package and application releases
+
+A downstream release which imports a new package entry point or depends on new
+behaviour must use a published immutable Commonlib version. Prepare and test
+consumer branches against an exact local pack while the package is unreleased,
+but retain those results as local-candidate evidence.
+
+1. Complete the Commonlib owner checks and review the release source. For a
+   stable package, the exact reviewed release commit must be on `main` before
+   staging, as required by the trusted workflow below. An optional prerelease
+   can select a reviewed draft branch instead.
+2. Stage the exact package to `next`, validate the published registry artefact,
+   and complete any specifically required downstream checks before promoting
+   that same version to `latest`. These remain separate maintainer operations.
+3. Update each releasing consumer to the exact validated version and registry
+   integrity. Self-hosted LiveSync records one root dependency for its plug-in,
+   CLI, WebApp, and WebPeer; Bridge records its own Deno import map and lockfile.
+   Verify clean installation and the affected consumer boundaries before their
+   release workflows run.
+
+Commonlib publication does not require every consumer branch to be merged.
+Conversely, publishing Commonlib does not release an application or migrate an
+existing database. A source checkout with the same version label as a registry
+package is not a substitute for that immutable registry artefact.
+
 ## Version compatibility policy
 
 The Commonlib 0.2 policy begins with 0.2.0 and does not retroactively change compatibility expectations for published 0.1.x versions. Within 0.2.x, preserve published APIs, types, behaviour, supported persisted data, and exported `compat/*` paths. Intentional breaking changes belong in 0.3.0. Consumers may declare a range such as `^0.2.0`; lockfiles and `npm ci` remain the reproducible install path.

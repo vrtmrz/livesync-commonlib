@@ -53,6 +53,7 @@ replication-preparation, and host-adapter boundaries.
 | `@vrtmrz/livesync-commonlib/conflicts` | Keyed conflict-check scheduling with bounded concurrency and explicit completion | Focused, package-tested pre-1.0 contract |
 | `@vrtmrz/livesync-commonlib/context`               | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/diagnostics` | Read-only Usage and integrity inspection, name projection, and reports | Focused pre-1.0 diagnostic contract |
+| `@vrtmrz/livesync-commonlib/storage` | Path types, namespace and comparison helpers, and strict Unicode path resolution | Unreleased additive contract; host integration remains explicit |
 | `@vrtmrz/livesync-commonlib/hashing`               | Chunk ID calculation and exact file-content hashing                            | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/browser`               | Rooted File System Access API storage                                             | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/node`                  | Rooted Node storage, Node standard I/O, and selected Node capabilities            | Supported platform façade; keeps Node-only dependencies behind an explicit boundary         |
@@ -313,6 +314,13 @@ CouchDB stores the representations already in use as feature identifiers in its 
 Commonlib 0.3.0 provides [Unicode NFC path identity](docs/unicode-path-identity.md) with CouchDB, Object Storage, and P2P for maintained CLI and Obsidian host integrations. Application adoption remains in [Self-hosted LiveSync #1309](https://github.com/vrtmrz/obsidian-livesync/pull/1309). Changing an existing database's path identity requires coordinated Rebuild and Fetch. P2P participants must all be updated and migrated.
 
 ## Direct database watches
+
+An unreleased extension lets direct CouchDB integrations select
+`pathNormalizationVersion: 1` in `DirectFileManipulator` options. Omitted or
+`0` retains Legacy identity. The configured mode must match the database;
+NFC does not relabel a populated Legacy database. A confirmed empty database
+can declare the selected feature before its first Metadata write. Hosts still
+own physical path resolution and the coordinated migration of existing data.
 
 Direct CouchDB reads use the same Chunk arrival waiting and bounded retry processing as application replication. They retrieve missing Chunks through the prepared source connection, including its decryption transforms, without writing fetched Chunks back to that source.
 

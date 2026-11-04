@@ -1,3 +1,4 @@
+import { splitPathNamespace } from "@lib/common/pathNamespace.ts";
 import { Minimatch, type MinimatchOptions } from "minimatch";
 import { getWebCrypto } from "@lib/mods.ts";
 import {
@@ -18,7 +19,7 @@ import {
 import { memorizeFuncWithLRUCache } from "@lib/common/utils.ts";
 import { uint8ArrayToHexString, writeString } from "./convert.ts";
 import { unique } from "octagonal-wheels/collection.js";
-import { CHeader, ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
+import { CHeader } from "@lib/common/models/fileaccess.const";
 import { computeKeyedId } from "@lib/common/idDerivation.ts";
 // --- path utilities
 export function isValidFilenameInWidows(filename: string): boolean {
@@ -58,12 +59,8 @@ export function addPrefix(path: FilePath | FilePathWithPrefix, prefix: string): 
     return `${prefix ?? ""}${path}` as FilePathWithPrefix;
 }
 export function expandFilePathPrefix(path: FilePathWithPrefix | FilePath): [string, FilePathWithPrefix] {
-    for (const prefix of [ICHeader, ICXHeader, PSCHeader]) {
-        if (path.startsWith(prefix)) {
-            return [prefix, path.substring(prefix.length) as FilePathWithPrefix];
-        }
-    }
-    return ["", path];
+    const [prefix, body] = splitPathNamespace(path);
+    return [prefix, body as FilePathWithPrefix];
 }
 export function expandDocumentIDPrefix(id: DocumentID): [string, FilePathWithPrefix] {
     for (const prefix of [CHeader, PREFIX_OBFUSCATED]) {

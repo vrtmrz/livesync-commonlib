@@ -21,19 +21,18 @@ import {
     DEFAULT_SYNC_PARAMETERS,
     ProtocolVersions,
     DOCID_SYNC_PARAMETERS,
-    VERSIONING_DOCID,
     type E2EEAlgorithm,
     E2EEAlgorithms,
     VER,
 } from "@lib/common/types.ts";
 import { checkRemoteVersion } from "@lib/pouchdb/negotiation.ts";
 import {
-    assessRemoteFeatureDocument,
-    NFC_PATH_IDENTITY_FEATURE,
     requiredRemoteFeatures,
     usesEncryptedInternalMetadata,
 } from "@lib/pouchdb/remoteFeatureCompatibility.ts";
 import { assessRemoteDocumentIds } from "@lib/pouchdb/remoteIdCompatibility.ts";
+import { assertDatabasePathIdentity } from "@lib/pouchdb/pathIdentityCompatibility.ts";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 
 import { PouchDB } from "@lib/pouchdb/pouchdb-http.ts";
 import { LiveSyncLocalDB, type LiveSyncLocalDBEnv } from "@lib/pouchdb/LiveSyncLocalDB.ts";
@@ -73,6 +72,7 @@ export type DirectFileManipulatorOptions = {
     obfuscatePassphrase: string | undefined;
     idDerivationVersion?: 0 | 1;
     idDerivationKey?: string;
+    pathNormalizationVersion?: 0 | 1;
     encryptInternalMetadata?: boolean;
     useDynamicIterationCount?: boolean;
     customChunkSize?: number;
@@ -153,15 +153,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             if (idCompatibility === "mismatched") {
                 throw new Error("Direct database document IDs do not match the configured ID key.");
             }
-            try {
-                const versionInfo = await this.liveSyncLocalDB.localDatabase.get(VERSIONING_DOCID);
-                const assessment = assessRemoteFeatureDocument(versionInfo);
-                if (assessment.status === "supported" && assessment.usedFeatures.includes(NFC_PATH_IDENTITY_FEATURE)) {
-                    throw new Error("Direct database version or features are not compatible.");
-                }
-            } catch (error) {
-                if (!isErrorOfMissingDoc(error)) throw error;
-            }
+            await assertDatabasePathIdentity(this.liveSyncLocalDB.localDatabase, idSettings);
             const requiredFeatures = requiredRemoteFeatures(this.settings);
             if (
                 !(await checkRemoteVersion(
@@ -332,6 +324,9 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 passphrase: this.options.passphrase ?? "",
                 idDerivationVersion: this.options.idDerivationVersion ?? 0,
                 idDerivationKey: this.options.idDerivationKey ?? "",
+                pathNormalizationVersion: getPathNormalizationVersion({
+                    pathNormalizationVersion: this.options.pathNormalizationVersion,
+                }),
                 deleteMetadataOfDeletedFiles: DEFAULT_SETTINGS.deleteMetadataOfDeletedFiles,
                 customChunkSize: this.options.customChunkSize ?? DEFAULT_SETTINGS.customChunkSize,
                 doNotPaceReplication: DEFAULT_SETTINGS.doNotPaceReplication,

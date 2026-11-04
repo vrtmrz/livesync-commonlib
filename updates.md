@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- Direct CouchDB integrations can select Unicode NFC path identity through `DirectFileManipulator` options.
+    - Set `pathNormalizationVersion: 1` only for an NFC database or a confirmed empty database. Missing or `0` keeps Legacy identity. A populated database with another identity is rejected before its feature declaration changes; existing data still requires coordinated migration.
+
+- Node and File System Access integrations can resolve NFC-equivalent paths through shared storage adapters while preserving existing physical names.
+    - The `/storage` entry supplies namespace helpers, distinct comparison-key types, and a resolver which rejects ambiguous names and propagates listing failures. Existing string APIs and Legacy behaviour remain available.
+    - Hosts opt in with their existing identity settings and retain responsibility for database migration, caches, and file events. This does not enable NFC in WebApp or Bridge automatically.
+
 ### Fixed
 
 - Encrypted CouchDB reads no longer reuse responses from a previous Security Seed when a remote Rebuild preserves document revisions. (Self-hosted LiveSync #1234)

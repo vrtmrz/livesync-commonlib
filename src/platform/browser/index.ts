@@ -5,3 +5,4 @@ export {
     type CreateFileSystemAccessStorageOptions,
     type FileSystemAccessStorageStat,
 } from "./storage.ts";
+export { UnicodeResolvingFileSystemAccessStorageAdapter } from "./UnicodeResolvingFileSystemAccessStorageAdapter.ts";
