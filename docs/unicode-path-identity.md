@@ -109,11 +109,13 @@ the package protocol support alone does not mean those host integrations have
 shipped.
 
 The shared `/storage` resolver, Node and File System Access adapters, and
-explicit `DirectFileManipulator` path-version option are later unpublished
-additions described in the [shared storage path design](design_docs/storage_path_resolution.md).
-They are not in the registry artefact `0.3.0` and require a new immutable
-Commonlib package version. A source checkout carrying the same version string
-does not make these additions part of the published artefact.
+explicit `DirectFileManipulator` path-version option are published in
+[Commonlib 0.3.1](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.3.1),
+as described in the [shared storage path design](design_docs/storage_path_resolution.md).
+They are absent from the registry artefact `0.3.0`; select the new immutable
+version rather than a source checkout carrying an older version label. Shared
+path adoption remains in [LiveSync #1315](https://github.com/vrtmrz/obsidian-livesync/pull/1315)
+and [Bridge #92](https://github.com/vrtmrz/livesync-bridge/pull/92).
 
 | Consumer surface | Published baseline | Current candidate status |
 | --- | --- | --- |
@@ -122,7 +124,7 @@ does not make these additions part of the published artefact.
 | Bridge | Legacy version `0` remains the default baseline. | The Bridge candidate enables version `1` only by explicit peer opt-in; every peer in a group must use the same path version. Its ordinary case-mismatch check remains separate from the required version check. |
 | WebApp | Legacy version `0` only. | WebApp remains Legacy-only; an explicit version `1` is rejected at startup. The browser storage primitive alone does not enable application support. |
 | WebPeer | A vaultless P2P utility. | It is not an NFC filesystem host. |
-| `DirectFileManipulator` | The published package rejects a remote declaring the NFC feature. | The unpublished option defaults to version `0`, accepts explicit `0` or `1`, and rejects a populated database in the opposite mode. The caller still owns physical path handling. |
+| `DirectFileManipulator` | Commonlib `0.3.1` supports explicit version `1`; omitted or `0` retains Legacy identity. A populated database in the opposite mode is rejected. | The caller still owns physical path handling and coordinated migration. |
 
 `PathService` owns logical ID derivation. In the unreleased LiveSync host
 candidate, the CLI resolves NFC-equivalent names against directory entries
@@ -172,8 +174,7 @@ checkpoints; the P2P source mark and target checkpoint handle database
 replacement. These operations do not rewrite IDs or merge histories in place.
 P2P retains its existing source selection during Fetch.
 
-Published Commonlib direct file access refuses a remote which declares the NFC
-feature. The unpublished `DirectFileManipulator` addition exposes explicit
+Commonlib 0.3.1 `DirectFileManipulator` exposes explicit
 `pathNormalizationVersion` options, defaulting to `0`: missing or `0` retains
 Legacy and rejects an NFC database; `1` accepts NFC and rejects a populated
 Legacy database before feature negotiation can change its declaration. A

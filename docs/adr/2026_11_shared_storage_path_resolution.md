@@ -2,7 +2,7 @@
 date: 2026-11-03
 commonlib-version: "0.3.0"
 self-hosted-livesync-version: "1.0.44"
-status: accepted-unreleased
+status: published
 ---
 
 # Architectural Decision Record: Shared Storage Path Resolution
@@ -16,7 +16,9 @@ lifecycle. The [design](../design_docs/storage_path_resolution.md) defines the
 accepted contract and remaining adoption work.
 
 Accepted on 2026-11-03 against the versions recorded above. The implementation
-is unreleased. Publication does not by itself enable NFC in WebApp or Bridge.
+is published in [Commonlib 0.3.1](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.3.1).
+The original date and reviewed versions retain the accepted baseline.
+Publication does not by itself enable NFC in WebApp or Bridge.
 
 ## Context
 

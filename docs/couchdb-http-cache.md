@@ -2,7 +2,7 @@
 date: 2026-11-02
 commonlib-version: "0.3.0"
 self-hosted-livesync-version: "1.0.44"
-status: unreleased
+status: published
 ---
 
 # CouchDB response caching and Security Seed changes
@@ -12,6 +12,11 @@ replacing the Security Seed and ciphertext. CouchDB uses the revision as the
 ETag for ordinary documents, so revalidation can accept an earlier encrypted
 body even though it no longer matches the current Seed. This affects Metadata
 and Chunks. Reading the current Seed alone does not invalidate those responses.
+
+This policy is published in [Commonlib 0.3.1](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.3.1).
+The original date and reviewed versions above retain the design baseline.
+Obsidian adoption of the native request headers and compatibility setting remains in
+[Self-hosted LiveSync #1314](https://github.com/vrtmrz/obsidian-livesync/pull/1314).
 
 ## Request boundary
 

@@ -14,7 +14,7 @@ This package is primarily for maintainers of those clients and for integrations 
 
 ## Status and versioning
 
-Commonlib [0.3.0](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.3.0)
+Commonlib [0.3.1](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.3.1)
 is published on npm. Self-hosted LiveSync
 [1.0.44](https://github.com/vrtmrz/obsidian-livesync/releases/tag/1.0.44)
 uses Commonlib 0.2.3. The [0.2.3 release notes](updates.md#023) record its
@@ -315,7 +315,7 @@ Commonlib 0.3.0 provides [Unicode NFC path identity](docs/unicode-path-identity.
 
 ## Direct database watches
 
-An unreleased extension lets direct CouchDB integrations select
+Commonlib 0.3.1 lets direct CouchDB integrations select
 `pathNormalizationVersion: 1` in `DirectFileManipulator` options. Omitted or
 `0` retains Legacy identity. The configured mode must match the database;
 NFC does not relabel a populated Legacy database. A confirmed empty database

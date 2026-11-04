@@ -2,7 +2,7 @@
 date: 2026-11-03
 commonlib-version: "0.3.0"
 self-hosted-livesync-version: "1.0.44"
-status: accepted-unreleased
+status: published
 ---
 
 # Shared storage path resolution
@@ -10,8 +10,8 @@ status: accepted-unreleased
 This design moves the CLI's existing Unicode-aware path resolution into
 Commonlib so Node, File System Access, and Bridge can apply the same naming
 rules. The shared resolver, path types, and Node and File System Access
-integrations are implemented as unreleased additions. Installing the package
-does not enable NFC in an existing host or migrate its database.
+integrations are published in Commonlib 0.3.1. Installing the package does
+not enable NFC in an existing host or migrate its database.
 
 Accepted on 2026-11-03. The [decision record](../adr/2026_11_shared_storage_path_resolution.md)
 records the ownership and compatibility choices. The [platform guide](../platform-storage.md#unicode-path-resolution)
@@ -258,10 +258,11 @@ of state, including hosts which report them as deletion and creation.
 ## Current adoption and publication status
 
 The shared `/storage` contract, Node and File System Access adapters, and
-explicit `DirectFileManipulator` path-version option are unreleased additions
-after the published Commonlib `0.3.0` artefact. They require a new immutable
-package version; a source checkout with version string `0.3.0` is not the
-registry artefact.
+explicit `DirectFileManipulator` path-version option are published in
+[Commonlib 0.3.1](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.3.1).
+The original decision date and reviewed versions above retain the accepted
+baseline. These additions are absent from the registry artefact `0.3.0`;
+a source checkout carrying that version label is not the published artefact.
 
 The CLI candidate uses the shared Node resolver, and the current Obsidian
 candidate uses shared namespace and comparison helpers while retaining Vault
