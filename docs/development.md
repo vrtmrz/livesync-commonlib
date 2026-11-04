@@ -21,8 +21,8 @@ Files elsewhere under `src` are implementation details unless a focused entry re
 
 ## Storage path boundary
 
-The unreleased `/storage` entry owns namespace helpers, comparison keys, and
-strict component resolution. The [design](design_docs/storage_path_resolution.md)
+The `/storage` entry, published in Commonlib 0.3.1, owns namespace helpers,
+comparison keys, and strict component resolution. The [design](design_docs/storage_path_resolution.md)
 and [decision record](adr/2026_11_shared_storage_path_resolution.md) separate
 that contract from host handles, caches, watchers, and migration. See the
 [platform guide](platform-storage.md#unicode-path-resolution) for composition.

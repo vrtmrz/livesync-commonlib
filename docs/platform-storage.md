@@ -63,8 +63,8 @@ The File System Access API does not expose portable creation times or permit set
 
 ## Unicode path resolution
 
-The following APIs are unreleased additions after Commonlib 0.3.0. Node and
-File System Access hosts can use the same NFC comparison and component
+These APIs are published in [Commonlib 0.3.1](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.3.1).
+Node and File System Access hosts can use the same NFC comparison and component
 resolution while retaining the names listed by their filesystem. Hosts still
 own the selected identity mode and its database migration.
 
