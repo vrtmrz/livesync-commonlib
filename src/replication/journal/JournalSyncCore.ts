@@ -20,9 +20,7 @@ import type { ReplicationCallback, ReplicationStat } from "@lib/replication/Live
 import {
     type SimpleStore,
     concatUInt8Array,
-    escapeNewLineFromString,
     setAllItems,
-    unescapeNewLineFromString,
     pickBucketSyncSettings,
     pickEncryptionSettings,
 } from "@lib/common/utils.ts";
@@ -48,6 +46,7 @@ import {
     SyncParamsFetchError,
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
+    isSyncParamsError,
 } from "@lib/replication/SyncParamsHandler.ts";
 import { REMOTE_CHUNK_FETCHED } from "@lib/pouchdb/LiveSyncLocalDB.ts";
 import { decryptBinary, encryptBinary } from "octagonal-wheels/encryption/encryption";
@@ -58,17 +57,16 @@ import {
 
 import { assertDatabasePathIdentity } from "@lib/pouchdb/pathIdentityCompatibility.ts";
 
-const RECORD_SPLIT = `\n`;
-const UNIT_SPLIT = `\u001f`;
-type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
-class JournalReceiveFailure extends Error {
-    constructor(
-        readonly stage: JournalReceiveFailureStage,
-        readonly key?: string
-    ) {
-        super("Journal receive failed at " + stage);
-    }
-}
+import { decodeJournalRecords, serializeDoc, type ProcessingEntry } from "./journalRecords.ts";
+import { JournalReceiveFailure, isJournalReceiveFailure } from "./JournalReceiveFailure.ts";
+import {
+    partitionJournalDocuments,
+    selectChunksToSave,
+    assessChunkWrites,
+    journalMetadataRevisions,
+    selectMetadataToSave,
+    hasJournalWriteErrors,
+} from "./journalReceive.ts";
 
 type StoppedJournalState = {
     snapshot: StoppedJournal;
@@ -78,41 +76,12 @@ type StoppedJournalState = {
     checkpointGeneration: number;
 };
 
-function parseJournalRecord(value: string): ProcessingEntry {
-    const parsed: unknown = JSON.parse(value);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        throw new TypeError("Invalid Journal record");
-    }
-    const record = parsed as Record<string, unknown>;
-    if (typeof record._id !== "string" || record._id.length === 0) {
-        throw new TypeError("Invalid Journal document identifier");
-    }
-    if (record._id.startsWith("h:")) {
-        if (record._id.length <= 2 || typeof record._rev !== "string" || typeof record.data !== "string") {
-            throw new TypeError("Invalid Journal Chunk record");
-        }
-    } else if (typeof record._rev !== "string" || record._rev.length === 0) {
-        throw new TypeError("Invalid Journal Metadata revision");
-    }
-    return parsed as ProcessingEntry;
-}
-
 type ReceivedJournalChunk = {
     key: string;
     docs: ProcessingEntry[];
     alreadyProcessed?: boolean;
     failure?: JournalReceiveFailure;
 };
-
-const te = new TextEncoder();
-function serializeDoc(doc: EntryDoc): Uint8Array {
-    if (doc._id.startsWith("h:")) {
-        const data = (doc as EntryLeaf).data;
-        const writeData = escapeNewLineFromString(data);
-        return te.encode(`~${doc._id}${UNIT_SPLIT}${writeData}${RECORD_SPLIT}`);
-    }
-    return te.encode(JSON.stringify(doc) + RECORD_SPLIT);
-}
 
 function isJournalKey(key: string): boolean {
     return !key.startsWith("_");
@@ -526,11 +495,7 @@ export class JournalSyncCore {
             const decrypted = await this.decryptDataV2(u, set);
             return decrypted;
         } catch (ex) {
-            if (
-                ex instanceof SyncParamsFetchError ||
-                ex instanceof SyncParamsNotFoundError ||
-                ex instanceof SyncParamsUpdateError
-            ) {
+            if (isSyncParamsError(ex)) {
                 throw ex;
             }
             Logger(`Failed to decrypt in v2. Falling back to v1: ${key}`, LOG_LEVEL_INFO);
@@ -811,34 +776,9 @@ export class JournalSyncCore {
     }
 
     private async processDocumentsForReceive(allDocs: ProcessingEntry[], key?: string): Promise<void> {
-        let applyTotal = 0;
-        let wholeItems = 0;
-        // Sort transferred documents into Chunks and Metadata.
-        const chunks = [] as typeof allDocs;
-        const docs = [] as typeof allDocs;
-        allDocs.forEach((entry) => {
-            if (entry._id.startsWith("h:")) {
-                chunks.push(entry);
-            } else {
-                docs.push(entry);
-            }
-        });
-
-        // Chunks have stable content, so revision comparisons are unnecessary.
-        const chunkRows = (await this.db.allDocs({ include_docs: true, keys: [...chunks.map((entry) => entry._id)] }))
-            .rows;
-        const chunkReadFailures = chunkRows.filter((row) => "error" in row && row.error !== "not_found");
-        if (chunkReadFailures.length > 0) {
-            throw new Error("Could not inspect existing Chunks");
-        }
-        const existingChunkIDs = new Set(
-            chunkRows
-                .map((row) => (row as { id?: string }).id ?? undefined)
-                .filter((id): id is string => id !== undefined)
-        );
-        const saveChunks = chunks
-            .filter((entry) => !existingChunkIDs.has(entry._id))
-            .map((entry) => ({ ...entry, _rev: undefined as string | undefined }));
+        const { chunks, docs } = partitionJournalDocuments(allDocs);
+        const chunkRows = (await this.db.allDocs({ include_docs: true, keys: chunks.map((entry) => entry._id) })).rows;
+        const saveChunks = selectChunksToSave(chunks, chunkRows);
 
         let chunkResults: (PouchDB.Core.Error | PouchDB.Core.Response)[];
         try {
@@ -847,13 +787,11 @@ export class JournalSyncCore {
             throw new JournalReceiveFailure("chunk-write", key);
         }
 
-        const failedChunkRows = chunkResults.filter((row) => "error" in row);
-        const persistedChunkIDs = new Set(chunkResults.filter((row) => !("error" in row)).map((row) => row.id));
-        saveChunks
-            .filter((entry) => persistedChunkIDs.has(entry._id))
-            .forEach((entry) => this.env.services.context.events.emitEvent(REMOTE_CHUNK_FETCHED, entry as EntryLeaf));
-
-        if (failedChunkRows.length > 0 || saveChunks.some((entry) => !persistedChunkIDs.has(entry._id))) {
+        const chunkWrites = assessChunkWrites(saveChunks, chunkResults);
+        chunkWrites.persisted.forEach((entry) =>
+            this.env.services.context.events.emitEvent(REMOTE_CHUNK_FETCHED, entry as EntryLeaf)
+        );
+        if (chunkWrites.failed) {
             throw new JournalReceiveFailure("chunk-write", key);
         }
 
@@ -865,21 +803,8 @@ export class JournalSyncCore {
             ),
         }));
 
-        // Metadata revisions must retain the transferred revision ancestry.
-        const params = docs.map((entry) => [entry._id, [entry._rev]] as const);
-        const docsRevs = params.reduce(
-            (acc, [id, revs]) => {
-                return { ...acc, [id]: [...(acc[id] ?? []), ...revs] };
-            },
-            {} as { [key: string]: string[] }
-        );
-        const diffRevs = await this.db.revsDiff(docsRevs);
-        const saveDocs = docs.filter(
-            (entry) =>
-                entry._id in diffRevs &&
-                "missing" in diffRevs[entry._id] &&
-                (diffRevs[entry._id].missing?.indexOf(entry._rev) ?? 0) !== -1
-        );
+        const diffRevs = await this.db.revsDiff(journalMetadataRevisions(docs));
+        const saveDocs = selectMetadataToSave(docs, diffRevs);
 
         let metadataResults: (PouchDB.Core.Error | PouchDB.Core.Response)[];
         try {
@@ -887,8 +812,7 @@ export class JournalSyncCore {
         } catch (error) {
             throw new JournalReceiveFailure("metadata-write", key);
         }
-        const failedMetadataRows = metadataResults.filter((row) => "error" in row);
-        if (failedMetadataRows.length > 0) {
+        if (hasJournalWriteErrors(metadataResults)) {
             throw new JournalReceiveFailure("metadata-write", key);
         }
 
@@ -907,8 +831,8 @@ export class JournalSyncCore {
             ),
         }));
 
-        applyTotal += saveDocs.length;
-        wholeItems += docs.length;
+        const applyTotal = saveDocs.length;
+        const wholeItems = docs.length;
         Logger(
             "Applied " + applyTotal + " of " + wholeItems + " docs (" + (wholeItems - applyTotal) + " skipped)",
             LOG_LEVEL_VERBOSE
@@ -973,11 +897,7 @@ export class JournalSyncCore {
                 try {
                     data = await this.decryptDownloaded(key, downloadResult.value as Uint8Array<ArrayBuffer>, settings);
                 } catch (error) {
-                    if (
-                        error instanceof SyncParamsFetchError ||
-                        error instanceof SyncParamsNotFoundError ||
-                        error instanceof SyncParamsUpdateError
-                    ) {
+                    if (isSyncParamsError(error)) {
                         controller.error(error);
                     } else {
                         enqueueFailure("decrypt");
@@ -992,63 +912,12 @@ export class JournalSyncCore {
                     enqueueFailure("inflate");
                     return;
                 }
-                if (decompressed.length === 0) {
-                    controller.enqueue({ key, docs: [] });
+                const decoded = decodeJournalRecords(decompressed);
+                if (decoded.ok === false) {
+                    enqueueFailure(decoded.stage);
                     return;
                 }
-                if (decompressed[decompressed.length - 1] !== 0x0a) {
-                    enqueueFailure("parse");
-                    return;
-                }
-
-                let idxFrom = 0;
-                const decoder = new TextDecoder("utf-8", { fatal: true });
-                const result = [] as ProcessingEntry[];
-                while (idxFrom < decompressed.length) {
-                    const idxTo = decompressed.indexOf(0x0a, idxFrom);
-                    if (idxTo === -1 || idxTo === idxFrom) {
-                        enqueueFailure("parse");
-                        return;
-                    }
-                    const piece = decompressed.slice(idxFrom, idxTo);
-                    let strPiece: string;
-                    try {
-                        strPiece = decoder.decode(piece);
-                    } catch {
-                        enqueueFailure("decode");
-                        return;
-                    }
-
-                    if (strPiece.startsWith("~")) {
-                        const separatorIndex = strPiece.indexOf(UNIT_SPLIT);
-                        if (separatorIndex === -1) {
-                            enqueueFailure("parse");
-                            return;
-                        }
-                        const idPart = strPiece.substring(1, separatorIndex);
-                        if (!idPart.startsWith("h:") || idPart.length <= 2) {
-                            enqueueFailure("parse");
-                            return;
-                        }
-                        const dataPart = strPiece.substring(separatorIndex + 1);
-                        result.push({
-                            _id: idPart as DocumentID,
-                            data: unescapeNewLineFromString(dataPart),
-                            type: "leaf",
-                            _rev: "",
-                        });
-                    } else {
-                        try {
-                            result.push(parseJournalRecord(strPiece));
-                        } catch {
-                            enqueueFailure("parse");
-                            return;
-                        }
-                    }
-                    idxFrom = idxTo + 1;
-                }
-
-                controller.enqueue({ key, docs: result });
+                controller.enqueue({ key, docs: decoded.docs });
             },
         });
     }
@@ -1077,7 +946,7 @@ export class JournalSyncCore {
                     try {
                         await this.processDocumentsForReceive(docs, key);
                     } catch (error) {
-                        if (error instanceof JournalReceiveFailure) {
+                        if (isJournalReceiveFailure(error)) {
                             failure = error;
                         } else {
                             throw error;
@@ -1115,6 +984,70 @@ export class JournalSyncCore {
         return task;
     }
 
+    private async prepareStoppedJournalSkip(files: string[], stopped: StoppedJournalState) {
+        const checkpoint = await this.getCheckpointInfo();
+        const nextKey = files.find((key) => !checkpoint.sentFiles.has(key) && !checkpoint.receivedFiles.has(key));
+        if (this.requestedStop || !this.matchesStoppedContext(stopped) || nextKey !== stopped.snapshot.key) {
+            Logger(
+                "The stopped Journal has changed. Retry replication before choosing a Journal to skip.",
+                LOG_LEVEL_NOTICE,
+                "receivejournal"
+            );
+            this.updateInfo({ syncStatus: this.requestedStop ? "CLOSED" : "ERRORED" });
+            return undefined;
+        }
+        await this.updateCheckPointInfo((info) => ({
+            ...info,
+            receivedFiles: setAllItems(new Set(info.receivedFiles), [stopped.snapshot.key]),
+        }));
+        return files.filter((key) => key !== stopped.snapshot.key);
+    }
+
+    private recordReceiveFailure(
+        error: unknown,
+        logLevel: LOG_LEVEL,
+        context: Pick<StoppedJournalState, "database" | "store" | "configuration">
+    ): void {
+        if (!isJournalReceiveFailure(error)) return;
+        Logger("Receive Journal " + (error.key ?? "item") + " failed at " + error.stage, logLevel, "receivejournal");
+        if (
+            !this.requestedStop &&
+            error.key &&
+            context.database === this.db &&
+            context.store === this.store &&
+            context.configuration === this.receiveConfiguration()
+        ) {
+            this.stoppedJournal = {
+                snapshot: Object.freeze({ key: error.key, stage: error.stage }),
+                ...context,
+                checkpointGeneration: this.checkpointGeneration,
+            };
+        }
+    }
+
+    private async receiveJournalFiles(files: string[], logLevel: LOG_LEVEL): Promise<boolean> {
+        if (this.requestedStop) {
+            this.updateInfo({ syncStatus: "CLOSED" });
+            return false;
+        }
+        if (files.length === 0) {
+            Logger("Receiving Journal: No journals needs to be downloaded", logLevel, "receivejournal");
+            this.updateInfo({ syncStatus: "COMPLETED" });
+            return true;
+        }
+        const readable = this._createReceiveReadableStream(files);
+        const transform = this._createReceiveTransformStream(logLevel);
+        const writable = this._createReceiveWritableStream();
+        await readable.pipeThrough(transform).pipeTo(writable);
+        if (this.requestedStop) {
+            Logger("Receive Journal closed after the active operation", LOG_LEVEL_NOTICE, "receivejournal");
+            this.updateInfo({ syncStatus: "CLOSED" });
+            return false;
+        }
+        this.updateInfo({ syncStatus: "COMPLETED" });
+        return true;
+    }
+
     private async performReceive(showMessage: boolean, stopped?: StoppedJournalState): Promise<boolean> {
         const database = this.db;
         const store = this.store;
@@ -1131,25 +1064,10 @@ export class JournalSyncCore {
                 return false;
             }
             if (stopped) {
-                const checkpoint = await this.getCheckpointInfo();
-                const nextKey = files.find(
-                    (key) => !checkpoint.sentFiles.has(key) && !checkpoint.receivedFiles.has(key)
-                );
-                if (this.requestedStop || !this.matchesStoppedContext(stopped) || nextKey !== stopped.snapshot.key) {
-                    Logger(
-                        "The stopped Journal has changed. Retry replication before choosing a Journal to skip.",
-                        LOG_LEVEL_NOTICE,
-                        "receivejournal"
-                    );
-                    this.updateInfo({ syncStatus: this.requestedStop ? "CLOSED" : "ERRORED" });
-                    return false;
-                }
-                await this.updateCheckPointInfo((info) => ({
-                    ...info,
-                    receivedFiles: setAllItems(new Set(info.receivedFiles), [stopped.snapshot.key]),
-                }));
+                const remainingFiles = await this.prepareStoppedJournalSkip(files, stopped);
+                if (!remainingFiles) return false;
                 skippedKey = stopped.snapshot.key;
-                files = files.filter((key) => key !== skippedKey);
+                files = remainingFiles;
                 Logger(
                     "Skipping Journal " +
                         skippedKey +
@@ -1160,26 +1078,7 @@ export class JournalSyncCore {
                     "receivejournal"
                 );
             }
-            if (this.requestedStop) {
-                this.updateInfo({ syncStatus: "CLOSED" });
-                return false;
-            }
-            if (files.length === 0) {
-                Logger("Receiving Journal: No journals needs to be downloaded", logLevel, "receivejournal");
-                this.updateInfo({ syncStatus: "COMPLETED" });
-                return true;
-            }
-            const readable = this._createReceiveReadableStream(files);
-            const transform = this._createReceiveTransformStream(logLevel);
-            const writable = this._createReceiveWritableStream();
-            await readable.pipeThrough(transform).pipeTo(writable);
-            if (this.requestedStop) {
-                Logger("Receive Journal closed after the active operation", LOG_LEVEL_NOTICE, "receivejournal");
-                this.updateInfo({ syncStatus: "CLOSED" });
-                return false;
-            }
-            this.updateInfo({ syncStatus: "COMPLETED" });
-            return true;
+            return await this.receiveJournalFiles(files, logLevel);
         } catch (error) {
             Logger(
                 this.requestedStop
@@ -1188,28 +1087,7 @@ export class JournalSyncCore {
                 this.requestedStop ? LOG_LEVEL_NOTICE : logLevel,
                 "receivejournal"
             );
-            if (error instanceof JournalReceiveFailure) {
-                Logger(
-                    "Receive Journal " + (error.key ?? "item") + " failed at " + error.stage,
-                    logLevel,
-                    "receivejournal"
-                );
-                if (
-                    !this.requestedStop &&
-                    error.key &&
-                    database === this.db &&
-                    store === this.store &&
-                    configuration === this.receiveConfiguration()
-                ) {
-                    this.stoppedJournal = {
-                        snapshot: Object.freeze({ key: error.key, stage: error.stage }),
-                        database,
-                        store,
-                        configuration,
-                        checkpointGeneration: this.checkpointGeneration,
-                    };
-                }
-            }
+            this.recordReceiveFailure(error, logLevel, { database, store, configuration });
             this.updateInfo({ syncStatus: this.requestedStop ? "CLOSED" : "ERRORED" });
             return false;
         } finally {

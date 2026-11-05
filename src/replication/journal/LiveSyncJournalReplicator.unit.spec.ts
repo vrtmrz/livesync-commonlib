@@ -5,7 +5,7 @@ import {
     type EntryMilestoneInfo,
     type RemoteDBSettings,
 } from "@lib/common/types.ts";
-import { LiveSyncJournalReplicator } from "./LiveSyncJournalReplicator.ts";
+import { LiveSyncJournalReplicator, isLiveSyncJournalReplicator } from "./LiveSyncJournalReplicator.ts";
 import { ensureRemoteIsCompatible } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import { MinioStorageAdapter } from "./objectstore/MinioStorageAdapter.ts";
 import { JournalSyncCore } from "./JournalSyncCore.ts";
@@ -1516,4 +1516,19 @@ describe("Journal path identity before recovery mutations", () => {
         expect(client.uploadJson).not.toHaveBeenCalled();
         await expect(replicator.markRemoteResolved(setting)).rejects.toThrow(/milestone/i);
     });
+});
+
+describe("isLiveSyncJournalReplicator", () => {
+    it("recognises a Journal replicator and its subclasses", () => {
+        class DerivedReplicator extends LiveSyncJournalReplicator {}
+        expect(isLiveSyncJournalReplicator(new LiveSyncJournalReplicator({} as never))).toBe(true);
+        expect(isLiveSyncJournalReplicator(new DerivedReplicator({} as never))).toBe(true);
+    });
+
+    it.each([null, undefined, {}, { getStoppedJournal: () => undefined, skipStoppedJournalAndResume: () => true }])(
+        "does not accept an unrelated value with similar methods: %s",
+        (value) => {
+            expect(isLiveSyncJournalReplicator(value)).toBe(false);
+        }
+    );
 });

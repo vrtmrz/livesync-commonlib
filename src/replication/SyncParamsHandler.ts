@@ -53,6 +53,16 @@ export class SyncParamsFetchError extends SyncParamsHandlerError {}
 export class SyncParamsNotFoundError extends SyncParamsHandlerError {}
 export class SyncParamsUpdateError extends SyncParamsHandlerError {}
 
+export function isSyncParamsError(
+    error: unknown
+): error is SyncParamsFetchError | SyncParamsNotFoundError | SyncParamsUpdateError {
+    return (
+        error instanceof SyncParamsFetchError ||
+        error instanceof SyncParamsNotFoundError ||
+        error instanceof SyncParamsUpdateError
+    );
+}
+
 /**
  * SyncParameters with decoded PBKDF2 salt (as Uint8Array).
  * This is for performance reasons, to avoid decoding it every time.

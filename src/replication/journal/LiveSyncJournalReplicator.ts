@@ -27,7 +27,7 @@ import type { CheckPointInfo, StoppedJournal } from "./JournalSyncTypes.ts";
 import type { SimpleStore } from "@lib/common/utils.ts";
 
 import { getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
-import { assertSupportedPathNormalizationVersion, getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
+import { assertSupportedPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import { JournalStorageReadStatuses } from "./objectstore/JournalStorageAdapter.ts";
 import { computeKeyedId, configuredIdKey } from "@lib/common/idDerivation.ts";
@@ -54,6 +54,13 @@ import {
     type JoinedDevicesStore,
 } from "@lib/replication/joinedDevices.ts";
 
+import {
+    journalVersionRange,
+    hasJournalNodeDeclarations,
+    matchesJournalPathIdentity,
+    inspectJournalPathIdentity,
+} from "./journalCompatibility.ts";
+
 const MILSTONE_DOCID = "_00000000-milestone.json";
 
 type JournalMilestoneReadClient = Pick<JournalSyncCore, "downloadJsonWithResult">;
@@ -64,34 +71,6 @@ async function readRemoteMilestone(client: JournalMilestoneReadClient): Promise<
     if (result.status === JournalStorageReadStatuses.AVAILABLE) return result.value;
     if (result.status === JournalStorageReadStatuses.NOT_FOUND) return undefined;
     throw result.error;
-}
-
-const currentVersionRange: ChunkVersionRange = {
-    min: 0,
-    max: 2,
-    current: 2,
-};
-
-function journalVersionRange(setting: RemoteDBSettings): ChunkVersionRange {
-    if (getPathNormalizationVersion(setting) === 1) return { min: 4, max: 4, current: 4 };
-    return configuredIdKey(setting) && setting.encrypt && setting.usePathObfuscation
-        ? { min: 3, max: 3, current: 3 }
-        : currentVersionRange;
-}
-
-function pathIdentityFromJournalRange(range: ChunkVersionRange | undefined): 0 | 1 {
-    if (range?.min === 4 && range?.max === 4) return 1;
-    if (!range) return 0;
-    if (
-        Number.isSafeInteger(range.min) &&
-        Number.isSafeInteger(range.max) &&
-        range.min >= 0 &&
-        range.max <= 3 &&
-        range.min <= range.max
-    ) {
-        return 0;
-    }
-    throw new Error("The Journal declares an unsupported path identity range.");
 }
 
 export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
@@ -138,19 +117,8 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         milestone: EntryMilestoneInfo | undefined,
         client: Pick<JournalSyncCore, "hasRemoteJournals">
     ): Promise<boolean> {
-        const pathVersion = getPathNormalizationVersion(setting);
-        const ranges = milestone?.node_chunk_info ?? {};
-        // A rebuild lock retires accepted nodes. The stored ranges still
-        // describe the journals until the bucket has been reset.
-        const nodes = new Set([...(milestone?.accepted_nodes ?? []), ...Object.keys(ranges)]);
-        for (const node of nodes) {
-            const range = ranges[node];
-            const usesNFC = range?.min === 4 && range?.max === 4;
-            if (usesNFC !== (pathVersion === 1)) return false;
-        }
-        const preferred = milestone?.tweak_values?.[DEVICE_ID_PREFERRED];
-        if (preferred && getPathNormalizationVersion(preferred) !== pathVersion) return false;
-        if (nodes.size === 0 && (await client.hasRemoteJournals())) {
+        if (!matchesJournalPathIdentity(setting, milestone)) return false;
+        if (!hasJournalNodeDeclarations(milestone) && (await client.hasRemoteJournals())) {
             throw new Error(
                 "The Journal compatibility milestone is missing. Rebuild from the authoritative Vault before synchronising."
             );
@@ -206,24 +174,13 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     async inspectRemotePathIdentity(setting: RemoteDBSettings): Promise<PathIdentityInspection> {
         const client = this.setupJournalSyncClient(setting);
         const milestone = await readRemoteMilestone(client);
-        const versions = new Set<0 | 1>();
-        const ranges = milestone?.node_chunk_info ?? {};
-        const nodes = new Set([...(milestone?.accepted_nodes ?? []), ...Object.keys(ranges)]);
-        for (const node of nodes) {
-            versions.add(pathIdentityFromJournalRange(ranges[node]));
-        }
-        const preferred = milestone?.tweak_values?.[DEVICE_ID_PREFERRED];
-        if (preferred) versions.add(getPathNormalizationVersion(preferred));
-        if (versions.size > 1) throw new Error("The Journal has conflicting path identity declarations.");
-        if (nodes.size === 0 && (await client.hasRemoteJournals())) {
+        const identity = inspectJournalPathIdentity(milestone);
+        if (!hasJournalNodeDeclarations(milestone) && (await client.hasRemoteJournals())) {
             throw new Error(
                 "The Journal path identity declaration is missing. Use matching settings or Rebuild from the authoritative Vault."
             );
         }
-        const version = [...versions][0];
-        return version === undefined
-            ? { status: "empty" }
-            : { status: "configured", pathNormalizationVersion: version };
+        return identity;
     }
 
     /** Lock existing journals for replacement without declaring the replacement's identity. */
@@ -888,4 +845,8 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     ): Promise<false | { node_info: Record<string, NodeData>; accepted_nodes: string[] }> {
         return Promise.resolve(false);
     }
+}
+
+export function isLiveSyncJournalReplicator(value: unknown): value is LiveSyncJournalReplicator {
+    return value instanceof LiveSyncJournalReplicator;
 }
