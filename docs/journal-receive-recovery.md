@@ -2,14 +2,17 @@
 date: 2026-11-04
 commonlib-version: "0.3.1"
 self-hosted-livesync-version: "1.0.44"
-status: unreleased
+status: published
+published-in: "0.3.2"
+publication-date: 2026-11-05
 ---
 
 # Journal receive failures and recovery
 
-This document describes unreleased receive behaviour. Hosts choose when to
-offer the manual skip operation and remain responsible for Vault reflection
-and conflict handling.
+This document describes receive behaviour published in
+[Commonlib 0.3.2](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.3.2).
+Hosts choose when to offer the manual skip operation and remain responsible
+for Vault reflection and conflict handling.
 
 ## Stop and retry by default
 
