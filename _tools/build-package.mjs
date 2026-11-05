@@ -271,6 +271,7 @@ async function copyStaticFiles() {
     for (const document of [
         "conflict-resolution.md",
         "database-diagnostics.md",
+        "journal-receive-recovery.md",
         "development.md",
         "offline-scanner.md",
         "p2p-transport-lifecycle.md",

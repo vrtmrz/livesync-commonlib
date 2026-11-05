@@ -5,7 +5,7 @@ import {
     type EntryMilestoneInfo,
     type RemoteDBSettings,
 } from "@lib/common/types.ts";
-import { LiveSyncJournalReplicator } from "./LiveSyncJournalReplicator.ts";
+import { LiveSyncJournalReplicator, isLiveSyncJournalReplicator } from "./LiveSyncJournalReplicator.ts";
 import { ensureRemoteIsCompatible } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import { MinioStorageAdapter } from "./objectstore/MinioStorageAdapter.ts";
 import { JournalSyncCore } from "./JournalSyncCore.ts";
@@ -213,6 +213,43 @@ describe("LiveSyncJournalReplicator replication compatibility state", () => {
         replicator._client = client as never;
         return { client, replicator, setting };
     }
+
+    it("reads the current stopped Journal without creating or rebinding a client", () => {
+        const { client, replicator } = createConnectivityReplicator();
+        const stopped = Object.freeze({ key: "001-stopped.jsonl.gz", stage: "parse" as const });
+        const getStoppedJournal = vi.fn(() => stopped);
+        Object.assign(client, { getStoppedJournal });
+        expect(replicator.getStoppedJournal()).toBe(stopped);
+        expect(client.applyNewConfig).not.toHaveBeenCalled();
+        replicator._client = undefined;
+        expect(replicator.getStoppedJournal()).toBeUndefined();
+    });
+
+    it.each([true, false])("gates a single skip on compatibility result %s", async (compatible) => {
+        const { client, replicator, setting } = createConnectivityReplicator();
+        const stopped = Object.freeze({ key: "001-stopped.jsonl.gz", stage: "chunk-write" as const });
+        const skipStoppedJournalAndResume = vi.fn(async () => false);
+        Object.assign(client, { skipStoppedJournalAndResume });
+        const connectivity = vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue(compatible);
+        await expect(replicator.skipStoppedJournalAndResume(setting, stopped, true)).resolves.toBe(false);
+        expect(connectivity).toHaveBeenCalledWith(false, false, true, setting, client, undefined);
+        if (compatible) expect(skipStoppedJournalAndResume).toHaveBeenCalledWith(stopped, true);
+        else expect(skipStoppedJournalAndResume).not.toHaveBeenCalled();
+        expect(client.resetAllCaches).toHaveBeenCalledOnce();
+    });
+
+    it("does not skip after Stop crosses the recovery connectivity check", async () => {
+        const { client, replicator, setting } = createConnectivityReplicator();
+        const stopped = Object.freeze({ key: "001-stopped.jsonl.gz", stage: "chunk-write" as const });
+        const skipStoppedJournalAndResume = vi.fn(async () => true);
+        Object.assign(client, { skipStoppedJournalAndResume, requestStop: vi.fn() });
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockImplementation(async () => {
+            void replicator.terminateSync();
+            return true;
+        });
+        await expect(replicator.skipStoppedJournalAndResume(setting, stopped)).resolves.toBe(false);
+        expect(skipStoppedJournalAndResume).not.toHaveBeenCalled();
+    });
 
     it("passes one captured Journal client through compatibility assessment and transfer", async () => {
         const { client, replicator, setting } = createConnectivityReplicator();
@@ -1479,4 +1516,19 @@ describe("Journal path identity before recovery mutations", () => {
         expect(client.uploadJson).not.toHaveBeenCalled();
         await expect(replicator.markRemoteResolved(setting)).rejects.toThrow(/milestone/i);
     });
+});
+
+describe("isLiveSyncJournalReplicator", () => {
+    it("recognises a Journal replicator and its subclasses", () => {
+        class DerivedReplicator extends LiveSyncJournalReplicator {}
+        expect(isLiveSyncJournalReplicator(new LiveSyncJournalReplicator({} as never))).toBe(true);
+        expect(isLiveSyncJournalReplicator(new DerivedReplicator({} as never))).toBe(true);
+    });
+
+    it.each([null, undefined, {}, { getStoppedJournal: () => undefined, skipStoppedJournalAndResume: () => true }])(
+        "does not accept an unrelated value with similar methods: %s",
+        (value) => {
+            expect(isLiveSyncJournalReplicator(value)).toBe(false);
+        }
+    );
 });

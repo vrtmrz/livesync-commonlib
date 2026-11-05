@@ -45,6 +45,16 @@ while retaining conditional revalidation within a Seed. See
 [CouchDB response caching](docs/couchdb-http-cache.md) for the request,
 replication-preparation, and host-adapter boundaries.
 
+Journal receipt stops at a per-Journal decode, record, or write failure and
+retries that Journal on the next receive attempt. A host can offer the explicit
+'Skip stopped Journal and resume' operation for the current stopped failure;
+it skips only that Journal, and a later failure stops receipt again. A skip can
+leave content or history incomplete. Use the existing Reset journal received
+history operation to replay entries after correcting the failure, while the
+remote objects remain available and readable. See the
+[Journal receive failures and recovery](docs/journal-receive-recovery.md) for
+the receive, skip, and replay boundaries.
+
 ## Package entry points
 
 | Entry point                                        | Intended use                                                                      | Current contract status                                                                     |
