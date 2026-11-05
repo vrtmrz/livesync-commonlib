@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.2
+
+5th November, 2026
+
 ### Fixed
 
 - A Journal which fails during decoding, record processing, or writing remains
