@@ -2,12 +2,19 @@
 date: 2026-09-16
 commonlib-version: "0.1.25-dev.turn-credentials.6"
 self-hosted-livesync-version: "1.0.28"
-status: unreleased
+status: published
+published-in: "0.4.0"
+publication-date: 2026-11-07
 ---
 
 # P2P service and transport lifecycle
 
 This design document records the implemented Commonlib Trystero P2P service. It defines the current resource owners, demand and automation lifecycles, replacement fences, and shutdown semantics. It is not a migration plan or a general Trystero API reference.
+
+The per-peer transfer statistics and latest diagnostic observations described
+here are available in [Commonlib 0.4.0](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.4.0).
+The [release notes](../updates.md#040) describe the transport compatibility change.
+Hosts choose when to adopt the package and expose these capabilities.
 
 ## Ownership layers
 
