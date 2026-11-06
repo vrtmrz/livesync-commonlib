@@ -67,6 +67,12 @@ For 0.2.3, the documented exceptions are the `HandlerFunction.setHandler` and `L
 
 Version 0.3.0 introduces a source compatibility change: the custom client passed to `LiveSyncJournalReplicator.ensureBucketIsCompatible` must provide `hasRemoteJournals(): Promise<boolean>`. The operation distinguishes an empty bucket from Journal files left without an identifying milestone. Keeping it required makes missing client capability a type error. The standard `JournalSyncCore` client already supplies it. This change uses the next minor version under the policy above.
 
+Version 0.4.0 changes the P2P action wire format by adopting Trystero 0.26.0.
+Communicating peers must use compatible transport versions. Custom `IAPIService`
+implementations must also provide `registerCleanup(callback: () => void): void`;
+subclasses of `APIService` inherit its default terminal-unload implementation.
+These changes use the next minor version under the compatibility policy.
+
 ## Preparing a release
 
 Choose the version explicitly. For the 0.2 line, start at 0.2.0. A stable candidate can use its final version on the `next` dist-tag, then be checked by exact source revision and tarball SHA-256 before the same version is promoted to `latest`. No `-next.N` or `-rc.N` version is required; use a separate prerelease version only when it is useful for a distinct candidate. Package-proof versions are local artefacts and cannot be staged.

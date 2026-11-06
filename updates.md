@@ -2,17 +2,45 @@
 
 ## Unreleased
 
-### Fixed
+## 0.4.0
 
-- Metadata records the byte length of the content being stored, so stale host
-  file-size information no longer causes a readable file to fail the size check
-  when reflected to storage. Existing incorrect Metadata needs explicit repair.
+7th November, 2026
 
 ### Breaking changes
 
 - P2P integrations now use Trystero 0.26.0, whose action wire format is
   incompatible with the previous transport. Update every communicating peer,
   including Obsidian, CLI, and WebPeer clients, before resuming P2P transfer.
+- Custom `IAPIService` implementations must provide
+  `registerCleanup(callback: () => void): void`. Subclasses of `APIService`
+  inherit the default implementation described below.
+
+### Fixed
+
+- Metadata records the byte length of the content being stored, so stale host
+  file-size information no longer causes a readable file to fail the size check
+  when reflected to storage. Existing incorrect Metadata needs explicit repair.
+  ([Self-hosted LiveSync #1324](https://github.com/vrtmrz/obsidian-livesync/issues/1324))
+
+### Added
+
+- Hosts can show P2P progress using transferred document revisions and checked
+  changes-feed entries, including batches which need no transfer.
+    - The optional structured statistics retain final counts for each finite
+      attempt. Existing sequence counters and legacy text retain their meanings.
+- Hosts can show the latest P2P relay, peer, and synchronisation observations
+  through diagnostic snapshots and events.
+    - A room opening does not establish relay acceptance, and relay replies are
+      not observed. RTC errors without an identified owner are not attributed to
+      a particular room. These observations help diagnosis; they do not establish
+      database-to-Vault reflection or convergence across all peers.
+- Hosts can register synchronous terminal cleanup through
+  `services.API.registerCleanup(callback)` for subscriptions and presentation
+  resources without depending on Obsidian APIs.
+    - The default runs on normal platform unload after asynchronous lifecycle
+      work and database closure. Native adapters may retain their own unload
+      timing. Callbacks are not awaited; work which must finish before database
+      closure belongs to `appLifecycle.onUnload`.
 
 ### Improved
 
