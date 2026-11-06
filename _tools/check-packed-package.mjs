@@ -327,6 +327,10 @@ import type {
     UseP2PReplicatorResult,
 } from "${packageName}/p2p";
 import { ACTIVE_P2P_RELAY_BINDING_CONFLICT, EVENT_P2P_DIAGNOSTIC } from "${packageName}/p2p";
+import type { IAPIService } from "${packageName}/compat/services/base/IService";
+const registerHostCleanup = (API: Pick<IAPIService, "registerCleanup">): void => API.registerCleanup(() => undefined);
+void registerHostCleanup;
+
 import type {
     CouchDBReplicationConnection,
     LiveSyncCouchDBReplicator,

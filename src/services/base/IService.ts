@@ -100,6 +100,8 @@ export interface IAPIService {
     registerWindow<T>(type: string, factory: (leaf: T) => unknown): void;
     addRibbonIcon(icon: string, title: string, callback: (evt: MouseEvent) => unknown): HTMLElement;
     registerProtocolHandler(action: string, handler: (params: Record<string, string>) => unknown): void;
+    /** Registers synchronous cleanup at host terminal unload; callbacks are not awaited. */
+    registerCleanup(callback: () => void): void;
     confirm: Confirm;
     responseCount: ReactiveSource<number>;
     requestCount: ReactiveSource<number>;
