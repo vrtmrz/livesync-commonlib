@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
-import { replicateShim, type ProgressInfo } from "./ReplicatorShim";
+import { replicateShim, ShimReplicationError, type ProgressInfo } from "./ReplicatorShim";
 
 PouchDB.plugin(MemoryAdapter);
 
@@ -128,6 +128,39 @@ describe("shim transfer statistics", () => {
         expect(checkpoint.since).toBe("");
         expect(await target.get("accepted")).toMatchObject({ _id: "accepted" });
         await expect(target.get("rejected")).rejects.toMatchObject({ status: 404 });
+    });
+
+    it("refuses to write or checkpoint when a required source revision is unavailable", async () => {
+        const sourceDoc = await source.put({ _id: "unavailable" });
+        vi.spyOn(source, "bulkGet").mockResolvedValue({
+            results: [
+                {
+                    id: "unavailable",
+                    docs: [{ error: true, name: "not_found", reason: "missing", status: 404 }],
+                },
+            ],
+        } as any);
+        const bulkDocs = vi.spyOn(target, "bulkDocs");
+        const onStatistics = vi.fn();
+        const progress = vi.fn(async () => undefined);
+
+        const error = await replicateShim(target, source, progress, { onStatistics } as any).catch((ex: unknown) => ex);
+
+        expect(error).toBeInstanceOf(ShimReplicationError);
+        expect(error).toMatchObject({
+            message: "Could not fetch 1 required revision(s)",
+            failures: [{ index: 0, id: "unavailable", revision: sourceDoc.rev, result: undefined }],
+        });
+        expect(bulkDocs).not.toHaveBeenCalled();
+        expect(progress).not.toHaveBeenCalled();
+        expect(onStatistics).toHaveBeenLastCalledWith({
+            lastSeq: 0,
+            maxSeqInBatch: 1,
+            statistics: { documents: 0, checkedChanges: 1 },
+        });
+        const mark = (await source.get(`_local/replication-checkpoint-mark-${target.name}-${source.name}`)) as any;
+        const checkpoint = (await target.get(`_local/replication-checkpoint-${target.name}-${mark.mark}`)) as any;
+        expect(checkpoint.since).toBe("");
     });
 
     it("reports writes when the target refresh fails before checkpointing", async () => {

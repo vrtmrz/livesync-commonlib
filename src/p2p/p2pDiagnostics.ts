@@ -86,7 +86,9 @@ declare global {
 
 /** Publish a fixed observation without allowing diagnostic callbacks to affect the operation. */
 export function reportP2PDiagnostic(reporter: P2PDiagnosticReporter | undefined, input: P2PDiagnosticInput): void {
-    if (!reporter) return;
+    if (!reporter) {
+        return;
+    }
     try {
         reporter(Object.freeze({ ...input, timestamp: Date.now() }));
     } catch {
@@ -101,7 +103,9 @@ export function classifyP2PRpcFailure(
 ): "rpc-timeout" | "rpc-cancelled" | "rpc-error" {
     const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
     const name = typeof error === "object" && error !== null && "name" in error ? error.name : undefined;
-    if (signal?.aborted || code === "CANCELLED" || name === "AbortError") return "rpc-cancelled";
+    if (signal?.aborted || code === "CANCELLED" || name === "AbortError") {
+        return "rpc-cancelled";
+    }
     return code === "TIMEOUT" ? "rpc-timeout" : "rpc-error";
 }
 
@@ -120,13 +124,17 @@ export function createP2PDiagnosticStore(events: LiveSyncEventHub) {
     return {
         getSnapshot: (): P2PDiagnosticSnapshot => snapshot,
         subscribe: (listener: P2PDiagnosticReporter): (() => void) => {
-            if (!disposed) listeners.add(listener);
+            if (!disposed) {
+                listeners.add(listener);
+            }
             return () => {
                 listeners.delete(listener);
             };
         },
         record: (input: P2PDiagnosticEvent): void => {
-            if (disposed) return;
+            if (disposed) {
+                return;
+            }
             const event: P2PDiagnosticEvent = Object.freeze({
                 category: input.category,
                 code: input.code,
@@ -140,8 +148,9 @@ export function createP2PDiagnosticStore(events: LiveSyncEventHub) {
                 previous.peerId === event.peerId &&
                 previous.reason === event.reason &&
                 previous.timestamp === event.timestamp
-            )
+            ) {
                 return;
+            }
             snapshot = Object.freeze({ ...snapshot, [event.category]: event });
             for (const listener of listeners) {
                 try {

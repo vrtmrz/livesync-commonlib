@@ -1,6 +1,15 @@
 import { serialized } from "octagonal-wheels/concurrency/lock";
 import { Logger } from "@lib/common/logger";
 import { LOG_LEVEL_VERBOSE } from "@lib/common/types";
+import {
+    buildMissingRevisionRequests,
+    buildRevsDiffParam,
+    buildUnavailableRevisionFailures,
+    findUnavailableRevisionRequests,
+    mapBulkDocResultsToFailures,
+    parseSeq,
+    sortBySeq,
+} from "./ReplicatorShim.batch";
 
 /** A stored document carrying the change-feed metadata used by the shim. */
 export type SomeDocument<T extends object> = PouchDB.Core.ExistingDocument<T> & PouchDB.Core.ChangesMeta;
@@ -145,43 +154,6 @@ export type ShimReplicationProgressReportFunc<T extends object> = (
     progressInfo: ProgressInfo
 ) => Promise<void>;
 
-/** Parse the numeric part of a PouchDB sequence value (`"42-xyz"` → `42`). */
-function parseSeq(seq: string | number): number {
-    return parseInt(String(seq).split("-")[0], 10);
-}
-
-/**
- * Build the `{docId: [rev, ...]}` map required by `revsDiff` from a changes
- * feed result set, merging revisions when the same document appears multiple
- * times in a batch.
- */
-function buildRevsDiffParam(changesResults: PouchDB.Core.ChangesResponseChange<object>[]): Record<string, string[]> {
-    const param: Record<string, string[]> = {};
-    for (const { id, changes } of changesResults) {
-        param[id] = [...(param[id] ?? []), ...changes.map((c) => c.rev)];
-    }
-    return param;
-}
-
-/**
- * Sort fetched documents in ascending sequence order so that consumers receive
- * them in the same order they were written to the source.
- */
-function sortBySeq<T extends { _id: string }>(
-    docs: T[],
-    changesResults: PouchDB.Core.ChangesResponseChange<object>[]
-): T[] {
-    const maxSeqById = new Map<string, number>();
-    for (const { id, seq } of changesResults) {
-        maxSeqById.set(id, Math.max(maxSeqById.get(id) ?? 0, parseSeq(seq)));
-    }
-    return docs.slice().sort((a, b) => (maxSeqById.get(a._id) ?? 0) - (maxSeqById.get(b._id) ?? 0));
-}
-
-function isSuccessfulBulkDocResult(result: unknown): result is PouchDB.Core.Response {
-    return typeof result === "object" && result !== null && "ok" in result && result.ok === true;
-}
-
 function isCancellationError(error: unknown): boolean {
     if (typeof error !== "object" || error === null) return false;
     return ("code" in error && error.code === "CANCELLED") || ("name" in error && error.name === "AbortError");
@@ -281,9 +253,7 @@ export async function replicateShim<T extends CompatibleDatabase<V>, U extends C
                     if (signal?.aborted) return { status: "cancelled" } as const;
 
                     // Collect {id, rev} pairs for revisions the target is missing.
-                    const missingRequests = Object.entries(diff)
-                        .filter(([, entry]) => entry.missing !== undefined)
-                        .flatMap(([id, entry]) => entry.missing!.map((rev) => ({ id, rev })));
+                    const missingRequests = buildMissingRevisionRequests(diff);
 
                     if (missingRequests.length > 0) {
                         const bulkGetResult = await sourceDB.bulkGet({ docs: missingRequests, revs: true });
@@ -301,21 +271,9 @@ export async function replicateShim<T extends CompatibleDatabase<V>, U extends C
                         // not issue a partial target write or advance the
                         // checkpoint when the source could not provide all
                         // requested revisions.
-                        const fetchedRevisionKeys = new Set(
-                            fetchedDocs.map((doc) => `${doc._id}\u0000${String(doc._rev)}`)
-                        );
-                        const unavailableRequests = missingRequests.filter(
-                            ({ id, rev }) => !fetchedRevisionKeys.has(`${id}\u0000${rev}`)
-                        );
+                        const unavailableRequests = findUnavailableRevisionRequests(missingRequests, fetchedDocs);
                         if (unavailableRequests.length > 0) {
-                            const unavailableFailures = unavailableRequests.map<ShimReplicationWriteFailure>(
-                                (request, index) => ({
-                                    index,
-                                    id: request.id,
-                                    revision: request.rev,
-                                    result: undefined,
-                                })
-                            );
+                            const unavailableFailures = buildUnavailableRevisionFailures(unavailableRequests);
                             throw new ShimReplicationError(
                                 `Could not fetch ${unavailableRequests.length} required revision(s)`,
                                 unavailableFailures
@@ -326,28 +284,7 @@ export async function replicateShim<T extends CompatibleDatabase<V>, U extends C
                         // call starts.  PouchDB does not provide an atomic abort
                         // for bulkDocs; let it settle and inspect every result.
                         const writeResults = await targetDB.bulkDocs(fetchedDocs, { new_edits: false });
-                        const failedWrites = writeResults.flatMap<ShimReplicationWriteFailure>((result, index) => {
-                            // Local PouchDB filters successful responses when
-                            // `new_edits` is false, so an empty result array is the
-                            // normal all-success response.  Conversely, any
-                            // returned error is a failed required write.
-                            if (isSuccessfulBulkDocResult(result)) return [];
-                            const resultId =
-                                typeof result === "object" && result !== null && "id" in result ? result.id : undefined;
-                            const owningIndex =
-                                typeof resultId === "string"
-                                    ? fetchedDocs.findIndex((doc) => doc._id === resultId)
-                                    : -1;
-                            const owningDocument = fetchedDocs[owningIndex >= 0 ? owningIndex : index];
-                            return [
-                                {
-                                    index: owningIndex >= 0 ? owningIndex : index,
-                                    id: typeof resultId === "string" ? resultId : (owningDocument?._id ?? ""),
-                                    revision: owningDocument?._rev,
-                                    result,
-                                },
-                            ];
-                        });
+                        const failedWrites = mapBulkDocResultsToFailures(writeResults, fetchedDocs);
                         statistics.documents += Math.max(0, fetchedDocs.length - failedWrites.length);
                         if (failedWrites.length > 0) {
                             throw new ShimReplicationError(
