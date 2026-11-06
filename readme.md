@@ -149,10 +149,10 @@ After the Self-hosted LiveSync 1.0 work, the planned high-level composition is a
 
 The factory is not implemented yet. Until it is available, service implementations exposed under `compat/*` retain their owning client's lifecycle rather than becoming a general public composition API.
 
-### Host cleanup registration (unreleased)
+### Host cleanup registration
 
-`services.API.registerCleanup(callback)` registers synchronous cleanup for the
-owning host's normal terminal unload. The default `APIService` implementation
+Available from 0.4.0, `services.API.registerCleanup(callback)` registers synchronous
+cleanup for the owning host's normal terminal unload. The default `APIService` implementation
 uses the context-owned `EVENT_PLATFORM_UNLOADED` event once per registration.
 CLI and browser hosts already deliver that event through `ControlService.onUnload()`
 after their asynchronous lifecycle work and local database closure. An unload
