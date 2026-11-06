@@ -390,6 +390,22 @@ describe("EntryManagerImpls", () => {
     });
 
     describe("putDBEntry", () => {
+        it.each([
+            ["multibyte UTF-8", new Blob(["こんにちは"])],
+            ["binary", new Blob([new Uint8Array([0, 255, 1, 128])])],
+            ["empty", new Blob([])],
+        ])("stores the body byte length for %s even when the incoming stat is stale", async (_name, body) => {
+            const entry = createSavingEntry(`body-size-${_name}`, body);
+            entry.size = body.size + 4;
+            const host = createHost(mockSettingService, mockPathService);
+
+            const result = await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+
+            expect(result).not.toBe(false);
+            const stored = await db.get(entry._id);
+            expect(stored.size).toBe(body.size);
+        });
+
         it("should save entry to database", async () => {
             const entry = createSavingEntry("test-entry", "Test content for database");
             const host = createHost(mockSettingService, mockPathService);
