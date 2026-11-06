@@ -389,6 +389,13 @@ roomB.close();
 
 ### Trystero (WebRTC / Nostr)
 
+The unreleased transport update uses Trystero 0.26.0. Its action wire format
+is incompatible with Trystero 0.25.x: update every communicating peer,
+including Obsidian, CLI, and WebPeer clients, before resuming P2P transfer.
+This dependency update retains the existing RPC payload presets and does not
+add application-specific `onReceive` admission rules.
+
+
 [Trystero](https://github.com/dmotz/trystero) is a serverless P2P library that
 establishes WebRTC data channels via a signalling back-end (Nostr, MQTT, etc.).
 The helpers in `transports/TrysteroTransport.ts` wrap a Trystero room as a
