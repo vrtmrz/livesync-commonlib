@@ -1,3 +1,4 @@
+import { reportP2PDiagnostic, classifyP2PRpcFailure, type P2PDiagnosticInput } from "@lib/p2p/p2pDiagnostics";
 import { parsePeerPatterns } from "./peerPatterns";
 import type PouchDB from "pouchdb-core";
 import {
@@ -165,6 +166,10 @@ export class TrysteroReplicator {
         return {};
     }
 
+    private reportDiagnostic(input: P2PDiagnosticInput): void {
+        if (!this.disposed) reportP2PDiagnostic(this._env.reportDiagnostic, input);
+    }
+
     get settings() {
         return this._env.settings;
     }
@@ -300,15 +305,32 @@ export class TrysteroReplicator {
         if (!shouldAutoSync && !shouldAutoWatch) return;
 
         const acceptance = await this.server?.evaluatePeerAcceptance(peer.peerId);
-        if (acceptance !== "accepted") return;
+        if (acceptance !== "accepted") {
+            if (shouldAutoWatch)
+                this.reportDiagnostic({
+                    category: "sync",
+                    code: "watch-skipped",
+                    peerId: peer.peerId,
+                    reason: "not-accepted",
+                });
+            return;
+        }
 
         if (shouldAutoSync) {
             await this.automationCoordinator.runBaseline(peerName, () =>
                 this.runFiniteReplicationActivity(() => this.sync(peer.peerId))
             );
         }
-        if (shouldAutoWatch && (await this.getRemoteIsBroadcasting(peer.peerId)) === true) {
-            this.watchPeer(peer.peerId);
+        if (shouldAutoWatch) {
+            const broadcasting = await this.getRemoteIsBroadcasting(peer.peerId);
+            if (broadcasting === true) this.watchPeer(peer.peerId);
+            else
+                this.reportDiagnostic({
+                    category: "sync",
+                    code: "watch-skipped",
+                    peerId: peer.peerId,
+                    reason: broadcasting === false ? "peer-not-broadcasting" : "peer-broadcast-unobserved",
+                });
         }
     }
     onPeerLeaved(peerId: string) {
@@ -386,6 +408,12 @@ export class TrysteroReplicator {
             },
             onProgress: async (fromPeerId: string) => {
                 if (this._onSetup) {
+                    this.reportDiagnostic({
+                        category: "sync",
+                        code: "change-notification-ignored",
+                        peerId: fromPeerId,
+                        reason: "setup-in-progress",
+                    });
                     return { error: toP2PWireError(new Error("The setup is in progress")) };
                 }
                 await this.onUpdateDatabase(fromPeerId);
@@ -479,8 +507,29 @@ export class TrysteroReplicator {
                 20000,
                 signal
             );
+            this.reportDiagnostic({
+                category: "peer",
+                code: r === true ? "auth-accepted" : r === false ? "auth-refused" : "auth-error",
+                peerId,
+                ...(r === true
+                    ? {}
+                    : {
+                          reason:
+                              r === false
+                                  ? ("authentication-refused" as const)
+                                  : ("authentication-unobserved" as const),
+                      }),
+            });
             return r;
         } catch (e) {
+            const reason = classifyP2PRpcFailure(e, signal);
+            const code =
+                reason === "rpc-timeout"
+                    ? "auth-timeout"
+                    : reason === "rpc-cancelled"
+                      ? "auth-cancelled"
+                      : "auth-error";
+            this.reportDiagnostic({ category: "peer", code, reason, peerId });
             Logger("Error while requesting authentication", LOG_LEVEL_VERBOSE);
             Logger(e, LOG_LEVEL_VERBOSE);
             return false;
@@ -550,9 +599,12 @@ export class TrysteroReplicator {
     changes?: PouchDB.Core.Changes<EntryDoc>;
     _isBroadcasting = false;
     disableBroadcastChanges() {
+        const wasBroadcasting = this._isBroadcasting;
         this.changes?.cancel();
+        const needsDiagnostic = wasBroadcasting && this._isBroadcasting;
         this._isBroadcasting = false;
         this.dispatchStatus();
+        if (needsDiagnostic) this.reportDiagnostic({ category: "sync", code: "broadcast-disabled" });
     }
 
     enableBroadcastChanges() {
@@ -578,6 +630,7 @@ export class TrysteroReplicator {
             await this.notifyProgress();
         });
         const closeChanges = (reason?: unknown) => {
+            const wasBroadcasting = this._isBroadcasting;
             if (reason) {
                 if (reason instanceof Error) {
                     Logger(`Error while broadcasting the changes`, LOG_LEVEL_INFO);
@@ -592,9 +645,16 @@ export class TrysteroReplicator {
             this.changes = undefined;
             this._isBroadcasting = false;
             this.dispatchStatus();
+            if (wasBroadcasting)
+                this.reportDiagnostic({
+                    category: "sync",
+                    code: "broadcast-disabled",
+                    ...(reason instanceof Error ? { reason: "replication-error" as const } : {}),
+                });
         };
         void this.changes.on("error", closeChanges);
         void this.changes.on("complete", closeChanges);
+        this.reportDiagnostic({ category: "sync", code: "broadcast-enabled" });
         fireAndForget(async () => await this.notifyProgress());
     }
 
@@ -745,6 +805,49 @@ export class TrysteroReplicator {
     }
 
     private async replicateFromWithinSession(
+        remotePeer: string,
+        showNotice: boolean,
+        fromStart: boolean,
+        skipOrdinaryReplicationPolicy: boolean,
+        signal?: AbortSignal
+    ): Promise<P2PReplicationResult> {
+        this.reportDiagnostic({ category: "sync", code: "pull-started", peerId: remotePeer });
+        try {
+            const result = await this.pullFromWithinSession(
+                remotePeer,
+                showNotice,
+                fromStart,
+                skipOrdinaryReplicationPolicy,
+                signal
+            );
+            this.reportDiagnostic({
+                category: "sync",
+                code:
+                    result.status === "completed"
+                        ? "pull-completed"
+                        : result.status === "cancelled"
+                          ? "pull-cancelled"
+                          : "pull-failed",
+                peerId: remotePeer,
+                ...(result.status === "cancelled"
+                    ? { reason: "operation-cancelled" as const }
+                    : result.status === "failed"
+                      ? { reason: "replication-error" as const }
+                      : {}),
+            });
+            return result;
+        } catch (error) {
+            this.reportDiagnostic({
+                category: "sync",
+                code: signal?.aborted ? "pull-cancelled" : "pull-failed",
+                peerId: remotePeer,
+                reason: signal?.aborted ? "operation-cancelled" : "replication-error",
+            });
+            throw error;
+        }
+    }
+
+    private async pullFromWithinSession(
         remotePeer: string,
         showNotice: boolean,
         fromStart: boolean,
@@ -906,12 +1009,27 @@ export class TrysteroReplicator {
                         const ret = await this.server
                             ?.getConnection(peerId)
                             .invokeRemoteFunction("onProgress", [this.server?.serverPeerId], 0);
+                        this.reportDiagnostic({ category: "sync", code: "change-notification-sent", peerId });
                         return ret;
                     } catch (e) {
+                        const reason = classifyP2PRpcFailure(e);
+                        const code =
+                            reason === "rpc-timeout"
+                                ? "change-notification-timeout"
+                                : reason === "rpc-cancelled"
+                                  ? "change-notification-cancelled"
+                                  : "change-notification-error";
+                        this.reportDiagnostic({ category: "sync", code, reason, peerId });
                         Logger(`Error while notifying progress to ${peerId}`, LOG_LEVEL_VERBOSE);
                         Logger(e, LOG_LEVEL_VERBOSE);
                     }
                 } else {
+                    this.reportDiagnostic({
+                        category: "sync",
+                        code: "change-notification-ignored",
+                        peerId,
+                        reason: "not-accepted",
+                    });
                     Logger(`Peer ${peerId} is not acceptable to notify progress`, LOG_LEVEL_VERBOSE);
                 }
             });
@@ -934,21 +1052,32 @@ export class TrysteroReplicator {
     _watchingPeers = new Set<string>();
 
     watchPeer(peerId: string) {
+        if (!this._watchingPeers.has(peerId))
+            this.reportDiagnostic({ category: "sync", code: "watch-enabled", peerId });
         this._watchingPeers.add(peerId);
         this.dispatchStatus();
     }
     unwatchPeer(peerId: string) {
+        if (this._watchingPeers.has(peerId))
+            this.reportDiagnostic({ category: "sync", code: "watch-disabled", peerId });
         this._watchingPeers.delete(peerId);
         this.dispatchStatus();
     }
 
     async onUpdateDatabase(fromPeerId: string) {
         if (this._watchingPeers.has(fromPeerId)) {
+            this.reportDiagnostic({ category: "sync", code: "change-notification-received", peerId: fromPeerId });
             Logger(`Progress notification from ${fromPeerId}`, LOG_LEVEL_VERBOSE);
             return await serialized(`onProgress-${fromPeerId}`, async () => {
                 return await this.runFiniteReplicationActivity(() => this.replicateFrom(fromPeerId));
             });
         }
+        this.reportDiagnostic({
+            category: "sync",
+            code: "change-notification-ignored",
+            peerId: fromPeerId,
+            reason: "not-watching",
+        });
         return false;
     }
     async getRemoteConfig(peerId: string) {

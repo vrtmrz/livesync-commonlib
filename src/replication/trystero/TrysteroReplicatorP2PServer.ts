@@ -1,3 +1,4 @@
+import { reportP2PDiagnostic } from "@lib/p2p/p2pDiagnostics";
 import { parsePeerPatterns } from "./peerPatterns";
 import { type Room, selfId, joinRoom } from "@trystero-p2p/nostr";
 import { AutoAccepting, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "@lib/common/types";
@@ -297,7 +298,10 @@ export class TrysteroReplicatorP2PServer {
         if (peerId === this.serverPeerId) return;
         if (data.peerId === this.serverPeerId) return;
         if (data.peerId !== peerId) return;
+        const isNewPeer = !this._knownAdvertisements.has(peerId);
         this._knownAdvertisements.set(peerId, data);
+        if (isNewPeer)
+            reportP2PDiagnostic(this._env.reportDiagnostic, { category: "peer", code: "peer-advertised", peerId });
         void this.dispatchConnectionStatus();
         void Promise.resolve()
             .then(() => this._sessionPeerHandlers?.onAdvertisement(data))
@@ -456,6 +460,7 @@ You can chose as follows:
     private _onPeerLeave(peerId: string) {
         if (this._hostLifetimeEnded) return;
         Logger(`Peer left: ${peerId}`, LOG_LEVEL_VERBOSE);
+        reportP2PDiagnostic(this._env.reportDiagnostic, { category: "peer", code: "peer-left", peerId });
         this._knownAdvertisements.delete(peerId);
         void Promise.resolve()
             .then(() => this._sessionPeerHandlers?.onPeerLeft(peerId))
@@ -558,6 +563,12 @@ You can chose as follows:
         const room = joinRoom(options, roomId, {
             handshakeTimeoutMs: 30000,
             onJoinError: (error) => {
+                if (!this._hostLifetimeEnded)
+                    reportP2PDiagnostic(this._env.reportDiagnostic, {
+                        category: "relay",
+                        code: "room-join-error",
+                        reason: "transport-error",
+                    });
                 Logger("Some peer Failed to join Trystero room");
                 this.logTransportError(error);
             },

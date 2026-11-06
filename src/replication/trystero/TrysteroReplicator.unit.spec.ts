@@ -1589,3 +1589,178 @@ describe("P2P terminal acknowledgement wire compatibility", () => {
         collector.dispose();
     });
 });
+
+describe("P2P diagnostic observations preserve control flow", () => {
+    it.each([
+        { result: false, error: undefined, code: "auth-refused", reason: "authentication-refused" },
+        { result: true, error: undefined, code: "auth-accepted", reason: undefined },
+        { result: undefined, error: undefined, code: "auth-error", reason: "authentication-unobserved" },
+        { result: null, error: undefined, code: "auth-error", reason: "authentication-unobserved" },
+        { result: 0, error: undefined, code: "auth-error", reason: "authentication-unobserved" },
+        {
+            result: { ok: true, message: "secret malformed response" },
+            error: undefined,
+            code: "auth-error",
+            reason: "authentication-unobserved",
+        },
+        {
+            result: false,
+            error: { code: "TIMEOUT", message: "secret timeout details" },
+            code: "auth-timeout",
+            reason: "rpc-timeout",
+        },
+        {
+            result: false,
+            error: { code: "CANCELLED", message: "secret cancelled details" },
+            code: "auth-cancelled",
+            reason: "rpc-cancelled",
+        },
+        { result: false, error: new Error("secret failure details"), code: "auth-error", reason: "rpc-error" },
+    ])("distinguishes $code while retaining authentication results", async ({ result, error, code, reason }) => {
+        const { replicator } = createReplicator();
+        const report = vi.fn();
+        (replicator._env as any).reportDiagnostic = report;
+        const invoke = vi.fn(async () => {
+            if (error) throw error;
+            return result;
+        });
+        replicator.server = {
+            serverPeerId: "local-peer",
+            getConnection: () => ({ invokeRemoteObjectFunction: invoke }),
+        } as any;
+        await expect(replicator.requestAuthenticate("remote-peer")).resolves.toBe(result);
+        expect(invoke).toHaveBeenCalledExactlyOnceWith("!reqAuth", ["local-peer"], 20000, undefined);
+        expect(report).toHaveBeenCalledExactlyOnceWith({
+            category: "peer",
+            code,
+            peerId: "remote-peer",
+            timestamp: expect.any(Number),
+            ...(reason ? { reason } : {}),
+        });
+        expect(JSON.stringify(report.mock.calls)).not.toContain("secret");
+    });
+
+    it.each(["completed", "failed", "cancelled"] as const)(
+        "observes a finite %s pull without changing its result",
+        async (status) => {
+            const { replicator } = createReplicator();
+            const report = vi.fn();
+            (replicator._env as any).reportDiagnostic = report;
+            vi.spyOn(replicator as any, "checkPeerForReplication").mockResolvedValue(undefined);
+            const outcome =
+                status === "completed"
+                    ? { status, ok: true }
+                    : status === "failed"
+                      ? { status, error: new Error("private details") }
+                      : { status };
+            const transfer = vi.spyOn(replicator as any, "transferFromPeer").mockResolvedValue(outcome);
+            await expect(replicator.replicateFrom("remote-peer")).resolves.toBe(outcome);
+            expect(transfer).toHaveBeenCalledOnce();
+            expect(report.mock.calls.map(([event]) => event.code)).toEqual(["pull-started", `pull-${status}`]);
+            expect(JSON.stringify(report.mock.calls)).not.toContain("private details");
+        }
+    );
+
+    it("observes ignored change notifications without starting a pull, and contains reporter failures", async () => {
+        const { replicator } = createReplicator();
+        const report = vi.fn();
+        (replicator._env as any).reportDiagnostic = report;
+        const pull = vi.spyOn(replicator, "replicateFrom");
+        await expect(replicator.onUpdateDatabase("peer")).resolves.toBe(false);
+        expect(pull).not.toHaveBeenCalled();
+        expect(report).toHaveBeenCalledExactlyOnceWith({
+            category: "sync",
+            code: "change-notification-ignored",
+            reason: "not-watching",
+            peerId: "peer",
+            timestamp: expect.any(Number),
+        });
+        report.mockImplementation(() => {
+            throw new Error("observer unavailable");
+        });
+        expect(() => replicator.watchPeer("peer")).not.toThrow();
+        expect(replicator._watchingPeers.has("peer")).toBe(true);
+    });
+});
+
+describe("P2P watch diagnostic boundaries", () => {
+    it("observes watch decisions without changing notification admission", async () => {
+        const { replicator } = createReplicator({ P2P_AutoWatchPeers: "Device" });
+        const report = vi.fn();
+        replicator._env.reportDiagnostic = report;
+        vi.spyOn(replicator, "getRemoteIsBroadcasting").mockResolvedValue(false);
+        await replicator.onNewPeer({ peerId: "peer", name: "Device", platform: "test" });
+        expect(report).toHaveBeenLastCalledWith({
+            category: "sync",
+            code: "watch-skipped",
+            peerId: "peer",
+            reason: "peer-not-broadcasting",
+            timestamp: expect.any(Number),
+        });
+        replicator.watchPeer("peer");
+        replicator.watchPeer("peer");
+        expect(report.mock.calls.filter(([event]) => event.code === "watch-enabled")).toHaveLength(1);
+        const result = { status: "completed", ok: true } as const;
+        const pull = vi.spyOn(replicator, "replicateFrom").mockResolvedValue(result);
+        await expect(replicator.onUpdateDatabase("peer")).resolves.toBe(result);
+        expect(pull).toHaveBeenCalledExactlyOnceWith("peer");
+        expect(report.mock.calls.at(-1)?.[0].code).toBe("change-notification-received");
+        replicator.unwatchPeer("peer");
+        expect(report.mock.calls.at(-1)?.[0].code).toBe("watch-disabled");
+    });
+});
+
+describe("P2P diagnostic observation accuracy", () => {
+    it("keeps an unavailable broadcast status distinct from an explicit false result", async () => {
+        const { replicator } = createReplicator({ P2P_AutoWatchPeers: "Device" });
+        const report = vi.fn();
+        replicator._env.reportDiagnostic = report;
+        vi.spyOn(replicator, "getRemoteIsBroadcasting").mockResolvedValue(undefined);
+        await replicator.onNewPeer({ peerId: "peer", name: "Device", platform: "test" });
+        expect(replicator._watchingPeers.has("peer")).toBe(false);
+        expect(report).toHaveBeenLastCalledWith({
+            category: "sync",
+            code: "watch-skipped",
+            peerId: "peer",
+            reason: "peer-broadcast-unobserved",
+            timestamp: expect.any(Number),
+        });
+    });
+
+    it("does not claim an active broadcast feed when its creation throws", () => {
+        const { replicator } = createReplicator();
+        const report = vi.fn();
+        replicator._env.reportDiagnostic = report;
+        (replicator._env as any).db = {
+            changes: () => {
+                throw new Error("feed creation unavailable");
+            },
+        };
+        expect(() => replicator.enableBroadcastChanges()).toThrow("feed creation unavailable");
+        expect(report).not.toHaveBeenCalled();
+    });
+
+    it("observes an unexpected feed failure without exposing the error or repeating a later completion", () => {
+        const { replicator } = createReplicator();
+        const report = vi.fn();
+        const callbacks = new Map<string, (reason?: unknown) => void>();
+        const feed = {
+            cancel: vi.fn(),
+            removeAllListeners: vi.fn(),
+            on: vi.fn((event: string, callback: (reason?: unknown) => void) => {
+                callbacks.set(event, callback);
+                return feed;
+            }),
+        };
+        replicator._env.reportDiagnostic = report;
+        (replicator._env as any).db = { changes: () => feed };
+        vi.spyOn(replicator, "notifyProgress").mockResolvedValue(undefined);
+        replicator.enableBroadcastChanges();
+        callbacks.get("error")?.(new Error("secret feed failure"));
+        callbacks.get("complete")?.();
+        expect(report.mock.calls.map(([event]) => event.code)).toEqual(["broadcast-enabled", "broadcast-disabled"]);
+        expect(report.mock.calls.at(-1)?.[0].reason).toBe("replication-error");
+        expect(JSON.stringify(report.mock.calls)).not.toContain("secret feed failure");
+        expect(replicator._isBroadcasting).toBe(false);
+    });
+});

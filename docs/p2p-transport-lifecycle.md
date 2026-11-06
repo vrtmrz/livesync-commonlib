@@ -55,16 +55,16 @@ Ordinary consumers use the focused views returned by the service feature. They d
 
 The stable view objects close over the same private context, but do not expose that context or one another. They are capability boundaries for consumers, not separately allocated owners. A consumer receives only the views it needs.
 
-| View                          | Implemented responsibility                                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `P2PTransportLifecycle`       | observe the current connection and accept explicit connect or disconnect intent                                          |
-| `P2PConnectionProbeAdmission` | arbitrate a complete Setup signalling check against the current relay binding                                            |
-| `P2PPeerDirectory`            | supply a current peer advertisement snapshot                                                                             |
-| `P2PPeerAdmission`            | apply or revoke temporary and persisted acceptance decisions                                                             |
-| `P2PTargetedTransfer`         | pull, request push, synchronise one peer, or execute the persisted configured-target set without peer-selection dialogue |
-| `P2PChangeRelay`              | watch or unwatch a peer and enable or disable local-change broadcast                                                     |
-| `P2PConfigurationExchange`    | retrieve configuration from one explicitly selected peer                                                                 |
-| `P2PDiagnostics`              | observe replication progress, request status, and project RTC metrics without exposing the room or peer connection       |
+| View                          | Implemented responsibility                                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `P2PTransportLifecycle`       | observe the current connection and accept explicit connect or disconnect intent                                                |
+| `P2PConnectionProbeAdmission` | arbitrate a complete Setup signalling check against the current relay binding                                                  |
+| `P2PPeerDirectory`            | supply a current peer advertisement snapshot                                                                                   |
+| `P2PPeerAdmission`            | apply or revoke temporary and persisted acceptance decisions                                                                   |
+| `P2PTargetedTransfer`         | pull, request push, synchronise one peer, or execute the persisted configured-target set without peer-selection dialogue       |
+| `P2PChangeRelay`              | watch or unwatch a peer and enable or disable local-change broadcast                                                           |
+| `P2PConfigurationExchange`    | retrieve configuration from one explicitly selected peer                                                                       |
+| `P2PDiagnostics`              | observe diagnostic events and replication progress, request status, and project RTC metrics without exposing transport handles |
 
 The optional host UI factory is an explicit compatibility boundary. Commonlib supplies both the deprecated compatibility Replicator and the stable views. Maintained modal transport and status controls use the views; legacy interactive execution and rebuild-specific setup markers may still use the compatibility Replicator. Receiving that façade does not transfer ownership of the room. `UseP2PReplicatorResult.replicator` remains deprecated for the same bounded migration work.
 
@@ -118,6 +118,62 @@ final progress in its optional metadata, so a terminal marker which overtakes a
 batch still supplies final sequences and counts. Older peers can ignore the extra
 argument and continue using sequence progress. No handshake, retry, heartbeat, or
 persistent replication state is added.
+
+## Latest diagnostic observations
+
+The optional `P2PDiagnostics.getDiagnosticSnapshot()` and
+`onDiagnosticEvent(listener)` methods expose the latest `relay`, `peer`, and
+`sync` observations. A missing category is unobserved, rather than a successful
+result or a measured zero. Each immutable event contains a source timestamp in
+milliseconds since the Unix epoch, a fixed code, an optional fixed reason, and an
+optional peer ID. Events do not include device names, settings, room IDs, keys,
+SDP, IP addresses, or arbitrary error text.
+
+The stable service owns only one latest event per category. Peer departure and
+room closure retain the latest peer and sync evidence after the peer row has
+disappeared. Room replacement fences the previous session's reporting port before
+retirement, so a late authentication result, notification, or transport callback
+cannot overwrite the current session's evidence. Platform unload detaches the
+store and its subscribers. Older diagnostics implementations may omit both methods.
+
+Accepted observations are also published once through the context-owned
+`EVENT_P2P_DIAGNOSTIC` channel exported from `/p2p`. Hosts can format that same
+stream for their summary and diagnostic log. Identical events with the same source
+timestamp are coalesced; repeated advertisements of an already-known peer and
+unchanged watch decisions do not produce another diagnostic transition. No
+server-snapshot, document, or batch progress subscription is used for this stream.
+Diagnostic subscribers and source reporting callbacks cannot change authentication,
+replication outcomes, or room lifecycle control flow. Hosts using the general
+EventHub channel should contain exceptions in their own listener, as with their
+other EventHub listeners.
+
+Owned observations include room opening, opening completion or failure, closure,
+join-error callbacks, validated first peer advertisements, peer departure,
+authentication acceptance or refusal, classified RPC failures, finite pull
+outcomes, and watch or change-notification boundaries. Authentication refusal,
+RPC timeout, cancellation, and other RPC errors have distinct fixed codes while
+retaining the existing boolean and replication result contracts. Only an explicit
+`false` authentication response indicates refusal. Missing or non-boolean responses
+use `auth-error` with `authentication-unobserved`, while keeping the existing return
+value and admission policy. An unavailable
+remote broadcast status remains unobserved rather than being reported as an
+explicit false result. Broadcast enablement is observed only after feed creation,
+and an unexpected feed error supplies a fixed failure reason when broadcasting
+stops. No diagnostic operation retries, reconnects, or alters a checkpoint.
+
+A room-opened observation means that the owned Trystero room is active. It does
+not establish that a Nostr relay accepted its advertisement. In the reviewed
+`@trystero-p2p/nostr` 0.26.0 API, relay `NOTICE`, rejected `OK`, and `CLOSED`
+messages are written internally to the console without an owned callback. The
+public socket getter is shared across rooms and replaces sockets during
+reconnection. This diagnostic stream therefore uses `relay-details-unobserved`
+and does not intercept console output or WebSocket globals, attach to shared
+sockets, or poll. Relay rejection text remains unavailable through this API.
+
+The existing detailed RTC failure subscription is also process-wide and supplies
+no peer or room attribution. Its typed failure reasons remain in the existing
+Diag logging path. They are not presented as a failure of an arbitrary owned room
+or peer in the new stream.
 
 ## Room demands and automation generations
 

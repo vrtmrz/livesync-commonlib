@@ -5,6 +5,7 @@ import type { Confirm } from "@lib/interfaces/Confirm";
 import type { AsyncActivityRunner } from "@lib/interfaces/AsyncActivityRunner";
 import type { LiveSyncEventHub } from "@lib/hub/hub";
 import type { MessageTranslator } from "@lib/services/base/MessageTranslator";
+import type { P2PDiagnosticReporter } from "@lib/p2p/p2pDiagnostics";
 import type { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
 
 export const DIRECTION_REQUEST = "request";
@@ -99,6 +100,8 @@ export interface ReplicatorHost {
     confirm: Confirm;
 }
 export interface ReplicatorHostEnv extends ReplicatorHost {
+    /** Observation port fenced by the owning room session; it cannot control transport work. */
+    reportDiagnostic?: P2PDiagnosticReporter;
     /** Event channel owned by the containing Commonlib service composition. */
     events: LiveSyncEventHub;
     /** Message translation owned by the containing Commonlib service composition. */

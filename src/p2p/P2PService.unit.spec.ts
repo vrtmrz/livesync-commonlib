@@ -813,3 +813,30 @@ describe("P2P replication progress diagnostics", () => {
         expect(views.diagnostics.getReplicationProgress?.()).toBe(finalSnapshot);
     });
 });
+
+describe("P2P diagnostic service API", () => {
+    it("supplies optional observation methods and preserves last peer evidence after disconnect", async () => {
+        mockRoomTransport();
+        const { views, context, transportLifecycle, compatibilityReplicator } = createServiceHarness();
+        expect(views.diagnostics.getDiagnosticSnapshot?.()).toEqual({});
+        const observer = vi.fn();
+        const unsubscribe = views.diagnostics.onDiagnosticEvent?.(observer);
+        expect(unsubscribe).toBeTypeOf("function");
+        await transportLifecycle.connect();
+        (compatibilityReplicator.rawReplicator?._env as any).reportDiagnostic({
+            category: "peer",
+            code: "peer-left",
+            peerId: "peer",
+            timestamp: 1,
+        });
+        await transportLifecycle.disconnect();
+        expect(views.peerDirectory.getPeers()).toEqual([]);
+        expect(views.diagnostics.getDiagnosticSnapshot?.().peer?.code).toBe("peer-left");
+        expect(views.diagnostics.getDiagnosticSnapshot?.().relay?.code).toBe("room-closed");
+        unsubscribe?.();
+        observer.mockClear();
+        context.events.emitEvent(EVENT_PLATFORM_UNLOADED);
+        await transportLifecycle.connect();
+        expect(observer).not.toHaveBeenCalled();
+    });
+});

@@ -318,13 +318,15 @@ import {
 import type {
     P2PConnectionProbeAdmission,
     P2PDiagnostics,
+    P2PDiagnosticEvent,
+    P2PDiagnosticSnapshot,
     P2PReplicationProgress,
     ReplicationStatistics,
     P2PPeerConnectionMetrics,
     P2PServiceViews,
     UseP2PReplicatorResult,
 } from "${packageName}/p2p";
-import { ACTIVE_P2P_RELAY_BINDING_CONFLICT } from "${packageName}/p2p";
+import { ACTIVE_P2P_RELAY_BINDING_CONFLICT, EVENT_P2P_DIAGNOSTIC } from "${packageName}/p2p";
 import type {
     CouchDBReplicationConnection,
     LiveSyncCouchDBReplicator,
@@ -447,6 +449,11 @@ const legacyP2PDiagnostics: P2PDiagnostics = {
     requestStatus: () => undefined,
     getPeerConnectionMetrics: async () => undefined,
 };
+const readP2PDiagnosticSnapshot = (diagnostics: P2PDiagnostics): P2PDiagnosticSnapshot | undefined => diagnostics.getDiagnosticSnapshot?.();
+const observeP2PDiagnosticEvents = (diagnostics: P2PDiagnostics, listener: (event: P2PDiagnosticEvent) => void): (() => void) | undefined => diagnostics.onDiagnosticEvent?.(listener);
+context.events.onEvent(EVENT_P2P_DIAGNOSTIC, (event) => { const category: string = event.category; void category; });
+void readP2PDiagnosticSnapshot;
+void observeP2PDiagnosticEvents;
 const replicationStatistics: ReplicationStatistics = { documents: 0, checkedChanges: 0 };
 void readP2PReplicationProgress;
 void observeP2PReplicationProgress;

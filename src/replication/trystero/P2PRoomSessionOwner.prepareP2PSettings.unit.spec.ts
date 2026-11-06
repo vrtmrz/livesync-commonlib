@@ -57,8 +57,9 @@ function createOwnerHarness(
         sessions.push(session);
         return session as any;
     });
-    const owner = new P2PRoomSessionOwner(env, createSession, { prepareP2PSettings });
-    return { createSession, owner, sessions, settings, getValue };
+    const diagnostic = vi.fn();
+    const owner = new P2PRoomSessionOwner(env, createSession, { prepareP2PSettings, onDiagnosticEvent: diagnostic });
+    return { createSession, owner, sessions, settings, getValue, diagnostic };
 }
 
 class FakeSession {
@@ -129,7 +130,10 @@ describe("P2PRoomSessionOwner prepared settings lifecycle", () => {
         expect(createSession).not.toHaveBeenCalled();
 
         Object.assign(settings, { pathNormalizationVersion: 0 });
-        await expect(owner.runConnectionProbe(settings, trial)).resolves.toEqual({ status: "trial", result: "connected" });
+        await expect(owner.runConnectionProbe(settings, trial)).resolves.toEqual({
+            status: "trial",
+            result: "connected",
+        });
         expect(trial).toHaveBeenCalledOnce();
     });
 
@@ -378,5 +382,58 @@ describe("P2PRoomSessionOwner prepared settings lifecycle", () => {
         expect(prepare).toHaveBeenCalledOnce();
         expect(harness.sessions[0].env.settings.P2P_iceServers).toEqual([{ urls: "stun:stun.example.com" }]);
         expect(harness.sessions[0].env.settings.P2P_iceServersExpiresAt).toBeUndefined();
+    });
+});
+
+describe("P2P diagnostic session fences", () => {
+    it("retains owned lifecycle events and discards reports from a retired room", async () => {
+        const { owner, sessions, settings, diagnostic } = createOwnerHarness();
+        settings.P2P_managedType = "";
+        await owner.open();
+        expect(diagnostic.mock.calls.map(([event]) => event.code)).toEqual(["room-opening", "room-opened"]);
+        const oldReport = (sessions[0].env as any).reportDiagnostic;
+        expect(oldReport).toBeTypeOf("function");
+        oldReport({ category: "peer", code: "peer-left", peerId: "old-peer", timestamp: 10 });
+        await owner.close();
+        expect(diagnostic.mock.calls.at(-1)?.[0].code).toBe("room-closed");
+        const afterClose = diagnostic.mock.calls.length;
+        oldReport({ category: "peer", code: "peer-left", peerId: "late-peer", timestamp: 9999 });
+        expect(diagnostic).toHaveBeenCalledTimes(afterClose);
+        await owner.open();
+        const afterReplacement = diagnostic.mock.calls.length;
+        oldReport({ category: "peer", code: "peer-left", peerId: "late-peer", timestamp: 99999 });
+        expect(diagnostic).toHaveBeenCalledTimes(afterReplacement);
+        (sessions[1].env as any).reportDiagnostic({
+            category: "peer",
+            code: "peer-advertised",
+            peerId: "new-peer",
+            timestamp: 20,
+        });
+        expect(diagnostic.mock.calls.at(-1)?.[0].peerId).toBe("new-peer");
+        await owner.close();
+    });
+
+    it("observes an opening error without exposing its text or changing unmanaged resolution", async () => {
+        const { owner, settings, diagnostic } = createOwnerHarness(undefined, (session) => {
+            session.open.mockRejectedValue(new Error("private key and room details"));
+        });
+        settings.P2P_managedType = "";
+        await expect(owner.open()).resolves.toBeUndefined();
+        expect(diagnostic.mock.calls.map(([event]) => event.code)).toEqual(["room-opening", "room-open-failed"]);
+        expect(JSON.stringify(diagnostic.mock.calls)).not.toContain("private key");
+    });
+});
+
+describe("P2P diagnostic observer isolation", () => {
+    it("contains a failing lifecycle observer and keeps open and close results", async () => {
+        const { owner, settings, sessions, diagnostic } = createOwnerHarness();
+        settings.P2P_managedType = "";
+        diagnostic.mockImplementation(() => {
+            throw new Error("observer unavailable");
+        });
+        await expect(owner.open()).resolves.toBeUndefined();
+        expect(sessions[0].host.isServing).toBe(true);
+        await expect(owner.close()).resolves.toBeUndefined();
+        expect(sessions[0].host.isServing).toBe(false);
     });
 });
