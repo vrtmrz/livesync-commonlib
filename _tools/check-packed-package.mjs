@@ -318,11 +318,19 @@ import {
 import type {
     P2PConnectionProbeAdmission,
     P2PDiagnostics,
+    P2PDiagnosticEvent,
+    P2PDiagnosticSnapshot,
+    P2PReplicationProgress,
+    ReplicationStatistics,
     P2PPeerConnectionMetrics,
     P2PServiceViews,
     UseP2PReplicatorResult,
 } from "${packageName}/p2p";
-import { ACTIVE_P2P_RELAY_BINDING_CONFLICT } from "${packageName}/p2p";
+import { ACTIVE_P2P_RELAY_BINDING_CONFLICT, EVENT_P2P_DIAGNOSTIC } from "${packageName}/p2p";
+import type { IAPIService } from "${packageName}/compat/services/base/IService";
+const registerHostCleanup = (API: Pick<IAPIService, "registerCleanup">): void => API.registerCleanup(() => undefined);
+void registerHostCleanup;
+
 import type {
     CouchDBReplicationConnection,
     LiveSyncCouchDBReplicator,
@@ -435,6 +443,26 @@ const securitySeedResourceKind: string = REMOTE_RESOURCE_KINDS.SECURITY_SEED;
 const noInteractionKind: string = NO_INTERACTION.kind;
 const completedCheck: boolean = isReplicationCompleted(completedOutcome);
 const readP2PDiagnostics = (views: P2PServiceViews): P2PDiagnostics => views.diagnostics;
+const readP2PReplicationProgress = (diagnostics: P2PDiagnostics): readonly P2PReplicationProgress[] =>
+    diagnostics.getReplicationProgress?.() ?? [];
+const observeP2PReplicationProgress = (
+    diagnostics: P2PDiagnostics,
+    listener: (snapshot: readonly P2PReplicationProgress[]) => void
+): (() => void) | undefined => diagnostics.onReplicationProgress?.(listener);
+const legacyP2PDiagnostics: P2PDiagnostics = {
+    requestStatus: () => undefined,
+    getPeerConnectionMetrics: async () => undefined,
+};
+const readP2PDiagnosticSnapshot = (diagnostics: P2PDiagnostics): P2PDiagnosticSnapshot | undefined => diagnostics.getDiagnosticSnapshot?.();
+const observeP2PDiagnosticEvents = (diagnostics: P2PDiagnostics, listener: (event: P2PDiagnosticEvent) => void): (() => void) | undefined => diagnostics.onDiagnosticEvent?.(listener);
+context.events.onEvent(EVENT_P2P_DIAGNOSTIC, (event) => { const category: string = event.category; void category; });
+void readP2PDiagnosticSnapshot;
+void observeP2PDiagnosticEvents;
+const replicationStatistics: ReplicationStatistics = { documents: 0, checkedChanges: 0 };
+void readP2PReplicationProgress;
+void observeP2PReplicationProgress;
+void legacyP2PDiagnostics;
+void replicationStatistics;
 const readP2PConnectionProbe = (views: P2PServiceViews): P2PConnectionProbeAdmission => views.connectionProbe;
 const p2pRelayBindingConflict: string = ACTIVE_P2P_RELAY_BINDING_CONFLICT;
 const readP2PPeerConnectionMetrics = (

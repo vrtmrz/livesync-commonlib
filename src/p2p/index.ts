@@ -23,10 +23,24 @@ export type {
     OpenReplicationUIFactory,
 } from "@lib/replication/trystero/useP2PReplicatorFeature.ts";
 export type { UseP2PReplicatorResult } from "@lib/replication/trystero/UseP2PReplicatorResult.ts";
-export type { P2PReplicationResult } from "@lib/replication/trystero/TrysteroReplicator.ts";
+export type { ReplicationStatistics } from "@lib/pouchdb/ReplicatorShim.ts";
+export type {
+    P2PReplicationProgress,
+    P2PReplicationDirectionProgress,
+    P2PReplicationResult,
+} from "@lib/replication/trystero/TrysteroReplicator.ts";
 export type { Advertisement } from "@lib/replication/trystero/types.ts";
 export {
     P2P_ICE_SERVER_EXPIRY_MARGIN_MS,
     P2P_SETTINGS_PREPARATION_TIMEOUT_MS,
 } from "@lib/replication/trystero/P2PRoomSessionOwner.ts";
 export type { P2PReplicatorFeatureOptions } from "@lib/replication/trystero/useP2PReplicatorFeature.ts";
+
+export { EVENT_P2P_DIAGNOSTIC } from "./p2pDiagnostics.ts";
+export type {
+    P2PDiagnosticCategory,
+    P2PDiagnosticCode,
+    P2PDiagnosticReason,
+    P2PDiagnosticEvent,
+    P2PDiagnosticSnapshot,
+} from "./p2pDiagnostics.ts";

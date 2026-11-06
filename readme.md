@@ -149,6 +149,23 @@ After the Self-hosted LiveSync 1.0 work, the planned high-level composition is a
 
 The factory is not implemented yet. Until it is available, service implementations exposed under `compat/*` retain their owning client's lifecycle rather than becoming a general public composition API.
 
+### Host cleanup registration (unreleased)
+
+`services.API.registerCleanup(callback)` registers synchronous cleanup for the
+owning host's normal terminal unload. The default `APIService` implementation
+uses the context-owned `EVENT_PLATFORM_UNLOADED` event once per registration.
+CLI and browser hosts already deliver that event through `ControlService.onUnload()`
+after their asynchronous lifecycle work and local database closure. An unload
+interrupted before that event does not invoke these callbacks.
+
+The Obsidian adapter delegates to native `Component.register()` and retains that
+host's unload timing. This API therefore does not promise one shared shutdown
+phase across hosts. Register callbacks before terminal unload, and use it for
+presentation resources and subscriptions. Returned promises are not awaited;
+resources which must retire before database closure belong to
+`appLifecycle.onUnload` instead. The registration does not add process signals,
+browser navigation handlers, or a new shutdown/recovery path.
+
 ## UI commands
 
 Import `declareUICommand` and `UICommandRegistry` from `@vrtmrz/livesync-commonlib/ui-commands`. A declaration binds a stable command ID to its request and result types. Each `UIService` owns its own `commands` registry; declarations do not register global handlers.

@@ -1,3 +1,4 @@
+import { createP2PDiagnosticStore, type P2PDiagnosticEvent, type P2PDiagnosticSnapshot } from "./p2pDiagnostics";
 import type { ObsidianLiveSyncSettings, RemoteDBSettings } from "@lib/common/types";
 import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
 import type { DiagRTCPeerConnectionMetrics } from "@lib/rpc/transports/DiagRTCPeerConnections.types";
@@ -6,7 +7,8 @@ import {
     LiveSyncTrysteroReplicator,
     type LiveSyncTrysteroReplicatorEnv,
 } from "@lib/replication/trystero/LiveSyncTrysteroReplicator";
-import type { P2PReplicationResult } from "@lib/replication/trystero/TrysteroReplicator";
+import { P2PLogCollector } from "@lib/replication/trystero/P2PLogCollector";
+import type { P2PReplicationProgress, P2PReplicationResult } from "@lib/replication/trystero/TrysteroReplicator";
 import type {
     AcceptanceDecision,
     RevokeAcceptanceDecision,
@@ -149,6 +151,14 @@ export interface P2PConfigurationExchange {
 /** Supplies transport diagnostics without exposing a room or peer connection. */
 export interface P2PDiagnostics {
     requestStatus(): void;
+    /** Latest owned observation in each category; absent categories remain unobserved. */
+    getDiagnosticSnapshot?(): P2PDiagnosticSnapshot;
+    /** Observe accepted diagnostic events; the returned function removes this subscription. */
+    onDiagnosticEvent?(listener: (event: P2PDiagnosticEvent) => void): () => void;
+    /** Current per-peer sequence progress and optional cumulative transfer statistics. */
+    getReplicationProgress?(): readonly P2PReplicationProgress[];
+    /** Observe subsequent snapshots; the returned function removes this subscription. */
+    onReplicationProgress?(listener: (snapshot: readonly P2PReplicationProgress[]) => void): () => void;
     getPeerConnectionMetrics(peerId: string): Promise<P2PPeerConnectionMetrics | undefined>;
 }
 
@@ -207,6 +217,8 @@ interface P2PServiceState {
 
 /** Private state and resource references shared by every stable view. */
 interface P2PServiceContext {
+    readonly diagnosticStore: ReturnType<typeof createP2PDiagnosticStore>;
+    readonly progressCollector: P2PLogCollector;
     readonly env: LiveSyncTrysteroReplicatorEnv;
     readonly roomSessionOwner: P2PRoomSessionOwner;
     readonly compatibilityReplicator: LiveSyncTrysteroReplicator;
@@ -409,6 +421,15 @@ function createServiceViews(context: P2PServiceContext): P2PServiceViews {
         getRemoteConfiguration: (peerId) => context.compatibilityReplicator.getRemoteConfig(peerId),
     };
     const diagnostics: P2PDiagnostics = {
+        getDiagnosticSnapshot: context.diagnosticStore.getSnapshot,
+        onDiagnosticEvent: context.diagnosticStore.subscribe,
+        getReplicationProgress: () => context.progressCollector.p2pReplicationStats.value,
+        onReplicationProgress: (listener) => {
+            const progress = context.progressCollector.p2pReplicationStats;
+            const onChanged = () => listener(progress.value);
+            progress.onChanged(onChanged);
+            return () => progress.offChanged(onChanged);
+        },
         requestStatus: () => context.compatibilityReplicator.requestStatus(),
         getPeerConnectionMetrics: (peerId) => getPeerConnectionMetrics(context, peerId),
     };
@@ -444,7 +465,11 @@ export function createP2PService(
     env: LiveSyncTrysteroReplicatorEnv,
     options: P2PServiceOptions = {}
 ): P2PServiceComposition {
-    const roomSessionOwner = new P2PRoomSessionOwner(env, undefined, options);
+    const diagnosticStore = createP2PDiagnosticStore(env.services.context.events);
+    const roomSessionOwner = new P2PRoomSessionOwner(env, undefined, {
+        ...options,
+        onDiagnosticEvent: diagnosticStore.record,
+    });
     const state: P2PServiceState = {
         explicitDisconnectVeto: false,
         lifecycleClosed: false,
@@ -455,7 +480,15 @@ export function createP2PService(
         env,
         createCompatibilitySessionAccess(roomSessionOwner, state)
     );
-    const context: P2PServiceContext = { env, roomSessionOwner, compatibilityReplicator, state };
+    const progressCollector = new P2PLogCollector(env.services.context.events);
+    const context: P2PServiceContext = {
+        env,
+        roomSessionOwner,
+        compatibilityReplicator,
+        state,
+        progressCollector,
+        diagnosticStore,
+    };
     return {
         compatibilityReplicator,
         views: createServiceViews(context),

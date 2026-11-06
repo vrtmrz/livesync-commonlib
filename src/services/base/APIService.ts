@@ -1,3 +1,4 @@
+import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import type { LOG_LEVEL } from "@lib/common/logger";
 import type { IAPIService, ICommandCompat } from "./IService";
@@ -94,6 +95,19 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
      * @param handler The handler function for the protocol.
      */
     abstract registerProtocolHandler(action: string, handler: (params: Record<string, string>) => unknown): void;
+
+    /**
+     * Register synchronous cleanup for this host's normal terminal unload.
+     * The default uses the context-owned platform-unloaded event once per registration,
+     * after lifecycle handlers and local database closure. An unload interrupted before
+     * that event does not execute these callbacks.
+     * Native hosts may override this to retain their own unload timing. Callbacks are
+     * not awaited; resource retirement which must finish before database closure
+     * belongs to AppLifecycleService.onUnload instead.
+     */
+    registerCleanup(callback: () => void): void {
+        this.context.events.onceEvent(EVENT_PLATFORM_UNLOADED, callback);
+    }
 
     /**
      * Get the basic UI component for showing a confirmation dialog to the user.

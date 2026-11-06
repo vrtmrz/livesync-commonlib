@@ -1,3 +1,4 @@
+import { reportP2PDiagnostic, type P2PDiagnosticInput, type P2PDiagnosticReporter } from "@lib/p2p/p2pDiagnostics";
 import { Logger } from "@lib/common/logger";
 import {
     LOG_LEVEL_NOTICE,
@@ -47,6 +48,7 @@ export type PrepareP2PSettings = (settings: Readonly<P2PSyncSetting>, signal: Ab
 
 export interface P2PRoomSessionOwnerOptions {
     readonly prepareP2PSettings?: PrepareP2PSettings;
+    readonly onDiagnosticEvent?: P2PDiagnosticReporter;
 }
 
 class StaleRoomReconciliationError extends Error {}
@@ -82,6 +84,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     private activeBinding?: P2PRoomSessionBinding;
     private pendingPreparation?: PendingP2PSettingsPreparation;
     private runtimeGeneration = 0;
+    private diagnosticGeneration = 0;
 
     constructor(
         private readonly env: LiveSyncReplicatorEnv,
@@ -165,7 +168,9 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         runOwnedTrial: () => Promise<T>
     ): Promise<P2PConnectionProbeAdmissionResult<T>> {
         try {
-            assertSupportedPathNormalizationVersion(this.env.services.setting.currentSettings().pathNormalizationVersion);
+            assertSupportedPathNormalizationVersion(
+                this.env.services.setting.currentSettings().pathNormalizationVersion
+            );
         } catch (error) {
             return Promise.reject(error);
         }
@@ -220,6 +225,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
 
             let candidate: P2PRoomSession | undefined;
             const operationGeneration = this.runtimeGeneration;
+            this.reportDiagnostic({ category: "relay", code: "room-opening", reason: "relay-details-unobserved" });
             try {
                 const connectionSettings = await this.prepareConnectionSettings(binding, operationGeneration);
                 await this.assertReconciliationCurrent(binding, operationGeneration, connectionSettings);
@@ -241,13 +247,21 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
                     operationGeneration !== this.runtimeGeneration ||
                     !this.connectionSettingsRemainUsable(connectionSettings)
                 ) {
+                    this.diagnosticGeneration += 1;
                     await candidate.retire();
+                    this.reportDiagnostic({
+                        category: "relay",
+                        code: "room-open-cancelled",
+                        reason: "operation-cancelled",
+                    });
                     return;
                 }
                 this.current = candidate;
                 this.activeBinding = connectionBinding;
                 this.reconcileCurrentSessionPolicy(candidate);
+                this.reportDiagnostic({ category: "relay", code: "room-opened", reason: "relay-details-unobserved" });
             } catch (error) {
+                this.diagnosticGeneration += 1;
                 await candidate?.retire(error).catch((retirementError: unknown) => {
                     if (hasManagedP2PTurnConfiguration(binding.settings)) {
                         Logger("The managed P2P room could not be retired cleanly.", LOG_LEVEL_VERBOSE);
@@ -258,8 +272,14 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
                 this.current = undefined;
                 this.activeBinding = undefined;
                 if (error instanceof StaleRoomReconciliationError || operationGeneration !== this.runtimeGeneration) {
+                    this.reportDiagnostic({
+                        category: "relay",
+                        code: "room-open-cancelled",
+                        reason: "operation-cancelled",
+                    });
                     return;
                 }
+                this.reportDiagnostic({ category: "relay", code: "room-open-failed", reason: "transport-error" });
                 if (hasManagedP2PTurnConfiguration(binding.settings)) {
                     Logger("The managed P2P room could not be prepared or opened.", LOG_LEVEL_NOTICE);
                     Logger("Managed P2P room failure details were omitted.", LOG_LEVEL_VERBOSE);
@@ -298,8 +318,19 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         this.current = undefined;
         this.activeBinding = undefined;
         if (session) {
-            await session.retire();
+            this.diagnosticGeneration += 1;
+            try {
+                await session.retire();
+                this.reportDiagnostic({ category: "relay", code: "room-closed", reason: "relay-details-unobserved" });
+            } catch (error) {
+                this.reportDiagnostic({ category: "relay", code: "room-close-failed", reason: "transport-error" });
+                throw error;
+            }
         }
+    }
+
+    private reportDiagnostic(input: P2PDiagnosticInput): void {
+        reportP2PDiagnostic(this.options.onDiagnosticEvent, input);
     }
 
     private bindingsMatch(current: P2PRoomSessionBinding | undefined, candidate: P2PRoomSessionBinding): boolean {
@@ -529,7 +560,16 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
 
     private buildSessionEnv(binding: P2PRoomSessionBinding): ReplicatorHostEnv {
         const services = this.env.services;
+        const diagnosticGeneration = ++this.diagnosticGeneration;
         return {
+            reportDiagnostic: (event) => {
+                if (diagnosticGeneration !== this.diagnosticGeneration) return;
+                try {
+                    this.options.onDiagnosticEvent?.(event);
+                } catch {
+                    /* Diagnostics cannot change room work. */
+                }
+            },
             events: services.context.events,
             translate: services.context.translate,
             settings: binding.settings,

@@ -1,6 +1,15 @@
 import { serialized } from "octagonal-wheels/concurrency/lock";
 import { Logger } from "@lib/common/logger";
 import { LOG_LEVEL_VERBOSE } from "@lib/common/types";
+import {
+    buildMissingRevisionRequests,
+    buildRevsDiffParam,
+    buildUnavailableRevisionFailures,
+    findUnavailableRevisionRequests,
+    mapBulkDocResultsToFailures,
+    parseSeq,
+    sortBySeq,
+} from "./ReplicatorShim.batch";
 
 /** A stored document carrying the change-feed metadata used by the shim. */
 export type SomeDocument<T extends object> = PouchDB.Core.ExistingDocument<T> & PouchDB.Core.ChangesMeta;
@@ -71,6 +80,11 @@ export type ShimReplicationOptionBase = {
     batch_size?: number;
     /** Abort before a new batch starts, or after the current batch settles. */
     signal?: AbortSignal;
+    /**
+     * Observe cumulative counts, including batches with no missing revisions and
+     * accepted writes before a batch failure. Observation does not commit a checkpoint.
+     */
+    onStatistics?: (info: ProgressInfo) => void | Promise<void>;
 };
 
 /** Options for a finite replication which settles after catching up or cancellation. */
@@ -119,10 +133,19 @@ export class ShimReplicationError extends Error {
     }
 }
 
-/** Sequence boundary committed by one successfully written batch. */
+/** Cumulative work observed during one invocation of the replication shim. */
+export type ReplicationStatistics = {
+    /** Successfully transferred document revisions, including Metadata and Chunks. */
+    documents: number;
+    /** Changes-feed entries compared, including revisions already held by the target. */
+    checkedChanges: number;
+};
+
+/** Source sequence boundary for a batch, with optional cumulative transfer counts. */
 export type ProgressInfo = {
     lastSeq: number;
     maxSeqInBatch: number;
+    statistics?: ReplicationStatistics;
 };
 
 /** Receives the documents and committed sequence boundary for each completed batch. */
@@ -130,43 +153,6 @@ export type ShimReplicationProgressReportFunc<T extends object> = (
     progress: SomeDocument<T>[],
     progressInfo: ProgressInfo
 ) => Promise<void>;
-
-/** Parse the numeric part of a PouchDB sequence value (`"42-xyz"` → `42`). */
-function parseSeq(seq: string | number): number {
-    return parseInt(String(seq).split("-")[0], 10);
-}
-
-/**
- * Build the `{docId: [rev, ...]}` map required by `revsDiff` from a changes
- * feed result set, merging revisions when the same document appears multiple
- * times in a batch.
- */
-function buildRevsDiffParam(changesResults: PouchDB.Core.ChangesResponseChange<object>[]): Record<string, string[]> {
-    const param: Record<string, string[]> = {};
-    for (const { id, changes } of changesResults) {
-        param[id] = [...(param[id] ?? []), ...changes.map((c) => c.rev)];
-    }
-    return param;
-}
-
-/**
- * Sort fetched documents in ascending sequence order so that consumers receive
- * them in the same order they were written to the source.
- */
-function sortBySeq<T extends { _id: string }>(
-    docs: T[],
-    changesResults: PouchDB.Core.ChangesResponseChange<object>[]
-): T[] {
-    const maxSeqById = new Map<string, number>();
-    for (const { id, seq } of changesResults) {
-        maxSeqById.set(id, Math.max(maxSeqById.get(id) ?? 0, parseSeq(seq)));
-    }
-    return docs.slice().sort((a, b) => (maxSeqById.get(a._id) ?? 0) - (maxSeqById.get(b._id) ?? 0));
-}
-
-function isSuccessfulBulkDocResult(result: unknown): result is PouchDB.Core.Response {
-    return typeof result === "object" && result !== null && "ok" in result && result.ok === true;
-}
 
 function isCancellationError(error: unknown): boolean {
     if (typeof error !== "object" || error === null) return false;
@@ -193,6 +179,8 @@ export async function replicateShim<T extends CompatibleDatabase<V>, U extends C
     option: ShimReplicationOption = {}
 ): Promise<ShimReplicationOutcome> {
     const signal = option.signal ?? option.controller?.signal;
+    const statistics: ReplicationStatistics = { documents: 0, checkedChanges: 0 };
+    let lastProcessedSeq = 0;
 
     if (signal?.aborted) {
         Logger(`Replication cancelled`, LOG_LEVEL_VERBOSE);
@@ -252,111 +240,98 @@ export async function replicateShim<T extends CompatibleDatabase<V>, U extends C
                 const revsDiffParam = buildRevsDiffParam(changesResults);
                 const diff = await targetDB.revsDiff(revsDiffParam);
 
-                // No target mutation has started yet, so an abort received
-                // while calculating the diff may safely leave this batch for a
-                // later invocation.
-                if (signal?.aborted) return { status: "cancelled" } as const;
-
-                // Collect {id, rev} pairs for revisions the target is missing.
-                const missingRequests = Object.entries(diff)
-                    .filter(([, entry]) => entry.missing !== undefined)
-                    .flatMap(([id, entry]) => entry.missing!.map((rev) => ({ id, rev })));
-
-                if (missingRequests.length > 0) {
-                    const bulkGetResult = await sourceDB.bulkGet({ docs: missingRequests, revs: true });
-                    const fetchedDocs = bulkGetResult.results
-                        .flatMap((r) => r.docs)
-                        .filter((d) => "ok" in d)
-                        .map((d) => d.ok);
-
-                    // The source read has settled, but the target write has
-                    // not begun.  Honour a cancellation received during the
-                    // read without creating a partial target batch.
+                statistics.checkedChanges += changesResults.length;
+                const progressInfo = (lastSeq = lastProcessedSeq): ProgressInfo => ({
+                    lastSeq,
+                    maxSeqInBatch: maxNumSeq,
+                    statistics: { ...statistics },
+                });
+                try {
+                    // No target mutation has started yet, so an abort received
+                    // while calculating the diff may safely leave this batch for a
+                    // later invocation.
                     if (signal?.aborted) return { status: "cancelled" } as const;
 
-                    // A missing source revision is not a successful batch.  Do
-                    // not issue a partial target write or advance the
-                    // checkpoint when the source could not provide all
-                    // requested revisions.
-                    const fetchedRevisionKeys = new Set(
-                        fetchedDocs.map((doc) => `${doc._id}\u0000${String(doc._rev)}`)
-                    );
-                    const unavailableRequests = missingRequests.filter(
-                        ({ id, rev }) => !fetchedRevisionKeys.has(`${id}\u0000${rev}`)
-                    );
-                    if (unavailableRequests.length > 0) {
-                        const unavailableFailures = unavailableRequests.map<ShimReplicationWriteFailure>(
-                            (request, index) => ({
-                                index,
-                                id: request.id,
-                                revision: request.rev,
-                                result: undefined,
-                            })
-                        );
-                        throw new ShimReplicationError(
-                            `Could not fetch ${unavailableRequests.length} required revision(s)`,
-                            unavailableFailures
-                        );
+                    // Collect {id, rev} pairs for revisions the target is missing.
+                    const missingRequests = buildMissingRevisionRequests(diff);
+
+                    if (missingRequests.length > 0) {
+                        const bulkGetResult = await sourceDB.bulkGet({ docs: missingRequests, revs: true });
+                        const fetchedDocs = bulkGetResult.results
+                            .flatMap((r) => r.docs)
+                            .filter((d) => "ok" in d)
+                            .map((d) => d.ok);
+
+                        // The source read has settled, but the target write has
+                        // not begun.  Honour a cancellation received during the
+                        // read without creating a partial target batch.
+                        if (signal?.aborted) return { status: "cancelled" } as const;
+
+                        // A missing source revision is not a successful batch.  Do
+                        // not issue a partial target write or advance the
+                        // checkpoint when the source could not provide all
+                        // requested revisions.
+                        const unavailableRequests = findUnavailableRevisionRequests(missingRequests, fetchedDocs);
+                        if (unavailableRequests.length > 0) {
+                            const unavailableFailures = buildUnavailableRevisionFailures(unavailableRequests);
+                            throw new ShimReplicationError(
+                                `Could not fetch ${unavailableRequests.length} required revision(s)`,
+                                unavailableFailures
+                            );
+                        }
+
+                        // There is deliberately no cancellation check after this
+                        // call starts.  PouchDB does not provide an atomic abort
+                        // for bulkDocs; let it settle and inspect every result.
+                        const writeResults = await targetDB.bulkDocs(fetchedDocs, { new_edits: false });
+                        const failedWrites = mapBulkDocResultsToFailures(writeResults, fetchedDocs);
+                        statistics.documents += Math.max(0, fetchedDocs.length - failedWrites.length);
+                        if (failedWrites.length > 0) {
+                            throw new ShimReplicationError(
+                                `Target rejected ${failedWrites.length} document write(s)`,
+                                failedWrites
+                            );
+                        }
+
+                        // Re-fetch the written docs from target to pass to the progress callback
+                        // in the order they were sequenced in the source.
+                        const uniqueIds = [...new Set(changesResults.map((c) => c.id))];
+                        const refreshResult = await targetDB.bulkGet({ docs: uniqueIds.map((id) => ({ id })) });
+                        const refreshedDocs = refreshResult.results
+                            .flatMap((r) => r.docs)
+                            .filter((d) => "ok" in d)
+                            .map((d) => d.ok);
+
+                        const orderedDocs = sortBySeq(refreshedDocs, changesResults);
+
+                        try {
+                            const batchSeq = parseSeq(changes.last_seq);
+                            await progress(orderedDocs, progressInfo(batchSeq));
+                            lastProcessedSeq = batchSeq;
+                        } catch (ex) {
+                            Logger(`Progress callback failed during shim-replication`, LOG_LEVEL_VERBOSE);
+                            Logger(ex, LOG_LEVEL_VERBOSE);
+                        }
                     }
 
-                    // There is deliberately no cancellation check after this
-                    // call starts.  PouchDB does not provide an atomic abort
-                    // for bulkDocs; let it settle and inspect every result.
-                    const writeResults = await targetDB.bulkDocs(fetchedDocs, { new_edits: false });
-                    const failedWrites = writeResults.flatMap<ShimReplicationWriteFailure>((result, index) => {
-                        // Local PouchDB filters successful responses when
-                        // `new_edits` is false, so an empty result array is the
-                        // normal all-success response.  Conversely, any
-                        // returned error is a failed required write.
-                        if (isSuccessfulBulkDocResult(result)) return [];
-                        const resultId =
-                            typeof result === "object" && result !== null && "id" in result ? result.id : undefined;
-                        const owningIndex =
-                            typeof resultId === "string" ? fetchedDocs.findIndex((doc) => doc._id === resultId) : -1;
-                        const owningDocument = fetchedDocs[owningIndex >= 0 ? owningIndex : index];
-                        return [
-                            {
-                                index: owningIndex >= 0 ? owningIndex : index,
-                                id: typeof resultId === "string" ? resultId : (owningDocument?._id ?? ""),
-                                revision: owningDocument?._rev,
-                                result,
-                            },
-                        ];
-                    });
-                    if (failedWrites.length > 0) {
-                        throw new ShimReplicationError(
-                            `Target rejected ${failedWrites.length} document write(s)`,
-                            failedWrites
-                        );
-                    }
+                    since = changes.last_seq;
+                    await upsert<{ since: string | number }>(targetDB, targetCheckpointID, (doc) => ({
+                        ...doc,
+                        since,
+                    }));
 
-                    // Re-fetch the written docs from target to pass to the progress callback
-                    // in the order they were sequenced in the source.
-                    const uniqueIds = [...new Set(changesResults.map((c) => c.id))];
-                    const refreshResult = await targetDB.bulkGet({ docs: uniqueIds.map((id) => ({ id })) });
-                    const refreshedDocs = refreshResult.results
-                        .flatMap((r) => r.docs)
-                        .filter((d) => "ok" in d)
-                        .map((d) => d.ok);
-
-                    const orderedDocs = sortBySeq(refreshedDocs, changesResults);
-                    const lastSeqNum = parseSeq(changes.last_seq);
-
+                    if (missingRequests.length === 0) lastProcessedSeq = parseSeq(changes.last_seq);
+                    if (signal?.aborted) return { status: "cancelled" } as const;
+                } finally {
+                    // Observation must not change document processing, checkpointing,
+                    // or the error raised after a partially accepted write.
                     try {
-                        await progress(orderedDocs, { lastSeq: lastSeqNum, maxSeqInBatch: maxNumSeq });
-                    } catch (ex) {
-                        Logger(`Progress callback failed during shim-replication`, LOG_LEVEL_VERBOSE);
-                        Logger(ex, LOG_LEVEL_VERBOSE);
+                        await option.onStatistics?.(progressInfo());
+                    } catch (error) {
+                        Logger(`Statistics observer failed during shim-replication`, LOG_LEVEL_VERBOSE);
+                        Logger(error, LOG_LEVEL_VERBOSE);
                     }
                 }
-
-                since = changes.last_seq;
-                await upsert<{ since: string | number }>(targetDB, targetCheckpointID, (doc) => ({
-                    ...doc,
-                    since,
-                }));
-
-                if (signal?.aborted) return { status: "cancelled" } as const;
             }
         });
         Logger(outcome.status === "cancelled" ? `Replication cancelled` : `Replication completed`, LOG_LEVEL_VERBOSE);

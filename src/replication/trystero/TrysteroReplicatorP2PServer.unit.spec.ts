@@ -328,3 +328,42 @@ describe("P2PHost transport configuration and ownership", () => {
         expect(confirmUserToAccept).not.toHaveBeenCalled();
     });
 });
+
+describe("room-owned peer diagnostics", () => {
+    it("observes validated first advertisements and departure without exposing names or repeating advertisements", async () => {
+        const server = new P2PHost({
+            events: createLiveSyncEventHub(),
+            simpleStore: {},
+            settings: { P2P_Enabled: true },
+        } as any);
+        vi.spyOn(server, "dispatchConnectionStatus").mockResolvedValue(undefined);
+        const report = vi.fn();
+        server._env.reportDiagnostic = report;
+        const advertisement = { peerId: "peer", name: "private device name", platform: "test" };
+        server.onAdvertisement({ ...advertisement, peerId: "spoofed" }, "peer");
+        expect(report).not.toHaveBeenCalled();
+        server.onAdvertisement(advertisement, "peer");
+        server.onAdvertisement(advertisement, "peer");
+        expect(report).toHaveBeenCalledExactlyOnceWith({
+            category: "peer",
+            code: "peer-advertised",
+            peerId: "peer",
+            timestamp: expect.any(Number),
+        });
+        (server as any)._onPeerLeave("peer");
+        expect(server.knownAdvertisements).toEqual([]);
+        expect(report.mock.calls.at(-1)?.[0]).toEqual({
+            category: "peer",
+            code: "peer-left",
+            peerId: "peer",
+            timestamp: expect.any(Number),
+        });
+        expect(JSON.stringify(report.mock.calls)).not.toContain("private device name");
+        server.dispose();
+        const finalCount = report.mock.calls.length;
+        server.onAdvertisement(advertisement, "peer");
+        (server as any)._onPeerLeave("peer");
+        expect(report).toHaveBeenCalledTimes(finalCount);
+        await Promise.resolve();
+    });
+});

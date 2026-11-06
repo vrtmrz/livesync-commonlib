@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Fixed
+
+- Metadata records the byte length of the content being stored, so stale host
+  file-size information no longer causes a readable file to fail the size check
+  when reflected to storage. Existing incorrect Metadata needs explicit repair.
+
+### Breaking changes
+
+- P2P integrations now use Trystero 0.26.0, whose action wire format is
+  incompatible with the previous transport. Update every communicating peer,
+  including Obsidian, CLI, and WebPeer clients, before resuming P2P transfer.
+
+### Improved
+
+- P2P discovery and connection recovery include upstream fixes for relay
+  reconnection, missed signalling messages, and stale connections after rejoin
+  or idle periods. Offers are created on demand to reduce idle resource use.
+
 ## 0.3.2
 
 5th November, 2026
