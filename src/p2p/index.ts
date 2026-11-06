@@ -23,7 +23,12 @@ export type {
     OpenReplicationUIFactory,
 } from "@lib/replication/trystero/useP2PReplicatorFeature.ts";
 export type { UseP2PReplicatorResult } from "@lib/replication/trystero/UseP2PReplicatorResult.ts";
-export type { P2PReplicationResult } from "@lib/replication/trystero/TrysteroReplicator.ts";
+export type { ReplicationStatistics } from "@lib/pouchdb/ReplicatorShim.ts";
+export type {
+    P2PReplicationProgress,
+    P2PReplicationDirectionProgress,
+    P2PReplicationResult,
+} from "@lib/replication/trystero/TrysteroReplicator.ts";
 export type { Advertisement } from "@lib/replication/trystero/types.ts";
 export {
     P2P_ICE_SERVER_EXPIRY_MARGIN_MS,

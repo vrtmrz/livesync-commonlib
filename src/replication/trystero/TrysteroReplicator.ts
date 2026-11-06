@@ -16,7 +16,7 @@ import {
     Logger,
     type LOG_LEVEL,
 } from "octagonal-wheels/common/logger";
-import { replicateShim, type ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
+import { replicateShim, type ProgressInfo, type ReplicationStatistics } from "@lib/pouchdb/ReplicatorShim";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import { resolveCurrentP2PSettings, type Advertisement, type ReplicatorHostEnv } from "./types";
 import { scheduleOnceIfDuplicated, serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock_v2";
@@ -60,39 +60,31 @@ export type P2PReplicatorStatus = {
     replicatingFrom: string[];
     watchingPeers: string[];
 };
+/** Sequence progress retained for compatibility, with independently observed work counts. */
+export type P2PReplicationDirectionProgress = {
+    max: number;
+    current: number;
+    isActive: boolean;
+    statistics?: ReplicationStatistics;
+};
+
 export type P2PReplicationProgress = {
     peerId: string;
     peerName: string;
-    fetching: {
-        max: number;
-        current: number;
-        isActive: boolean;
-    };
-    sending: {
-        max: number;
-        current: number;
-        isActive: boolean;
-    };
+    fetching: P2PReplicationDirectionProgress;
+    sending: P2PReplicationDirectionProgress;
 };
 export type P2PReplicationReport = {
     peerId: string;
     peerName: string;
-} & (
-    | {
-          fetching: {
-              max: number;
-              current: number;
-              isActive: boolean;
-          };
-      }
-    | {
-          sending: {
-              max: number;
-              current: number;
-              isActive: boolean;
-          };
-      }
-);
+} & ({ fetching: P2PReplicationDirectionProgress } | { sending: P2PReplicationDirectionProgress });
+
+/** Optional transient correlation carried only by progress acknowledgements. */
+type ProgressAcknowledgement = { attempt: number; finalProgress?: ProgressInfo };
+
+// Trystero's default peer ID lives for this module realm. Keep attempts ordered
+// across room replacement, without adding persistent state or a clock dependency.
+let nextProgressAttempt = 0;
 
 /**
  * In-process outcome of one P2P replication request.
@@ -162,6 +154,10 @@ export class TrysteroReplicator {
     _env: ReplicatorHostEnv;
     private readonly finiteOperationOwner?: P2PFiniteOperationOwner;
     private disposed = false;
+    private readonly acknowledgedAttempts = new Map<
+        string,
+        { attempt: number; isActive: boolean; checkedChanges: number }
+    >();
     private readonly fallbackAutomationCoordinator = new P2PAutomationCoordinator();
 
     server?: P2PHost;
@@ -251,6 +247,7 @@ export class TrysteroReplicator {
     async close() {
         this.requestStatus();
         await this.server?.shutdown();
+        this.acknowledgedAttempts.clear();
         this._replicateFromPeers.clear();
         this._replicateToPeers.clear();
         this._watchingPeers.clear();
@@ -315,6 +312,7 @@ export class TrysteroReplicator {
         }
     }
     onPeerLeaved(peerId: string) {
+        this.acknowledgedAttempts.delete(peerId);
         void this.unwatchPeer(peerId);
     }
     _onSetup = false;
@@ -432,9 +430,13 @@ export class TrysteroReplicator {
                 }
                 return encrypt(JSON.stringify(setting), passphrase.trim());
             },
-            onProgressAcknowledged: async (fromPeerId: string, info: ProgressInfo) => {
+            onProgressAcknowledged: async (
+                fromPeerId: string,
+                info?: ProgressInfo | null,
+                acknowledgement?: ProgressAcknowledgement
+            ) => {
                 try {
-                    await Promise.resolve(this.onProgressAcknowledged(fromPeerId, info));
+                    await Promise.resolve(this.onProgressAcknowledged(fromPeerId, info, acknowledgement));
                 } catch (e) {
                     Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
                     Logger(e, LOG_LEVEL_VERBOSE);
@@ -657,60 +659,70 @@ export class TrysteroReplicator {
         this.onReplicationProgress(peerId, info);
     }
     onReplicationProgress(peerId: string, info?: ProgressInfo) {
-        const name = this.server?._knownAdvertisements.get(peerId)?.name || peerId;
-        const stat = {
+        if (this.disposed) return false;
+        const name = this.server?._knownAdvertisements?.get(peerId)?.name || peerId;
+        this._env.events.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, {
             peerId,
             peerName: name,
-            fetching: {
-                max: 0,
-                current: 0,
-                isActive: false,
-            },
-        };
-        if (info) {
-            stat.fetching = {
-                max: info.maxSeqInBatch,
-                current: info.lastSeq,
-                isActive: true,
-            };
-        }
-        // console.warn(`Own Progress ${peerId}`, stat);
-        this._env.events.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, stat);
+            fetching: this.directionProgress(info),
+        });
         return true;
     }
-    onProgressAcknowledged(peerId: string, info?: ProgressInfo) {
-        // const peerId = info
-        const name = this.server?._knownAdvertisements.get(peerId)?.name || peerId;
-        const ack = {
-            peerId,
-            peerName: name,
-            sending: {
-                max: 0,
-                current: 0,
-                isActive: false,
-            },
+
+    private directionProgress(info?: ProgressInfo | null): P2PReplicationDirectionProgress {
+        return {
+            max: info?.maxSeqInBatch ?? 0,
+            current: info?.lastSeq ?? 0,
+            isActive: info != null,
+            ...(info?.statistics ? { statistics: { ...info.statistics } } : {}),
         };
-        if (info) {
-            ack.sending = {
-                max: info.maxSeqInBatch,
-                current: info.lastSeq,
-                isActive: true,
-            };
-        }
-        // console.warn(`Progress acknowledged from ${peerId}`, ack);
-        this._env.events.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, ack);
-        return true;
     }
-    // Sending the progress to the remote peer
-    acknowledgeProgress(remotePeerId: string, info?: ProgressInfo) {
-        if (!this.server) return;
-        const connection = this.server.getConnection(remotePeerId);
-        void connection
-            .invokeRemoteFunction("onProgressAcknowledged", [this.server.serverPeerId, info], 500)
-            .catch((ex) => {
-                Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
-                Logger(ex, LOG_LEVEL_VERBOSE);
+
+    onProgressAcknowledged(peerId: string, info?: ProgressInfo | null, acknowledgement?: ProgressAcknowledgement) {
+        if (this.disposed) return false;
+        if (acknowledgement) {
+            const previous = this.acknowledgedAttempts.get(peerId);
+            if (
+                previous &&
+                (acknowledgement.attempt < previous.attempt ||
+                    (acknowledgement.attempt === previous.attempt &&
+                        (!previous.isActive ||
+                            (info?.statistics?.checkedChanges ?? previous.checkedChanges) < previous.checkedChanges)))
+            ) {
+                return false;
+            }
+            this.acknowledgedAttempts.set(peerId, {
+                attempt: acknowledgement.attempt,
+                isActive: info != null,
+                checkedChanges: info?.statistics?.checkedChanges ?? previous?.checkedChanges ?? 0,
             });
+        }
+        const name = this.server?._knownAdvertisements?.get(peerId)?.name || peerId;
+        const sending = this.directionProgress(info ?? acknowledgement?.finalProgress);
+        sending.isActive = info != null;
+        this._env.events.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, {
+            peerId,
+            peerName: name,
+            sending,
+        });
+        return true;
+    }
+
+    // Sending the progress to the remote peer.
+    acknowledgeProgress(remotePeerId: string, info?: ProgressInfo, acknowledgement?: ProgressAcknowledgement) {
+        if (!this.server || this.disposed) return;
+        try {
+            const connection = this.server.getConnection(remotePeerId);
+            void connection
+                .invokeRemoteFunction("onProgressAcknowledged", [this.server.serverPeerId, info, acknowledgement], 500)
+                .catch((error) => {
+                    Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
+                    Logger(error, LOG_LEVEL_VERBOSE);
+                });
+        } catch (error) {
+            Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
+            Logger(error, LOG_LEVEL_VERBOSE);
+        }
     }
     async replicateFrom(
         remotePeer: string,
@@ -756,15 +768,29 @@ export class TrysteroReplicator {
         }
         this._replicateFromPeers.add(remotePeer);
         this.dispatchStatus();
+        const acknowledgement = { attempt: ++nextProgressAttempt };
+        let latestProgress: ProgressInfo = {
+            lastSeq: 0,
+            maxSeqInBatch: 0,
+            statistics: { documents: 0, checkedChanges: 0 },
+        };
+        this.dispatchReplicationProgress(remotePeer, latestProgress);
+        this.acknowledgeProgress(remotePeer, latestProgress, acknowledgement);
 
         try {
-            return await this.transferFromPeer(remotePeer, fromStart, logLevel, signal);
+            return await this.transferFromPeer(remotePeer, fromStart, logLevel, signal, (info) => {
+                latestProgress = info;
+                this.dispatchReplicationProgress(remotePeer, info);
+                this.acknowledgeProgress(remotePeer, info, acknowledgement);
+            });
         } catch (e) {
             if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
             Logger("Error while P2P replicating", logLevel, "p2p-replicator");
             Logger(e, LOG_LEVEL_VERBOSE);
             return p2pReplicationFailed(e);
         } finally {
+            this.dispatchReplicationProgress(remotePeer);
+            this.acknowledgeProgress(remotePeer, undefined, { ...acknowledgement, finalProgress: latestProgress });
             this._replicateFromPeers.delete(remotePeer);
             this.dispatchStatus();
         }
@@ -806,7 +832,8 @@ export class TrysteroReplicator {
         remotePeer: string,
         fromStart: boolean,
         logLevel: LOG_LEVEL,
-        signal?: AbortSignal
+        signal?: AbortSignal,
+        onStatistics?: (info: ProgressInfo) => void
     ): Promise<P2PReplicationResult> {
         if (!this.server) {
             throw new Error("Server is not available");
@@ -842,8 +869,6 @@ export class TrysteroReplicator {
             remoteDB,
             async (docs, info) => {
                 await this._env.processReplicatedDocs(docs as Array<PouchDB.Core.ExistingDocument<EntryDoc>>);
-                void this.dispatchReplicationProgress(remotePeer, info);
-                void this.acknowledgeProgress(remotePeer, info);
                 void this.notifyProgress(remotePeer);
                 Logger(
                     `P2P Replication from ${remotePeer}\n${info.lastSeq} / ${info.maxSeqInBatch})`,
@@ -851,10 +876,14 @@ export class TrysteroReplicator {
                     "p2p-replicator"
                 );
             },
-            { live: false, rewind: fromStart, signal }
+            {
+                live: false,
+                rewind: fromStart,
+                signal,
+                onStatistics,
+            }
         );
         Logger(`P2P replicateFrom replicateShim returned for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
-        void this.acknowledgeProgress(remotePeer, undefined);
         if (outcome.status === "cancelled") {
             Logger(`P2P Replication from ${remotePeer} has been cancelled`, logLevel, "p2p-replicator");
             return P2P_REPLICATION_CANCELLED;

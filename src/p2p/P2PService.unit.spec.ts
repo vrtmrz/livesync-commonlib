@@ -4,6 +4,12 @@ import { ACTIVE_P2P_RELAY_BINDING_CONFLICT, createP2PService, projectP2PPeerConn
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { LiveSyncTrysteroReplicator } from "@lib/replication/trystero/LiveSyncTrysteroReplicator";
 import { TrysteroReplicator } from "@lib/replication/trystero/TrysteroReplicator";
+import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
+import {
+    EVENT_P2P_REPLICATOR_PROGRESS,
+    EVENT_DEVICE_LEAVED,
+    EVENT_P2P_DISCONNECTED,
+} from "@lib/replication/trystero/TrysteroReplicatorP2PServer";
 import { addP2PEventHandlers } from "@lib/replication/trystero/addP2PEventHandlers";
 
 function createDeferred() {
@@ -771,5 +777,39 @@ describe("P2P service room ownership", () => {
 
         expect(runFiniteReplicationActivity).toHaveBeenCalledOnce();
         expect(runFiniteReplicationActivity.mock.calls[0][1]).toEqual({ label: "replication" });
+    });
+});
+
+describe("P2P replication progress diagnostics", () => {
+    it("owns the structured snapshot, subscription, departure, and unload cleanup", () => {
+        const { context, views } = createServiceHarness();
+        const observer = vi.fn();
+        expect(views.diagnostics.getReplicationProgress?.()).toEqual([]);
+        const unsubscribe = views.diagnostics.onReplicationProgress?.(observer);
+        expect(unsubscribe).toBeTypeOf("function");
+        const report = {
+            peerId: "peer",
+            peerName: "Device",
+            fetching: { current: 10, max: 20, isActive: true, statistics: { documents: 1, checkedChanges: 4 } },
+        };
+        context.events.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, report as any);
+        expect(observer).toHaveBeenLastCalledWith(views.diagnostics.getReplicationProgress?.());
+        expect(views.diagnostics.getReplicationProgress?.()[0].fetching.statistics).toEqual({
+            documents: 1,
+            checkedChanges: 4,
+        });
+        context.events.emitEvent(EVENT_DEVICE_LEAVED, "peer");
+        expect(observer).toHaveBeenLastCalledWith([]);
+        context.events.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, report as any);
+        context.events.emitEvent(EVENT_P2P_DISCONNECTED);
+        expect(observer).toHaveBeenLastCalledWith([]);
+        unsubscribe?.();
+        observer.mockClear();
+        context.events.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, report as any);
+        expect(observer).not.toHaveBeenCalled();
+        context.events.emitEvent(EVENT_PLATFORM_UNLOADED);
+        const finalSnapshot = views.diagnostics.getReplicationProgress?.();
+        context.events.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, { ...report, peerId: "late-peer" } as any);
+        expect(views.diagnostics.getReplicationProgress?.()).toBe(finalSnapshot);
     });
 });

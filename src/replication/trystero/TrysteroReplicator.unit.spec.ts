@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { TrysteroReplicator } from "./TrysteroReplicator";
+import { P2PLogCollector } from "./P2PLogCollector";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { defaultLogger, LOG_LEVEL_NOTICE, setGlobalLogFunction } from "@lib/common/logger";
 import {
     EVENT_ADVERTISEMENT_RECEIVED,
     EVENT_P2P_REPLICATOR_STATUS,
+    EVENT_P2P_REPLICATOR_PROGRESS,
     type P2PPeerAcceptance,
     type P2PHost,
 } from "./TrysteroReplicatorP2PServer";
@@ -1462,5 +1464,128 @@ describe("TrysteroReplicator automatic remote activity", () => {
 
         expect(canReplicate).not.toHaveBeenCalled();
         expect(requestAuthenticate).toHaveBeenCalledWith("peer-id");
+    });
+});
+
+describe("P2P transfer statistics lifecycle", () => {
+    it.each(["completed", "cancelled", "failed"] as const)(
+        "reports start and terminal cleanup for a zero-transfer %s attempt",
+        async (status) => {
+            const { replicator, events } = createReplicator();
+            const local = installControlOnlyPathIdentityDatabase(replicator, 12);
+            const { replicator: peer } = createReplicator();
+            const remote = installControlOnlyPathIdentityDatabase(peer, 12);
+            remote.info.mockResolvedValue({ db_name: "remote-control", update_seq: 0, doc_count: 2 });
+            const controller = new AbortController();
+            if (status === "failed") remote.changes.mockRejectedValueOnce(new Error("changes unavailable"));
+            if (status === "cancelled")
+                remote.changes.mockImplementationOnce(async () => {
+                    controller.abort();
+                    return { results: [], last_seq: 0, pending: 0 };
+                });
+            const invokeRemoteFunction = vi.fn(async () => undefined);
+            replicator.server = {
+                serverPeerId: "local-peer",
+                _knownAdvertisements: new Map(),
+                getConnection: () => ({ getRemoteDB: () => remote, invokeRemoteFunction }),
+            } as unknown as P2PHost;
+            vi.spyOn(replicator as any, "canStartOrdinaryReplication").mockResolvedValue(true);
+            vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+            vi.spyOn(replicator, "checkTweakValues").mockResolvedValue(true);
+            const reports: any[] = [];
+            events.onEvent(EVENT_P2P_REPLICATOR_PROGRESS, (report) => reports.push(report));
+
+            const outcome = await replicator.replicateFrom("remote-peer", false, false, false, controller.signal);
+
+            expect(outcome.status).toBe(status);
+            expect(reports.filter((report) => report.fetching).map((report) => report.fetching.isActive)).toEqual([
+                true,
+                false,
+            ]);
+            expect(reports[0].fetching.statistics).toEqual({ documents: 0, checkedChanges: 0 });
+            const acknowledgements = invokeRemoteFunction.mock.calls.filter(
+                ([method]) => method === "onProgressAcknowledged"
+            );
+            expect(acknowledgements[0][1][1].statistics).toEqual({ documents: 0, checkedChanges: 0 });
+            expect(acknowledgements.at(-1)?.[1][1]).toBeUndefined();
+            expect(local.bulkDocs).not.toHaveBeenCalled();
+            expect(replicator._env.processReplicatedDocs).not.toHaveBeenCalled();
+        }
+    );
+
+    it("accepts legacy sequence acknowledgements without inventing observed zero statistics", () => {
+        const { replicator, events } = createReplicator();
+        const reports: any[] = [];
+        events.onEvent(EVENT_P2P_REPLICATOR_PROGRESS, (report) => reports.push(report));
+        replicator.onProgressAcknowledged("peer", { lastSeq: 50, maxSeqInBatch: 75 });
+        expect(reports[0].sending).toEqual({ current: 50, max: 75, isActive: true });
+        replicator.onProgressAcknowledged("peer", {
+            lastSeq: 75,
+            maxSeqInBatch: 75,
+            statistics: { documents: 0, checkedChanges: 20 },
+        } as any);
+        expect(reports[1].sending.statistics).toEqual({ documents: 0, checkedChanges: 20 });
+    });
+});
+
+describe("P2P acknowledgement attempt fencing", () => {
+    it("ignores replaced attempts, reordered batches, and updates after a terminal marker", () => {
+        const { replicator, events } = createReplicator();
+        const reports: any[] = [];
+        events.onEvent(EVENT_P2P_REPLICATOR_PROGRESS, (report) => reports.push(report));
+        const acknowledge = replicator.onProgressAcknowledged.bind(replicator) as any;
+        const info = (documents: number, checkedChanges: number) => ({
+            lastSeq: checkedChanges,
+            maxSeqInBatch: 100,
+            statistics: { documents, checkedChanges },
+        });
+        acknowledge("peer", info(2, 5), { attempt: 2 });
+        acknowledge("peer", info(1, 3), { attempt: 1 });
+        acknowledge("peer", undefined, { attempt: 1 });
+        acknowledge("peer", info(1, 2), { attempt: 2 });
+        expect(reports).toHaveLength(1);
+        acknowledge("peer", undefined, { attempt: 2 });
+        expect(reports.at(-1).sending.isActive).toBe(false);
+        acknowledge("peer", info(3, 7), { attempt: 2 });
+        expect(reports).toHaveLength(2);
+        acknowledge("peer", info(0, 0), { attempt: 3 });
+        expect(reports.at(-1).sending.statistics).toEqual({ documents: 0, checkedChanges: 0 });
+        expect(reports.at(-1).sending.isActive).toBe(true);
+    });
+});
+
+describe("P2P terminal acknowledgement wire compatibility", () => {
+    it("retains final counts and sequences when a JSON terminal overtakes every batch acknowledgement", async () => {
+        const { replicator, events } = createReplicator();
+        const collector = new P2PLogCollector(events);
+        const terminal = JSON.parse(
+            JSON.stringify([
+                "peer",
+                undefined,
+                {
+                    attempt: 20,
+                    finalProgress: { lastSeq: 80, maxSeqInBatch: 100, statistics: { documents: 2, checkedChanges: 7 } },
+                },
+            ])
+        );
+        await replicator.getCommands().onProgressAcknowledged(...(terminal as [string, any, any]));
+        expect(collector.p2pReplicationStats.value[0].sending).toEqual({
+            current: 80,
+            max: 100,
+            isActive: false,
+            statistics: { documents: 2, checkedChanges: 7 },
+        });
+        replicator.onProgressAcknowledged(
+            "peer",
+            {
+                lastSeq: 40,
+                maxSeqInBatch: 100,
+                statistics: { documents: 1, checkedChanges: 3 },
+            },
+            { attempt: 20 }
+        );
+        expect(collector.p2pReplicationStats.value[0].sending.statistics).toEqual({ documents: 2, checkedChanges: 7 });
+        expect(collector.p2pReplicationStats.value[0].sending.isActive).toBe(false);
+        collector.dispose();
     });
 });

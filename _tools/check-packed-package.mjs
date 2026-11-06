@@ -318,6 +318,8 @@ import {
 import type {
     P2PConnectionProbeAdmission,
     P2PDiagnostics,
+    P2PReplicationProgress,
+    ReplicationStatistics,
     P2PPeerConnectionMetrics,
     P2PServiceViews,
     UseP2PReplicatorResult,
@@ -435,6 +437,21 @@ const securitySeedResourceKind: string = REMOTE_RESOURCE_KINDS.SECURITY_SEED;
 const noInteractionKind: string = NO_INTERACTION.kind;
 const completedCheck: boolean = isReplicationCompleted(completedOutcome);
 const readP2PDiagnostics = (views: P2PServiceViews): P2PDiagnostics => views.diagnostics;
+const readP2PReplicationProgress = (diagnostics: P2PDiagnostics): readonly P2PReplicationProgress[] =>
+    diagnostics.getReplicationProgress?.() ?? [];
+const observeP2PReplicationProgress = (
+    diagnostics: P2PDiagnostics,
+    listener: (snapshot: readonly P2PReplicationProgress[]) => void
+): (() => void) | undefined => diagnostics.onReplicationProgress?.(listener);
+const legacyP2PDiagnostics: P2PDiagnostics = {
+    requestStatus: () => undefined,
+    getPeerConnectionMetrics: async () => undefined,
+};
+const replicationStatistics: ReplicationStatistics = { documents: 0, checkedChanges: 0 };
+void readP2PReplicationProgress;
+void observeP2PReplicationProgress;
+void legacyP2PDiagnostics;
+void replicationStatistics;
 const readP2PConnectionProbe = (views: P2PServiceViews): P2PConnectionProbeAdmission => views.connectionProbe;
 const p2pRelayBindingConflict: string = ACTIVE_P2P_RELAY_BINDING_CONFLICT;
 const readP2PPeerConnectionMetrics = (

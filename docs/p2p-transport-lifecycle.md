@@ -64,9 +64,60 @@ The stable view objects close over the same private context, but do not expose t
 | `P2PTargetedTransfer`         | pull, request push, synchronise one peer, or execute the persisted configured-target set without peer-selection dialogue |
 | `P2PChangeRelay`              | watch or unwatch a peer and enable or disable local-change broadcast                                                     |
 | `P2PConfigurationExchange`    | retrieve configuration from one explicitly selected peer                                                                 |
-| `P2PDiagnostics`              | request status and project RTC metrics without exposing the room or peer connection                                      |
+| `P2PDiagnostics`              | observe replication progress, request status, and project RTC metrics without exposing the room or peer connection       |
 
 The optional host UI factory is an explicit compatibility boundary. Commonlib supplies both the deprecated compatibility Replicator and the stable views. Maintained modal transport and status controls use the views; legacy interactive execution and rebuild-specific setup markers may still use the compatibility Replicator. Receiving that façade does not transfer ownership of the room. `UseP2PReplicatorResult.replicator` remains deprecated for the same bounded migration work.
+
+## Per-peer replication progress
+
+`P2PDiagnostics.getReplicationProgress?()` supplies a read-only snapshot sorted by
+peer ID. `onReplicationProgress?(listener)` observes subsequent snapshots and
+returns a subscription disposer. Hosts should check that these optional methods
+exist when composing an older implementation. The service owns a `P2PLogCollector`
+for these views, and releases its event registrations on platform unload. Peer
+departure removes that peer, and room disconnect or replacement clears the snapshot.
+Repeated advertisements update the peer name and retain its structured progress;
+the legacy map and text keep their existing advertisement reset behaviour.
+
+Each direction retains the established `current` and `max` numeric source sequence
+values and `isActive` flag. `P2PLogCollector.p2pReplicationResult` and
+`p2pReplicationLine` keep those sequence units and the existing text format.
+Sequence subtraction does not measure transferred documents.
+
+A direction may additionally supply `statistics: { documents, checkedChanges }`:
+
+- `documents` counts successfully transferred database document revisions, including
+  Metadata and Chunks. It excludes already-held revisions and refresh reads. Two
+  missing conflict revisions of one document count as two transfers.
+- `checkedChanges` counts changes-feed entries processed for revision comparison,
+  including entries which require no transfer and repeated entries checked again.
+
+Both counters start at zero for each finite pull attempt, accumulate across its
+batches, and retain their final values when the direction becomes inactive. The
+sending direction observes the receiver's acknowledgements. An absent
+`statistics` field means the peer has not supplied these counts; it differs from
+an observed zero. A completed all-known batch updates statistics without invoking
+the legacy document-processing callback. That callback still receives the
+refreshed documents only when the batch has missing revisions.
+
+The shim's optional `onStatistics` observer also reports accepted writes when a
+later write, refresh, or checkpoint step fails. These counts do not establish a
+committed checkpoint or a completed replication attempt. The observer's sequence
+retains the latest successfully processed batch boundary when a later batch fails
+or is cancelled before writing; the document callback keeps its original batch
+sequence values. Observer failures do not change document processing or checkpoint
+safety.
+
+Progress uses the existing `onProgressAcknowledged` RPC. An optional third argument
+carries a transient attempt number, allocated monotonically across room sessions
+within the receiver's module lifetime. Trystero's default peer ID is also generated
+for that module lifetime. The sending observer ignores older attempts, reordered
+batch counts, and updates received after the same attempt's terminal marker. The
+terminal acknowledgement keeps the legacy absent progress argument and adds the
+final progress in its optional metadata, so a terminal marker which overtakes a
+batch still supplies final sequences and counts. Older peers can ignore the extra
+argument and continue using sequence progress. No handshake, retry, heartbeat, or
+persistent replication state is added.
 
 ## Room demands and automation generations
 
