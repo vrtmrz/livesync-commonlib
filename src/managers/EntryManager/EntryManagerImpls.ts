@@ -263,7 +263,7 @@ async function putDBEntryInternal(
             path: note.path,
             ctime: note.ctime,
             mtime: note.mtime,
-            size: note.size,
+            size: data.size,
             type: note.datatype,
             eden: {},
         };
