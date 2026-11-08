@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
-import { DEFAULT_SETTINGS, LOG_LEVEL_INFO, type EntryDoc, type FilePathWithPrefix, type UXFileInfo } from "@lib/common/types";
+import { DEFAULT_SETTINGS, LOG_LEVEL_INFO, type DocumentID, type EntryDoc, type EntryLeaf, type FilePathWithPrefix, type UXFileInfo } from "@lib/common/types";
 import { compareMTime, createTextBlob } from "@lib/common/utils";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import type { FileReflectionProvenanceRecord } from "@lib/interfaces/FileReflectionProvenance";
@@ -50,13 +51,25 @@ function scenarioMtime(scenario: Scenario): number {
     return scenario.endsWith("-close") ? originalMtime + 1_000 : originalMtime;
 }
 
-async function createScenario(scenario: Scenario, revsLimit = 1000) {
+async function createScenario(scenario: Scenario, revsLimit = 1000, onDemand = false) {
     const name = `issue-1207-${scenario}-${crypto.randomUUID()}`;
-    const db = new PouchDB<EntryDoc>(name, { adapter: "memory", revs_limit: revsLimit, auto_compaction: false });
+    let db = new PouchDB<EntryDoc>(name, { adapter: "memory", revs_limit: revsLimit, auto_compaction: false });
     const provenance = new Map<FilePathWithPrefix, FileReflectionProvenanceRecord>();
     let storage: UXFileInfo | undefined = makeFile(original, scenarioMtime(scenario));
     let storageReadHook: (() => UXFileInfo | undefined) | undefined;
-    const settings = { ...DEFAULT_SETTINGS, useOnlyLocalChunk: true, writeDocumentsIfConflicted: false };
+    const remoteChunks = new Map<DocumentID, EntryLeaf>();
+    const chunkSource = {
+        fetchChunks: vi.fn(async (ids: DocumentID[]): Promise<EntryLeaf[] | false> =>
+            ids.flatMap((id) => remoteChunks.has(id) ? [remoteChunks.get(id)!] : [])
+        ),
+        storeChunks: vi.fn(async () => {}),
+    };
+    const settings = {
+        ...DEFAULT_SETTINGS,
+        useOnlyLocalChunk: !onDemand,
+        minimumIntervalOfReadChunksOnline: 0,
+        writeDocumentsIfConflicted: false,
+    };
     const setting = { currentSettings: () => settings };
     const pathService = {
         path2id: async (value: string) => value,
@@ -80,9 +93,12 @@ async function createScenario(scenario: Scenario, revsLimit = 1000) {
                 onCloseDatabase: async () => true,
                 onUnloadDatabase: async () => true,
             },
-            replicator: { onCloseActiveReplication: async () => true },
+            replicator: {
+                onCloseActiveReplication: async () => true,
+                runBoundedRemoteActivity: async <T>(task: () => Promise<T>): Promise<T> => await task(),
+            },
         },
-    } as unknown as LiveSyncLocalDBEnv);
+    } as unknown as LiveSyncLocalDBEnv, onDemand ? { createChunkFetchSource: () => chunkSource } : {});
     try {
         expect(await localDatabase.initializeDatabase()).toBe(true);
         const storageAccess = {
@@ -144,7 +160,18 @@ async function createScenario(scenario: Scenario, revsLimit = 1000) {
             await db.destroy();
         };
         return {
-            db,
+            get db() { return db; },
+            async replaceWithMetadataOnly(metadata: EntryDoc[]) {
+                await localDatabase.close();
+                await new PouchDB<EntryDoc>(name, { adapter: "memory" }).destroy();
+                db = new PouchDB<EntryDoc>(`${name}-metadata-only`, { adapter: "memory", revs_limit: revsLimit, auto_compaction: false });
+                await db.bulkDocs(metadata, { new_edits: false });
+                expect(await localDatabase.initializeDatabase()).toBe(true);
+            },
+            localDatabase,
+            settings,
+            remoteChunks,
+            chunkSource,
             access,
             handler,
             host,
@@ -583,6 +610,174 @@ describe("equal-time scan concurrent database deletion", () => {
             expect(leaves.map((leaf) => leaf._rev)).toContain(deletion.rev);
             expect(leaves.filter((leaf) => !leaf.deleted && !leaf._deleted).map((leaf) => leaf._rev)).toEqual(editBranches);
             expect(fixture.provenance.get(path)?.revision).toBe(editBranches[0]);
+        } finally {
+            await fixture.dispose();
+        }
+    });
+});
+
+
+async function omitLocalChunks(
+    fixture: Awaited<ReturnType<typeof createScenario>>,
+    revisions: string[] = [fixture.baseRevision]
+): Promise<void> {
+    const metadata: EntryDoc[] = [];
+    for (const revision of revisions) {
+        const entry = await fixture.db.get(path, { rev: revision, revs: true });
+        metadata.push(entry);
+        expect(entry.children.length).toBeGreaterThan(0);
+        for (const id of entry.children) {
+            if (!fixture.remoteChunks.has(id)) fixture.remoteChunks.set(id, await fixture.db.get<EntryLeaf>(id));
+        }
+    }
+    await fixture.replaceWithMetadataOnly(metadata);
+    for (const id of fixture.remoteChunks.keys()) {
+        await expect(fixture.db.get(id)).rejects.toMatchObject({ status: 404, reason: "missing" });
+    }
+}
+
+describe("strict scans with on-demand chunks", () => {
+    it.each([
+        ["untracked-unchanged", true],
+        ["recorded-unchanged", true],
+        ["untracked-unchanged", false],
+        ["recorded-unchanged", false],
+    ] as const)("compares %s content with readChunksOnline=%s without creating a revision", async (scenario, readChunksOnline) => {
+        const fixture = await createScenario(scenario, 1000, true);
+        try {
+            fixture.settings.readChunksOnline = readChunksOnline;
+            await omitLocalChunks(fixture);
+            const result = await syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, fixture.previousMetadata
+            );
+
+            expect(result).toBe("completed");
+            expect(fixture.chunkSource.fetchChunks).toHaveBeenCalled();
+            expect((await liveLeaves(fixture)).map((leaf) => leaf._rev)).toEqual([fixture.baseRevision]);
+            expect(fixture.provenance.get(path)?.revision).toBe(fixture.baseRevision);
+            expect(await fixture.getStorage().body.text()).toBe(original);
+            expect(fixture.storageAccess.writeFileAuto).not.toHaveBeenCalled();
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it("preserves an equal-time, equal-size edit on its recorded branch when both database bodies need fetching", async () => {
+        const fixture = await createScenario("recorded-edited", 1000, true);
+        const edited = "Modified content\n";
+        try {
+            fixture.setStorage(makeFile(edited));
+            expect(fixture.getStorage().stat.size).toBe(new Blob([original]).size);
+            const latestRevision = await advanceDatabase(fixture, [incoming]);
+            const latestMetadata = await fixture.access.fetchEntryMeta(path, undefined, true);
+            if (!latestMetadata) throw new Error("Latest database Metadata is missing");
+            await omitLocalChunks(fixture, [fixture.baseRevision, latestRevision]);
+
+            const result = await syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, latestMetadata
+            );
+
+            expect(result).toBe("completed");
+            expect(await fixture.getStorage().body.text()).toBe(edited);
+            const editRevision = fixture.provenance.get(path)?.revision;
+            expect(editRevision).toBeDefined();
+            expect(editRevision).not.toBe(latestRevision);
+            expect((await liveLeaves(fixture)).map((leaf) => leaf._rev).sort()).toEqual([latestRevision, editRevision].sort());
+            const edit = await fixture.db.get(path, { rev: editRevision, revs: true });
+            expect(edit._revisions?.start).toBe(2);
+            expect(edit._revisions?.ids[1]).toBe(fixture.baseRevision.slice(2));
+            expect(fixture.chunkSource.fetchChunks.mock.calls.flatMap(([ids]) => ids).sort()).toEqual(
+                [...fixture.remoteChunks.keys()].sort()
+            );
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it("preserves a same-stat edit made while the recorded content is being fetched", async () => {
+        const fixture = await createScenario("recorded-unchanged", 1000, true);
+        const edited = "Modified content\n";
+        const { promise: started, resolve: notifyStarted } = promiseWithResolvers<void>();
+        const { promise: delivery, resolve: releaseFetch } = promiseWithResolvers<void>();
+        try {
+            await omitLocalChunks(fixture);
+            fixture.chunkSource.fetchChunks.mockImplementationOnce(async (ids) => {
+                notifyStarted();
+                await delivery;
+                return ids.flatMap((id) => fixture.remoteChunks.has(id) ? [fixture.remoteChunks.get(id)!] : []);
+            });
+            const pending = syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, fixture.previousMetadata
+            );
+            await started;
+            fixture.setStorage(makeFile(edited));
+            releaseFetch();
+
+            await expect(pending).resolves.toBe("completed");
+            expect(await fixture.getStorage().body.text()).toBe(edited);
+            const revision = fixture.provenance.get(path)?.revision;
+            expect(revision).toBeDefined();
+            const saved = await fixture.db.get(path, { rev: revision, revs: true });
+            expect(saved._revisions?.start).toBe(2);
+            expect(saved._revisions?.ids[1]).toBe(fixture.baseRevision.slice(2));
+            expect(await fixture.access.findLiveContentRevisions(path, edited)).toEqual([revision]);
+            expect(fixture.storageAccess.writeFileAuto).not.toHaveBeenCalled();
+        } finally {
+            releaseFetch();
+            await fixture.dispose();
+        }
+    });
+
+    it("honours Use Only Local Chunks and retains unresolved files without requesting the available remote source", async () => {
+        const fixture = await createScenario("untracked-unchanged", 1000, true);
+        try {
+            fixture.settings.useOnlyLocalChunk = true;
+            await omitLocalChunks(fixture);
+            const result = await syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, fixture.previousMetadata
+            );
+
+            expect(result).toBe("failed");
+            expect(fixture.chunkSource.fetchChunks).not.toHaveBeenCalled();
+            expect((await liveLeaves(fixture)).map((leaf) => leaf._rev)).toEqual([fixture.baseRevision]);
+            expect(fixture.provenance.has(path)).toBe(false);
+            expect(await fixture.getStorage().body.text()).toBe(original);
+            expect(fixture.storageAccess.writeFileAuto).not.toHaveBeenCalled();
+            expect(fixture.services.API.addLog).toHaveBeenCalledWith(
+                expect.stringContaining("useOnlyLocalChunk=true"), expect.any(Number), expect.any(String)
+            );
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it("compares available local content even when direct chunk fetching is disabled", async () => {
+        const fixture = await createScenario("untracked-unchanged", 1000, true);
+        try {
+            fixture.settings.useOnlyLocalChunk = true;
+            await expect(syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, fixture.previousMetadata
+            )).resolves.toBe("completed");
+            expect(fixture.chunkSource.fetchChunks).not.toHaveBeenCalled();
+            expect((await liveLeaves(fixture)).map((leaf) => leaf._rev)).toEqual([fixture.baseRevision]);
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it("retains failure without a new branch when an allowed remote read cannot retrieve the required content", async () => {
+        const fixture = await createScenario("recorded-edited", 1000, true);
+        try {
+            await omitLocalChunks(fixture);
+            fixture.chunkSource.fetchChunks.mockResolvedValue(false);
+            await expect(syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, fixture.previousMetadata
+            )).resolves.toBe("failed");
+            expect(fixture.chunkSource.fetchChunks).toHaveBeenCalled();
+            expect((await liveLeaves(fixture)).map((leaf) => leaf._rev)).toEqual([fixture.baseRevision]);
+            expect(fixture.provenance.get(path)?.revision).toBe(fixture.baseRevision);
+            expect(await fixture.getStorage().body.text()).toBe(localEdit);
+            expect(fixture.storageAccess.writeFileAuto).not.toHaveBeenCalled();
         } finally {
             await fixture.dispose();
         }

@@ -286,7 +286,7 @@ export abstract class ServiceFileHandlerBase
             const loadedContentIsDecoded = currentLoaded?._rev === recordedRevision;
             const base = loadedContentIsDecoded
                 ? currentLoaded
-                : await this.db.fetchEntry(file, recordedRevision, true, true, true);
+                : await this.db.fetchEntry(file, recordedRevision, true, true, !requireReadableContent);
             if (base && base._rev === recordedRevision && !("deleted" in base && base.deleted) &&
                 !("_deleted" in base && base._deleted)) {
                 const baseContent = loadedContentIsDecoded ? base.data : readContent(base as Parameters<typeof readContent>[0]);
@@ -300,7 +300,7 @@ export abstract class ServiceFileHandlerBase
             if (!base) {
                 const meta = await this.db.fetchEntryMeta(file, recordedRevision, true);
                 if (requireReadableContent && meta && !meta.deleted && !meta._deleted) {
-                    throw new Error(`Could not read the recorded file revision for ${file.path}`);
+                    throw new Error(`Could not read the recorded file revision ${recordedRevision} for ${file.path} (useOnlyLocalChunk=${this.setting.currentSettings().useOnlyLocalChunk})`);
                 }
                 if ((!meta || meta.deleted || meta._deleted) && !hasContentHash(recorded)) await this.deleteProvenance(path);
             }
@@ -468,7 +468,7 @@ export abstract class ServiceFileHandlerBase
                 const current = await this.db.fetchEntryMeta(path, undefined, true);
                 if (!current || current._rev !== expectedRevision || current.deleted || current._deleted) return false;
                 if ((await this.db.getConflictedRevs(path)).length > 0) return false;
-                const entry = await this.db.fetchEntry(path, expectedRevision, true, true, true);
+                const entry = await this.db.fetchEntry(path, expectedRevision, true, true);
                 if (!entry || entry._rev !== expectedRevision || entry.deleted || entry._deleted) return false;
                 if (!await isDocContentSame(readContent(entry), file.body)) return false;
 
@@ -624,8 +624,9 @@ export abstract class ServiceFileHandlerBase
             (preferredBasePath ?? file.path) as FilePathWithPrefix, retryIfStorageChanges
         );
         const readFile = await this.readFileFromStub(file);
-        // First, check the file on the database
-        const entry = await this.db.fetchEntry(file, undefined, true, true, true);
+        // Recovery comparisons may need chunks omitted by on-demand replication.
+        // Ordinary saves retain their local-first read.
+        const entry = await this.db.fetchEntry(file, undefined, true, true, !retryIfStorageChanges);
         const currentEntry = entry || await this.db.fetchEntryMeta(file, undefined, true);
         const conflictedRevs = await this.db.getConflictedRevs(file);
         const isConflicted = conflictedRevs.length > 0;
@@ -634,7 +635,13 @@ export abstract class ServiceFileHandlerBase
         // Recovery must classify recorded content even if the database has
         // advanced to a deletion. Absence alone does not prove a local creation.
         if (!force && (currentIsLive || retryIfStorageChanges)) {
-            if (retryIfStorageChanges && currentIsLive && !entry) return false;
+            if (retryIfStorageChanges && currentIsLive && !entry) {
+                this._log(
+                    `Could not reconcile ${file.path}: content for current database revision ${currentEntry._rev} is unavailable (useOnlyLocalChunk=${this.setting.currentSettings().useOnlyLocalChunk}); this file remains unresolved for a later scan.`,
+                    LOG_LEVEL_VERBOSE
+                );
+                return false;
+            }
             const classification = await this.classifyStorageContent(
                 readFile, currentEntry, preferredBasePath, observedProvenance,
                 entry ? { _rev: entry._rev, data: readContent(entry) } : undefined,
