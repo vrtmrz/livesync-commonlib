@@ -39,6 +39,42 @@ style for the rest of the basename. Corresponding test files use the same
 basename, such as `fastForward.unit.spec.ts`. Retain established names for
 unrelated files and separate conventions for components or other file types.
 
+## Ordinary file handler implementation
+
+`src/serviceModules/ServiceFileHandlerBase.ts` retains the public file-handler
+class and its existing import path. Its implementation lives in the sibling
+`ServiceFileHandlerBase/` directory. These modules are package-private; they do
+not add consumer entry points.
+
+| Modules | Responsibility |
+| --- | --- |
+| `context.ts`, `storage.ts` | Capture injected services, own per-instance state, retain host method dispatch, and resolve file paths, stubs, and bodies. |
+| `locking.ts` | Acquire sorted document locks and run deferred conflict hooks after releasing them. |
+| `provenance.ts`, `scanning.ts` | Track the displayed revision and content evidence, classify storage, revalidate snapshots, and inspect scan hints. |
+| `saving.ts` | Save ordinary or reconciled storage content and handle explicit base-revision selection. |
+| `deletion.ts`, `renaming.ts` | Apply deletion, revision removal, and source-preserving rename operations. |
+| `reflection.ts`, `protection.ts` | Reflect database revisions while protecting unsynchronised storage content. |
+| `events.ts`, `selection.ts` | Interpret ordinary, restored, retried, and replicated events against current selection and storage. |
+| `chunks.ts` | Repair chunks through the host's save method with bounded concurrency. |
+
+The facade acquires document locks at public operation boundaries. Internal
+operations reuse the caller's locks; routing them back through a public wrapper
+would acquire the same lock again. The context captures the injected service
+references at construction and resolves existing overridable getters and methods
+when used. Its hash cache and deferred conflict checks belong to one handler
+instance. It contains no additional persistent state.
+
+Keep the final snapshot validation and the destructive storage operation in the
+same reflection stage. A candidate snapshot is evidence to recheck, rather than
+permission to write later. The [provenance contract](conflict-resolution.md#file-reflection-provenance)
+owns branch selection and recovery policy. Function TSDoc records inputs, lock
+ownership, effects, completion, and refusal conditions, including private helpers.
+
+`src/managers/StorageEventManager.ts` likewise keeps its existing host-facing
+class. Its extracted functions and their focused tests live in
+`src/managers/StorageEventManager/`. These organise the event lifecycle separately
+from the file handler's database and storage effects.
+
 ## Service composition and state ownership
 
 Commonlib uses four related forms of composition. Choose between them by ownership and dependency direction, not merely by whether an implementation has mutable state.

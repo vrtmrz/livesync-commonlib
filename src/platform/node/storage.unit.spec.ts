@@ -38,3 +38,22 @@ describe("Node storage timestamps", () => {
         expect(await storage.stat("note.md")).toEqual({ ctime: 2000, mtime: 3000, size: 7, type: "file" });
     });
 });
+
+
+describe("issue1331 absence proof", () => {
+    it("issue1331 distinguishes permissive stat from a strict absence observation", async () => {
+        vi.mocked(fs.lstat).mockResolvedValue({ isSymbolicLink: () => false } as Stats);
+        const denied = Object.assign(new Error("Cannot inspect the file"), { code: "EACCES" });
+        vi.mocked(fs.stat).mockRejectedValue(denied);
+        const storage = createNodeStorage({ rootPath: "/vault" });
+        await expect(storage.trystat("note.md")).resolves.toBeNull();
+        await expect(storage.statResolved("note.md" as Parameters<typeof storage.statResolved>[0])).rejects.toBe(denied);
+    });
+
+    it("issue1331 accepts ENOENT as absence in the strict observation", async () => {
+        vi.mocked(fs.lstat).mockResolvedValue({ isSymbolicLink: () => false } as Stats);
+        vi.mocked(fs.stat).mockRejectedValue(Object.assign(new Error("Missing file"), { code: "ENOENT" }));
+        const storage = createNodeStorage({ rootPath: "/vault" });
+        await expect(storage.statResolved("note.md" as Parameters<typeof storage.statResolved>[0])).resolves.toBeNull();
+    });
+});

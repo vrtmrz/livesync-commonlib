@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { FilePath, FilePathWithPrefix, UXFileInfoStub } from "./types";
-import { getDatabasePathFromUXFileInfo, getStoragePathFromUXFileInfo } from "./typeUtils";
+import type { FilePath, FilePathWithPrefix, UXFileInfoStub, UXInternalFileInfoStub } from "./types";
+import { getDatabasePathFromUXFileInfo, getPathFromUXFileInfo, getStoragePathFromUXFileInfo } from "./typeUtils";
 
 describe("file path conversion", () => {
     it.each(["Folder/Poem: Example.md", "Folder/A:B:C.md", "Poem: Example.md"])(
@@ -32,4 +32,24 @@ describe("file path conversion", () => {
         expect(getStoragePathFromUXFileInfo(prefixed)).toBe(path);
         expect(getDatabasePathFromUXFileInfo(prefixed)).toBe(prefixed);
     });
+    it("resolves an internal file identity without requiring storage statistics", () => {
+        const file: UXInternalFileInfoStub = {
+            path: ".obsidian/Poem: Example.md" as FilePath,
+            name: "Poem: Example.md",
+            isInternal: true,
+            stat: undefined,
+        };
+        expect(getStoragePathFromUXFileInfo(file)).toBe(file.path);
+        expect(getDatabasePathFromUXFileInfo(file)).toBe(`i:${file.path}`);
+    });
+});
+
+describe("file identity without storage metadata", () => {
+    it.each(["Folder/A:B.md", "i:.obsidian/config.json", "ix:customisation"])(
+        "returns the original path without normalising its namespace: %s",
+        (path) => {
+            expect(getPathFromUXFileInfo(path)).toBe(path);
+            expect(getPathFromUXFileInfo({ path: path as FilePath, isInternal: true })).toBe(path);
+        }
+    );
 });

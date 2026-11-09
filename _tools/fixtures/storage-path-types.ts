@@ -75,3 +75,17 @@ const nfcDirectPathVersion: DirectPathVersion = 1;
 // @ts-expect-error Only supported identity versions are accepted by direct database integrations.
 const unsupportedDirectPathVersion: DirectPathVersion = 2;
 void [legacyDirectPathVersion, nfcDirectPathVersion, unsupportedDirectPathVersion];
+
+import type { UXInternalFileInfoStub } from "@vrtmrz/livesync-commonlib/compat/common/types";
+import {
+    getPathFromUXFileInfo,
+    getStoragePathFromUXFileInfo,
+    getDatabasePathFromUXFileInfo,
+} from "@vrtmrz/livesync-commonlib/compat/common/typeUtils";
+
+// Internal file identities have no storage statistics, including under strict null checks.
+declare const internalFile: UXInternalFileInfoStub;
+const internalSource: FilePathWithPrefix = getPathFromUXFileInfo(internalFile);
+const internalStorage: FilePathWithPrefix = getStoragePathFromUXFileInfo(internalFile);
+const internalDatabase: FilePathWithPrefix = getDatabasePathFromUXFileInfo(internalFile);
+void [internalSource, internalStorage, internalDatabase];

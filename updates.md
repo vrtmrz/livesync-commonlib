@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- Ordinary local file processing can recover from a transient failure during
+  the same application session. A later flush or related file change rechecks
+  the current state while retaining unresolved work and the existing revision
+  and deletion safeguards. This also lets existing host pending-change commands
+  recover without a restart. ([Self-hosted LiveSync #1331](https://github.com/vrtmrz/obsidian-livesync/issues/1331))
+
 - Strict scans can reconcile existing files after CouchDB Fetch, including Standard Fetch fallback from Fast Setup, when their Chunks were omitted by on-demand replication. Comparisons retrieve the required content through the existing settings-controlled path instead of failing on a local-only read. ([Self-hosted LiveSync #1329](https://github.com/vrtmrz/obsidian-livesync/issues/1329), [#1332](https://github.com/vrtmrz/obsidian-livesync/issues/1332))
     - `useOnlyLocalChunk` still prevents direct remote requests. Files whose required content remains unavailable stay unresolved for retry, preserving the existing content and revision checks.
 

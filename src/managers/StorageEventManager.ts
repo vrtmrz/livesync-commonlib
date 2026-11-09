@@ -1,80 +1,79 @@
-import { shouldBeIgnored } from "@lib/string_and_binary/path.ts";
+/**
+ * Compose host adapters with storage-event admission, batching, snapshotting, and processing.
+ * The facade keeps host services and protected extension hooks at the runtime boundary.
+ */
 import {
     DEFAULT_SETTINGS,
-    LOG_LEVEL_DEBUG,
-    LOG_LEVEL_INFO,
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
-    type FileEventType,
+    type FileEventItem,
     type FilePath,
     type UXFileInfoStub,
     type UXFolderInfo,
     type UXInternalFileInfoStub,
-} from "@lib/common/types.ts";
-import { delay, fireAndForget, isRemediationModeActive, throttle } from "@lib/common/utils.ts";
-import { type FileEventItem } from "@lib/common/types.ts";
-import { serialized } from "octagonal-wheels/concurrency/lock";
+} from "@lib/common/types";
+import { fireAndForget, throttle } from "@lib/common/utils";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
-import {
-    createDeferredAction,
-    type DeferredAction,
-    type TimeoutScheduler,
-} from "octagonal-wheels/concurrency/deferredAction";
-import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess.ts";
-import { promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
-import { StorageEventManager, type FileEvent } from "@lib/interfaces/StorageEventManager.ts";
-import type { IAPIService, IVaultService } from "@lib/services/base/IService.ts";
-import type { SettingService } from "@lib/services/base/SettingService.ts";
-import type { FileProcessingService } from "@lib/services/base/FileProcessingService.ts";
-import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
+import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess";
+import { StorageEventManager, type FileEvent } from "@lib/interfaces/StorageEventManager";
+import type { IAPIService, IVaultService } from "@lib/services/base/IService";
+import type { SettingService } from "@lib/services/base/SettingService";
+import type { FileProcessingService } from "@lib/services/base/FileProcessingService";
+import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import type { IStorageEventManagerAdapter } from "./adapters";
-import { compatGlobal } from "@lib/common/coreEnvFunctions";
+import type { FileEventAttempt, OperationResult, PendingFileEvent } from "./StorageEventManager/operations";
+import { admitStorageEvents, type StorageEventAdmissionEffects } from "./StorageEventManager/admission";
+import {
+    forwardVaultEvent,
+    hasEditorChangePath,
+    readEditorFileChange,
+    type StorageEventWatchEffects,
+} from "./StorageEventManager/watching";
+import {
+    addBatchWaiting,
+    finishBatchWaiting,
+    initialiseFileEventBatch,
+    releaseFileEventBatches,
+    type StorageEventBatching,
+    type WaitInfo,
+} from "./StorageEventManager/batching";
+import {
+    enqueueStorageEvent,
+    flushStorageEvents,
+    restoreStorageEvents,
+    runBufferedStorageEvents,
+    type StorageEventQueueEffects,
+} from "./StorageEventManager/queue";
+import {
+    captureFileEventAttempts,
+    waitForFileEventAttempts,
+    type StorageEventRetryEffects,
+} from "./StorageEventManager/retry";
+import { persistFileEventSnapshot, type StorageEventSnapshotIO } from "./StorageEventManager/snapshot";
+import {
+    handleStorageFileEvent,
+    processStorageEventAttempt,
+    type StorageEventAttemptEffects,
+    type StorageEventHandlerEffects,
+} from "./StorageEventManager/processing";
+import {
+    createStorageEventState,
+    failFileEventAttempt,
+    hasPendingStorageEvent,
+    retainFileEvent,
+    type FileEventItemSentinel,
+    type QueuedFileEvent,
+    type RunQueuedEventsOptions,
+    type SnapshotCompletion,
+    type StorageEventBuffer,
+    type StorageEventNotifications,
+} from "./StorageEventManager/state";
+export type { FileEventItemSentinel } from "./StorageEventManager/state";
 
-type WaitInfo = {
-    since: number;
-    type: FileEventType;
-    canProceed: PromiseWithResolvers<boolean>;
-    deadline: DeferredAction;
-    event: FileEventItem;
-};
-const scheduleStorageTimeout: TimeoutScheduler = (callback, delayMs) => {
-    const handle = compatGlobal.setTimeout(callback, delayMs);
-    return () => compatGlobal.clearTimeout(handle);
-};
-
-const TYPE_SENTINEL_FLUSH = "SENTINEL_FLUSH";
-type FileEventItemSentinelFlush = {
-    type: typeof TYPE_SENTINEL_FLUSH;
-};
-export type FileEventItemSentinel = FileEventItemSentinelFlush;
-type OperationResult = { ok: true } | { ok: false; error: unknown };
-type PendingFileEvent = {
-    event: FileEventItem;
-    sequence: number;
-    acceptedAt: number;
-    completion: PromiseWithResolvers<OperationResult>;
-    prerequisites: Set<PendingFileEvent>;
-    started: boolean;
-    flushRequested: boolean;
-    flushSignal?: PromiseWithResolvers<void>;
-    successor?: PendingFileEvent;
-    result?: OperationResult;
-};
-type EventAdmission = {
-    acceptedAt: number;
-    completion: Promise<void>;
-    operations: PendingFileEvent[];
-    flushRequested: boolean;
-};
-type PendingSnapshotEntry = {
-    event: FileEventItem | FileEventItemSentinel;
-    sequence: number;
-    completed: boolean;
-    operation?: PendingFileEvent;
-};
-type RunQueuedEventsOptions = {
-    waitForProcessing?: boolean;
-};
+/**
+ * Bundle host services used to construct the platform-neutral storage-event manager.
+ * @remarks These dependencies keep vault access, file processing, settings, and diagnostics at the adapter boundary.
+ */
 export interface StorageEventManagerBaseDependencies {
     setting: SettingService;
     vaultService: IVaultService;
@@ -84,47 +83,140 @@ export interface StorageEventManagerBaseDependencies {
 }
 
 /**
- * Type helper to extract the file type from a storage event manager adapter
+ * Extract the host file type from a candidate adapter type.
+ * @typeParam T - The candidate adapter type.
+ * @remarks The conditional type resolves to `never` for non-adapter inputs; this is a compile-time type result, separate from any runtime type-guard outcome.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a type helper for type extraction. Not actually interested to TFolder.
-export type ExtractFile<T> = T extends IStorageEventManagerAdapter<infer F, any> ? F : never;
+export type ExtractFile<T> = T extends IStorageEventManagerAdapter<infer F, infer _Folder> ? F : never;
+/**
+ * Extract the host folder type from a candidate adapter type.
+ * @typeParam T - The candidate adapter type.
+ * @remarks The conditional type resolves to `never` for non-adapter inputs; this is a compile-time type result, separate from any runtime type-guard outcome.
+ */
+export type ExtractFolder<T> = T extends IStorageEventManagerAdapter<infer _File, infer D> ? D : never;
 
 /**
- * Type helper to extract the folder type from a storage event manager adapter
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a type helper for type extraction. Not actually interested to TFile.
-export type ExtractFolder<T> = T extends IStorageEventManagerAdapter<any, infer D> ? D : never;
-
-/**
- * Base class for storage event management
- * Uses adapter pattern for platform-specific implementations
- *
- * @template TAdapter - The storage event manager adapter type
+ * Compose a host adapter with the stateful storage-event pipeline.
+ * @typeParam TAdapter - The platform adapter which defines host file and folder representations.
+ * @remarks
+ * Public methods implement admission, flushing, restoration, and watcher lifecycle contracts.
+ * Protected getters, processing hooks, and watcher callbacks are extension points for host subclasses.
+ * Watcher callbacks remain protected so platform overrides continue to run while their base implementations share conversion through `forwardVaultEvent`.
+ * Private methods and effect objects are internal composition details of this facade.
  */
 export abstract class StorageEventManagerBase<
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- For type extraction.
-    TAdapter extends IStorageEventManagerAdapter<any, any>,
+    TAdapter extends IStorageEventManagerAdapter<unknown, unknown>,
 > extends StorageEventManager {
-    _log: ReturnType<typeof createInstanceLogFunction>;
+    _log: LogFunction;
     protected setting: SettingService;
     protected vaultService: IVaultService;
     protected fileProcessing: FileProcessingService;
     protected storageAccess: IStorageAccessManager;
     protected adapter: TAdapter;
 
-    protected get shouldBatchSave() {
-        const settings = this.settings;
-        return settings?.liveSync === true ? settings.batchSaveInLiveSync === true : settings?.batchSave;
-    }
-    protected get batchSaveMinimumDelay(): number {
-        return this.settings?.batchSaveMinimumDelay ?? DEFAULT_SETTINGS.batchSaveMinimumDelay;
-    }
-    protected get batchSaveMaximumDelay(): number {
-        return this.settings?.batchSaveMaximumDelay ?? DEFAULT_SETTINGS.batchSaveMaximumDelay;
-    }
-    get settings() {
-        return this.setting.currentSettings();
-    }
+    protected bufferedQueuedItems: QueuedFileEvent[] = [];
+    protected concurrentProcessing = Semaphore(5);
+    protected _waitingMap = new Map<string, WaitInfo>();
+    protected processingCount = 0;
+    private readonly eventState = createStorageEventState();
+    private readonly buffer: StorageEventBuffer = {
+        read: () => this.bufferedQueuedItems,
+        replace: (events) => {
+            this.bufferedQueuedItems = events;
+        },
+        append: (event) => {
+            this.bufferedQueuedItems.push(event);
+        },
+        shift: () => this.bufferedQueuedItems.shift(),
+    };
+    private readonly notifications: StorageEventNotifications = {
+        updateStatus: () => this.updateStatus(),
+        reportFailure: (error) => this.reportOperationFailure(error),
+    };
+    private readonly log: LogFunction = (...args) => this._log(...args);
+    private readonly batching: StorageEventBatching = {
+        waiting: () => this._waitingMap,
+        operation: (event) => this.operations.get(event),
+        minimumDelay: () => this.batchSaveMinimumDelay,
+        maximumDelay: () => this.batchSaveMaximumDelay,
+        enabled: () => this.shouldBatchSave,
+        log: this.log,
+        requestSnapshot: () => this.triggerTakeSnapshot(),
+        proceed: (path) => this._proceedWaiting(path),
+        cancel: (path) => this._cancelWaiting(path),
+        add: (path, event, since) => this._addWaiting(path, event, since),
+    };
+    private readonly retry: StorageEventRetryEffects = {
+        buffer: this.buffer,
+        processOperation: (operation, attempt) => this.processOperation(operation, attempt),
+        runQueuedEvents: () => this.runQueuedEvents(),
+        reportFailure: this.notifications.reportFailure,
+    };
+    private readonly snapshotIO: StorageEventSnapshotIO = {
+        save: (events) => this._saveSnapshot(events),
+        waitingEvents: () => [...this._waitingMap.values()].map((waiting) => waiting.event),
+        updateStatus: this.notifications.updateStatus,
+    };
+    private readonly queue: StorageEventQueueEffects = {
+        ...this.notifications,
+        buffer: this.buffer,
+        log: this.log,
+        takeSnapshot: () => this._takeSnapshot(),
+        loadSnapshot: () => this._loadSnapshot(),
+        processFileEvent: (event) => this.processFileEvent(event),
+        runQueuedEvents: (options) => this.runQueuedEvents(options),
+        capture: (operations, before) => this.captureAttempts(operations, before),
+        release: (operations) => this.releaseOperations(operations),
+        wait: (attempts) => this.waitForAttempts(attempts),
+        fail: (operation, error, attempt) => this.failOperation(operation, error, attempt),
+    };
+    private readonly admission: StorageEventAdmissionEffects = {
+        settings: () => this.settings,
+        isFolder: (file) => this.isFolder(file),
+        isFile: (file) => this.isFile(file),
+        isTarget: (path) => this.vaultService.isTargetFile(path),
+        isTooLarge: (size) => this.vaultService.isFileSizeTooLarge(size),
+        recentlyTouched: (file) => this.storageAccess.recentlyTouched(file),
+        onStorageFileEvent: () => this.fileProcessing.onStorageFileEvent(),
+        enqueue: (event) => this.enqueue(event),
+        release: this.queue.release,
+        reportFailure: this.notifications.reportFailure,
+        log: this.log,
+    };
+    private readonly attempts: StorageEventAttemptEffects = {
+        ...this.notifications,
+        capture: this.queue.capture,
+        release: this.queue.release,
+        wait: this.queue.wait,
+        initialise: (operation) => this.initialiseOperation(operation),
+        takeSnapshot: this.queue.takeSnapshot,
+        completeSnapshot: (completion) => this.persistSnapshot(completion),
+        semaphore: () => this.concurrentProcessing,
+        requestProcessQueue: (event) => this.requestProcessQueue(event),
+        cancelWaiting: (event) => {
+            const path = event.args.file.path;
+            if (this._waitingMap.get(path)?.event === event) this._cancelWaiting(path);
+        },
+        fail: this.queue.fail,
+    };
+    private readonly handler: StorageEventHandlerEffects = {
+        processing: () => this.fileProcessing,
+        operation: (event) => this.operations.get(event),
+        updateStatus: this.notifications.updateStatus,
+    };
+
+    /** Preserve adapter receivers and virtual admission when forwarding watcher notifications. */
+    private readonly watching: StorageEventWatchEffects<unknown, unknown> = {
+        adapter: () => this.adapter,
+        isProcessing: (path) => this.storageAccess.isFileProcessing(path),
+        append: (events, ctx) => this.appendQueue(events, ctx),
+    };
+
+    /**
+     * Bind the platform adapter and host services to this manager instance.
+     * @param adapter - The host adapter for file conversion, persistence, status, and watching.
+     * @param dependencies - Settings, vault, processing, storage-access, and API services used by the facade.
+     */
     constructor(adapter: TAdapter, dependencies: StorageEventManagerBaseDependencies) {
         super();
         this.adapter = adapter;
@@ -135,297 +227,135 @@ export abstract class StorageEventManagerBase<
         this._log = createInstanceLogFunction("StorageEventManager", dependencies.APIService);
     }
 
-    // Delegated methods to adapter
+    /**
+     * Read the setting service's current settings.
+     * @returns The current settings value; each access can observe live changes.
+     */
+    get settings() {
+        return this.setting.currentSettings();
+    }
+    /**
+     * Resolve whether batching is enabled from the settings active at this access.
+     * @returns The live-sync batching value while LiveSync is active, or the general batching value otherwise.
+     * @remarks Protected so a host subclass can provide its batching policy.
+     */
+    protected get shouldBatchSave() {
+        const settings = this.settings;
+        return settings?.liveSync === true ? settings.batchSaveInLiveSync === true : settings?.batchSave;
+    }
+    /**
+     * Resolve the minimum batch delay from the current settings.
+     * @returns The configured delay value, or the default when the setting is absent.
+     */
+    protected get batchSaveMinimumDelay(): number {
+        return this.settings?.batchSaveMinimumDelay ?? DEFAULT_SETTINGS.batchSaveMinimumDelay;
+    }
+    /**
+     * Resolve the maximum batch delay from the current settings.
+     * @returns The configured delay value, or the default when the setting is absent.
+     */
+    protected get batchSaveMaximumDelay(): number {
+        return this.settings?.batchSaveMaximumDelay ?? DEFAULT_SETTINGS.batchSaveMaximumDelay;
+    }
+    /**
+     * Expose the manager's event-to-operation identity map to its internal effects.
+     * @returns The weak map used to find an operation from its event object.
+     */
+    private get operations() {
+        return this.eventState.operations;
+    }
+
+    /**
+     * Save the supplied queued-event snapshot through the host adapter.
+     * @param snapshot - File events and flush sentinels to persist.
+     * @returns A promise fulfilled when the adapter saves the snapshot; adapter failures reject it.
+     */
     _saveSnapshot(snapshot: (FileEventItem | FileEventItemSentinel)[]): Promise<void> {
         return this.adapter.persistence.saveSnapshot(snapshot);
     }
-
+    /**
+     * Load the queued-event snapshot through the host adapter.
+     * @returns A promise for the saved events, or `null` when no snapshot exists; adapter failures reject it.
+     */
     _loadSnapshot(): Promise<(FileEventItem | FileEventItemSentinel)[] | null> {
         return this.adapter.persistence.loadSnapshot();
     }
-
-    // Type guard methods delegated to adapter
+    /**
+     * Ask the host adapter to classify a supplied file or folder value.
+     * @param file - A host value or one of the shared file and folder representations.
+     * @returns Whether the adapter recognises the value as a folder.
+     */
     isFolder(
         file: UXFileInfoStub | UXInternalFileInfoStub | UXFolderInfo | ExtractFolder<TAdapter> | ExtractFile<TAdapter>
     ): boolean {
         return this.adapter.typeGuard.isFolder(file);
     }
-
+    /**
+     * Ask the host adapter to classify a supplied file or folder value.
+     * @param file - A host value or one of the shared file and folder representations.
+     * @returns Whether the adapter recognises the value as a file.
+     */
     isFile(
         file: UXFileInfoStub | UXInternalFileInfoStub | UXFolderInfo | ExtractFolder<TAdapter> | ExtractFile<TAdapter>
     ): boolean {
         return this.adapter.typeGuard.isFile(file);
     }
-
+    /**
+     * Publish the current batch, processing, and unfinished-operation counts through the adapter.
+     * @returns Nothing; the adapter's status surface is updated synchronously.
+     */
     protected updateStatus(): void {
         this.adapter.status.updateStatus({
             batched: this._waitingMap.size,
             processing: this.processingCount,
-            totalQueued: [...this.pendingSnapshot.values()].filter((entry) => entry.operation && !entry.completed).length,
+            totalQueued: [...this.eventState.pendingSnapshot.values()].filter(
+                (entry) => entry.operation && !entry.completed
+            ).length,
         });
     }
 
-    /**
-     * Snapshot restoration promise.
-     * It resolves after the restored file operations have finished, before Vault watching begins.
-     */
+    /** Completes restored operations before the host starts watching. */
     snapShotRestored: Promise<void> | null = null;
-
     /**
-     * Restore and complete the previous storage-event snapshot when it exists.
+     * Start snapshot restoration and retain the promise used by watcher startup.
+     * @returns A promise fulfilled after restoration and replay attempts settle; snapshot or dispatch errors reject it, while failed operation results are reported and retained.
      */
     restoreState(): Promise<void> {
         this.snapShotRestored = this._restoreFromSnapshot();
         return this.snapShotRestored;
     }
-    private acceptingEvents = true;
-    private admissions = new Set<EventAdmission>();
-
-    appendQueue(params: FileEvent[], ctx?: unknown): Promise<void> {
-        if (!this.acceptingEvents) return Promise.resolve();
-        const admission: EventAdmission = { acceptedAt: Date.now(), completion: Promise.resolve(), operations: [], flushRequested: false };
-        this.admissions.add(admission);
-        admission.completion = this.appendQueueInternal(params, ctx, admission);
-        void admission.completion.then(
-            () => this.admissions.delete(admission),
-            (error) => {
-                this.admissions.delete(admission);
-                this.reportOperationFailure(error);
-            }
-        );
-        return admission.completion;
-    }
-
-    private async appendQueueInternal(params: FileEvent[], ctx: unknown, admission: EventAdmission) {
-        const settings = this.settings;
-        if (!settings.isConfigured) return;
-        if (settings.suspendFileWatching) return;
-        if (isRemediationModeActive(settings)) {
-            return;
-        }
-        this.fileProcessing.onStorageFileEvent();
-        // Flag up to be reload
-        for (const param of params) {
-            const atomicKey = [0, 0, 0, 0, 0, 0].map((e) => `${Math.floor(Math.random() * 100000)}`).join("-");
-            let type = param.type;
-            let file = param.file;
-            const oldPath = param.oldPath;
-
-            if (this.isFolder(file)) {
-                this._log(`Folder event skipped: ${file.path}`, LOG_LEVEL_VERBOSE);
-                continue;
-            }
-
-            const isTargetPath = async (path: string): Promise<boolean> => {
-                if (shouldBeIgnored(path)) return false;
-                if (!settings.syncInternalFiles && path.startsWith(".")) return false;
-                return await this.vaultService.isTargetFile(path);
-            };
-
-            if (type === "RENAME") {
-                const renamedFile = file as UXFileInfoStub;
-                if (!oldPath || !this.isFile(file) || !renamedFile.stat) {
-                    this._log(`Invalid rename event skipped: ${file.path}`, LOG_LEVEL_VERBOSE);
-                    continue;
-                }
-                const oldPathIsTarget = await isTargetPath(oldPath);
-                let newPathIsTarget = await isTargetPath(file.path);
-                if (newPathIsTarget && this.vaultService.isFileSizeTooLarge(renamedFile.stat.size)) {
-                    this._log(
-                        `The storage file has been changed but exceeds the maximum size. Skipping: ${param.file.path}`,
-                        LOG_LEVEL_NOTICE
-                    );
-                    newPathIsTarget = false;
-                }
-                if (!oldPathIsTarget && !newPathIsTarget) {
-                    continue;
-                }
-                if (oldPathIsTarget && !newPathIsTarget) {
-                    type = "DELETE";
-                    file = {
-                        path: oldPath as FilePath,
-                        name: oldPath.split("/").pop() ?? file.name,
-                        stat: renamedFile.stat,
-                        deleted: true,
-                    };
-                } else if (!oldPathIsTarget && newPathIsTarget) {
-                    type = "CREATE";
-                }
-            } else {
-                if (!(await isTargetPath(file.path))) continue;
-                if (type !== "INTERNAL") {
-                    const size = (file as UXFileInfoStub).stat.size;
-                    if (this.vaultService.isFileSizeTooLarge(size) && (type == "CREATE" || type == "CHANGED")) {
-                        this._log(
-                            `The storage file has been changed but exceeds the maximum size. Skipping: ${param.file.path}`,
-                            LOG_LEVEL_NOTICE
-                        );
-                        continue;
-                    }
-                }
-            }
-
-            // Stop cache using to prevent the corruption;
-            // let cache: null | string | ArrayBuffer;
-            // new file or something changed, cache the changes.
-            // if (file instanceof TFile && (type == "CREATE" || type == "CHANGED")) {
-            // if (file instanceof TFile || !file.isFolder) {
-            if (this.isFile(file)) {
-                if (type == "CREATE" || type == "CHANGED" || type == "RENAME") {
-                    // Wait for a bit while to let the writer has marked `touched` at the file.
-                    await delay(10);
-                    if (
-                        this.storageAccess.recentlyTouched({
-                            path: file.path as FilePath,
-                            stat: file.stat ?? { ctime: 0, mtime: 0, size: 0 },
-                        })
-                    ) {
-                        continue;
-                    }
-                }
-            }
-
-            let cache: string | undefined = undefined;
-            if (param.cachedData) {
-                cache = param.cachedData;
-            }
-            const item: FileEventItem = {
-                type,
-                args: {
-                    file: file,
-                    oldPath: type === "RENAME" ? oldPath : undefined,
-                    ...(param.type === "RENAME" && type === "DELETE" ? { renameTarget: param.file.path } : {}),
-                    cache,
-                    ctx,
-                },
-                skipBatchWait: param.skipBatchWait,
-                key: atomicKey,
-            };
-            this.enqueue(item);
-            const operation = this.operations.get(item);
-            if (operation) {
-                operation.acceptedAt = admission.acceptedAt;
-                if (admission.flushRequested) this.releaseOperations([operation]);
-                admission.operations.push(operation);
-            }
-        }
-    }
-    // Cache file and waiting to can be proceed.
-
-    protected bufferedQueuedItems = [] as (FileEventItem | FileEventItemSentinel)[];
-    private pendingSnapshot = new Map<FileEventItem | FileEventItemSentinel, PendingSnapshotEntry>();
-    private operations = new WeakMap<FileEventItem, PendingFileEvent>();
-    private latestByPath = new Map<string, PendingFileEvent>();
-    private nextSequence = 0;
-    private snapshotTail: Promise<void> = Promise.resolve();
-    private dispatching: Promise<void> | null = null;
-
-    private retainEvent(event: FileEventItem | FileEventItemSentinel): PendingSnapshotEntry {
-        const existing = this.pendingSnapshot.get(event);
-        if (existing) return existing;
-        const entry: PendingSnapshotEntry = { event, sequence: ++this.nextSequence, completed: false };
-        if (event.type !== TYPE_SENTINEL_FLUSH) {
-            const operation = this.operations.get(event) ?? {
-                event,
-                sequence: entry.sequence,
-                acceptedAt: Date.now(),
-                completion: promiseWithResolvers<OperationResult>(),
-                prerequisites: new Set<PendingFileEvent>(),
-                started: false,
-                flushRequested: false,
-            };
-            entry.operation = operation;
-            this.operations.set(event, operation);
-        }
-        this.pendingSnapshot.set(event, entry);
-        return entry;
-    }
-
-    private reportOperationFailure(error: unknown) {
-        this._log("Storage operation remains pending after a failure", LOG_LEVEL_NOTICE);
-        this._log(error, LOG_LEVEL_VERBOSE);
-    }
-
-    private failOperation(operation: PendingFileEvent, error: unknown) {
-        if (operation.result) return;
-        operation.result = { ok: false, error };
-        operation.completion.resolve(operation.result);
-        this.reportOperationFailure(error);
-        this.updateStatus();
-    }
-
-    enqueue(newItem: FileEventItem) {
-        if (newItem.type === "DELETE" || newItem.type === "RENAME") {
-            const sentinel: FileEventItemSentinel = { type: TYPE_SENTINEL_FLUSH };
-            this.retainEvent(sentinel);
-            this.bufferedQueuedItems.push(sentinel);
-        }
-        const operation = this.retainEvent(newItem).operation!;
-        this.bufferedQueuedItems.push(newItem);
-        this.updateStatus();
-        fireAndForget(async () => {
-            try {
-                await this._takeSnapshot();
-                await this.runQueuedEvents();
-            } catch (error) {
-                this.failOperation(operation, error);
-            }
-        });
-    }
-
-    private _triggerTakeSnapshot() {
-        fireAndForget(() => this._takeSnapshot().catch((error) => this.reportOperationFailure(error)));
-    }
-    triggerTakeSnapshot = throttle(() => this._triggerTakeSnapshot(), 100);
-
-    // Waiting timers do not occupy a processing slot.
-    protected concurrentProcessing = Semaphore(5);
-    protected _waitingMap = new Map<string, WaitInfo>();
-
-    private pendingOperations(before = Number.POSITIVE_INFINITY): PendingFileEvent[] {
-        return [...this.pendingSnapshot.values()].flatMap((entry) =>
-            entry.operation && entry.sequence < before ? [entry.operation] : []
-        );
-    }
-
-    private releaseOperations(operations: PendingFileEvent[]) {
-        for (const operation of operations) {
-            operation.flushRequested = true;
-            operation.flushSignal?.resolve();
-            const path = operation.event.args.file.path;
-            if (this._waitingMap.get(path)?.event === operation.event) this._proceedWaiting(path);
-        }
-    }
-
-    private async waitForOperations(operations: PendingFileEvent[]): Promise<OperationResult[]> {
-        this.releaseOperations(operations);
-        return await Promise.all(operations.map((operation) => operation.completion.promise));
-    }
-
     /**
-     * Complete the finite set of operations accepted before this call.
-     * Later edits cannot replace or extend that set while it is being flushed.
+     * Filter and admit host watcher events into the operation queue.
+     * @param params - The watcher events to select and enqueue.
+     * @param ctx - Optional host context forwarded with each admitted event.
+     * @returns A promise for filtering and queue admission, not for file-handler completion; admission failures are reported and reject it.
+     * @remarks The promise may resolve while admitted handlers are still pending. Use `waitForIdle` for the captured processing boundary.
+     */
+    appendQueue(params: FileEvent[], ctx?: unknown): Promise<void> {
+        return admitStorageEvents(this.eventState, params, ctx, this.admission);
+    }
+    /**
+     * Add an already selected event to the buffer and start background snapshotting and dispatch.
+     * @param event - The event which has already passed host admission checks.
+     * @returns Nothing; processing and persistence failures are reported through manager effects.
+     */
+    enqueue(event: FileEventItem): void {
+        enqueueStorageEvent(this.eventState, event, this.queue);
+    }
+    /**
+     * Flush the admissions and operations captured when this call begins.
+     * @returns A promise fulfilled when those attempts settle; it rejects with an admission or operation failure.
+     * @remarks Later admissions are outside this flush boundary. Batch gates in the captured work are released before waiting.
      */
     async waitForIdle(): Promise<void> {
-        const admissions = [...this.admissions];
-        for (const admission of admissions) admission.flushRequested = true;
-        for (const item of this.bufferedQueuedItems) this.retainEvent(item);
-        const operations = this.pendingOperations();
-        this.releaseOperations(operations);
-        const admitted = await Promise.allSettled(admissions.map((admission) => admission.completion));
-        const boundary = [...new Set([...operations, ...admissions.flatMap((admission) => admission.operations)])];
-        this.releaseOperations(boundary);
-        fireAndForget(this.runQueuedEvents().catch((error) => this.reportOperationFailure(error)));
-        const results = await this.waitForOperations(boundary);
-        const admissionFailure = admitted.find((result) => result.status === "rejected");
-        if (admissionFailure?.status === "rejected") throw admissionFailure.reason;
-        const failure = results.find((result) => !result.ok);
-        if (failure?.ok === false) throw failure.error;
+        await flushStorageEvents(this.eventState, this.queue);
     }
-
-    /** Stop watcher admission before draining or preserving accepted work. */
+    /**
+     * Stop accepting events, flush current work, and persist the remaining snapshot.
+     * @returns A promise fulfilled after the final snapshot write; a flush failure is logged, while a final snapshot failure rejects it.
+     */
     override async stopWatching(): Promise<void> {
-        this.acceptingEvents = false;
+        this.eventState.acceptingEvents = false;
         try {
             await this.waitForIdle();
         } catch (error) {
@@ -433,315 +363,209 @@ export abstract class StorageEventManagerBase<
         }
         await this._takeSnapshot();
     }
-
     /**
-     * Proceed waiting for the given key immediately.
+     * Check whether an unfinished event refers to this path or one of its ancestors.
+     * @param filename - The vault-relative path to check.
+     * @returns Whether a pending event names the path, an ancestor, or either side of a rename.
      */
-    private _proceedWaiting(key: string) {
-        const waitInfo = this._waitingMap.get(key);
-        if (waitInfo) {
-            waitInfo.canProceed.resolve(true);
-            waitInfo.deadline.dispose();
-            this._waitingMap.delete(key);
-        }
-        this.triggerTakeSnapshot();
+    override hasPendingFileEvent(filename: FilePath): boolean {
+        return hasPendingStorageEvent(this.eventState, filename);
     }
     /**
-     * Cancel waiting for the given key.
+     * Check whether the path currently owns an unresolved batching gate.
+     * @param filename - The vault-relative path to check.
+     * @returns Whether a batch gate is present; this does not indicate whether a handler is still running.
      */
-    private _cancelWaiting(key: string) {
-        const waitInfo = this._waitingMap.get(key);
-        if (waitInfo) {
-            waitInfo.canProceed.resolve(false);
-            waitInfo.deadline.dispose();
-            this._waitingMap.delete(key);
-        }
-        this.triggerTakeSnapshot();
-    }
-    /**
-     * Add waiting for the given key.
-     * @param key
-     * @param event
-     * @param waitedSince Optional waited since timestamp to calculate the remaining delay.
-     */
-    private _addWaiting(key: string, event: FileEventItem, waitedSince?: number): WaitInfo {
-        if (this._waitingMap.has(key)) {
-            // Already waiting
-            throw new Error(`Already waiting for key: ${key}`);
-        }
-        const resolver = promiseWithResolvers<boolean>();
-        const now = Date.now();
-        const acceptedAt = this.operations.get(event)?.acceptedAt ?? now;
-        const since = waitedSince ?? acceptedAt;
-        const elapsed = now - since;
-        const maxDelay = this.batchSaveMaximumDelay * 1000;
-        const remainingDelay = Math.max(0, maxDelay - elapsed);
-        const quietDelay = Math.max(0, this.batchSaveMinimumDelay * 1000 - (now - acceptedAt));
-        const nextDelay = Math.min(remainingDelay, quietDelay);
-        // x*<------- maxDelay --------->*
-        // x*<-- minDelay -->*
-        // x*       x<-- nextDelay -->*
-        // x*              x<-- Capped-->*
-        // x*                    x.......*
-        // x: event
-        // *: save
-        // When at event (x) At least, save (*) within maxDelay, but maintain minimum delay between saves.
-
-        if (elapsed >= maxDelay) {
-            // Already exceeded maximum delay, do not wait.
-            this._log(`Processing ${key}: Batch save maximum delay already exceeded: ${event.type}`, LOG_LEVEL_DEBUG);
-        } else {
-            this._log(
-                `Processing ${key}: Adding waiting for batch save: ${event.type} (${nextDelay}ms)`,
-                LOG_LEVEL_DEBUG
-            );
-        }
-        const deadline = createDeferredAction(() => {
-            this._log(`Processing ${key}: Batch save timeout reached: ${event.type}`, LOG_LEVEL_DEBUG);
-            this._proceedWaiting(key);
-        }, scheduleStorageTimeout);
-        const waitInfo: WaitInfo = {
-            since: since,
-            type: event.type,
-            event: event,
-            canProceed: resolver,
-            deadline,
-        };
-        deadline.schedule(nextDelay);
-        this._waitingMap.set(key, waitInfo);
-        this.triggerTakeSnapshot();
-        return waitInfo;
+    isWaiting(filename: FilePath) {
+        return this._waitingMap.has(filename);
     }
 
     /**
-     * Process the given file event.
+     * Reuse or create the snapshot entry for a queued event.
+     * @param event - A file event or flush sentinel to retain.
+     * @param register - Whether to register path-ordering relationships for a file event; defaults to `true`.
+     * @returns The retained snapshot entry for the event.
      */
-    async processFileEvent(fei: FileEventItem) {
-        const entry = this.retainEvent(fei);
-        const operation = entry.operation!;
-        if (operation.started || operation.result) {
-            const result = await operation.completion.promise;
-            if (result.ok === false) throw result.error;
-            return;
-        }
-        operation.started = true;
-        const path = fei.args.file.path;
-        const relatedPath = fei.type === "RENAME" ? fei.args.oldPath : fei.args.renameTarget;
-        const paths = relatedPath ? [path, relatedPath] : [path];
-        const waiting = this._waitingMap.get(path);
-        let since = operation.acceptedAt;
-        for (const eventPath of paths) {
-            const previous = this.latestByPath.get(eventPath);
-            if (!previous || previous.result?.ok) continue;
-            const canReplace = waiting?.event === previous.event && !previous.flushRequested &&
-                (previous.event.type === fei.type || fei.type === "DELETE");
-            if (canReplace) {
-                since = waiting.since;
-                previous.successor = operation;
-                for (const dependency of previous.prerequisites) operation.prerequisites.add(dependency);
-                this._cancelWaiting(eventPath);
-            } else {
-                operation.prerequisites.add(previous);
-                if (this._waitingMap.get(eventPath)?.event === previous.event) this._proceedWaiting(eventPath);
-            }
-        }
-        // Direct callers may have supplied a waiting gate without dispatching its
-        // event. Keep that gate ordered too; ordinary events have an owner above.
-        if (this._waitingMap.get(path) === waiting && waiting) this._proceedWaiting(path);
-        for (const eventPath of paths) this.latestByPath.set(eventPath, operation);
-        if (operation.flushRequested) this.releaseOperations([...operation.prerequisites]);
-        const shouldWait = this.shouldBatchSave && !fei.skipBatchWait && !operation.flushRequested &&
-            (fei.type === "CREATE" || fei.type === "CHANGED");
-        const gate = shouldWait ? this._addWaiting(path, fei, since).canProceed.promise : Promise.resolve(true);
-        try {
-            // Persist admission before any handler can change the database.
-            await this._takeSnapshot();
-            const canProceed = await gate;
-            if (!canProceed) {
-                if (!operation.successor) throw new Error(`Storage operation cancelled without a successor: ${path}`);
-                const result = await operation.successor.completion.promise;
-                if (result.ok === false) throw result.error;
-            } else {
-                for (const prerequisite of operation.prerequisites) {
-                    const result = await prerequisite.completion.promise;
-                    if (result.ok === false) throw result.error;
-                }
-                const release = await this.concurrentProcessing.acquire();
-                try {
-                    await this.requestProcessQueue(fei);
-                } finally {
-                    release();
-                }
-            }
-            entry.completed = true;
-            try {
-                await this._takeSnapshot();
-            } catch (error) {
-                entry.completed = false;
-                throw error;
-            }
-            operation.result = { ok: true };
-            operation.completion.resolve(operation.result);
-            for (const eventPath of paths) {
-                if (this.latestByPath.get(eventPath) === operation) this.latestByPath.delete(eventPath);
-            }
-        } catch (error) {
-            if (this._waitingMap.get(path)?.event === fei) this._cancelWaiting(path);
-            this.failOperation(operation, error);
-            throw error;
-        } finally {
-            this.updateStatus();
-        }
+    private retainEvent(event: QueuedFileEvent, register = true) {
+        return retainFileEvent(this.eventState, event, register);
     }
-
+    /**
+     * Log an operation failure which remains pending for retry or recovery.
+     * @param error - The failure reported by admission, processing, or persistence.
+     * @returns Nothing; the error is logged at notice and verbose levels.
+     */
+    private reportOperationFailure(error: unknown): void {
+        this._log("Storage operation remains pending after a failure", LOG_LEVEL_NOTICE);
+        this._log(error, LOG_LEVEL_VERBOSE);
+    }
+    /**
+     * Record an unsettled attempt as failed and refresh the manager status.
+     * @param operation - The pending operation associated with the attempt.
+     * @param error - The failure to retain and report.
+     * @param attempt - The attempt to fail; defaults to the operation's current attempt.
+     * @returns Nothing; an already settled attempt is left unchanged.
+     */
+    private failOperation(operation: PendingFileEvent, error: unknown, attempt = operation.attempt): void {
+        if (!failFileEventAttempt(this.eventState, attempt, error)) return;
+        this.reportOperationFailure(error);
+        this.updateStatus();
+    }
+    /**
+     * Capture attempts for a finite set of operations and start eligible retries.
+     * @param operations - The operations whose current attempts form the capture boundary.
+     * @param retryBefore - The latest failure sequence eligible for retry; defaults to no prior failure.
+     * @returns The operation-to-attempt map for this boundary.
+     */
+    private captureAttempts(operations: readonly PendingFileEvent[], retryBefore = -1) {
+        return captureFileEventAttempts(operations, retryBefore, this.retry);
+    }
+    /**
+     * Mark the supplied operations for flushing and release their current batch gates.
+     * @param operations - The operations to release.
+     * @returns Nothing; no handler completion is awaited here.
+     */
+    private releaseOperations(operations: readonly PendingFileEvent[]): void {
+        releaseFileEventBatches(this.batching, operations);
+    }
+    /**
+     * Release and await the attempts in the supplied capture.
+     * @param attempts - The operation-to-attempt capture to settle.
+     * @returns A promise for one success or failure result per captured attempt.
+     */
+    private waitForAttempts(attempts: Map<PendingFileEvent, FileEventAttempt>): Promise<OperationResult[]> {
+        return waitForFileEventAttempts(attempts, this.queue.release);
+    }
+    /**
+     * Resolve the current gate for a path as eligible to proceed.
+     * @param path - The event path whose gate should proceed.
+     * @returns Nothing; the gate is resolved and a snapshot is requested.
+     */
+    private _proceedWaiting(path: string): void {
+        finishBatchWaiting(this.batching, path, true);
+    }
+    /**
+     * Resolve the current gate for a path as cancelled.
+     * @param path - The event path whose gate should be cancelled.
+     * @returns Nothing; a coalesced successor may take over the cancelled attempt.
+     */
+    private _cancelWaiting(path: string): void {
+        finishBatchWaiting(this.batching, path, false);
+    }
+    /**
+     * Create a timed batch gate for an event, optionally inheriting a predecessor's wait start.
+     * @param path - The path used as the gate key.
+     * @param event - The event which owns the gate.
+     * @param since - Optional inherited time from which the maximum delay is measured.
+     * @returns The gate, including its deadline and proceed promise.
+     * @throws An error if another gate already exists for the path.
+     */
+    private _addWaiting(path: string, event: FileEventItem, since?: number): WaitInfo {
+        return addBatchWaiting(this.batching, path, event, since);
+    }
+    /**
+     * Initialise predecessor ordering and obtain this operation's batch-gate result.
+     * @param operation - The operation whose predecessors and gate are being prepared.
+     * @returns A promise resolving to the gate's proceed or cancel result, not handler completion.
+     */
+    private initialiseOperation(operation: PendingFileEvent): Promise<boolean> {
+        return initialiseFileEventBatch(this.batching, operation);
+    }
+    /**
+     * Run one attempt through gate preparation, ordering, handler dispatch, and snapshot completion.
+     * @param operation - The pending event operation to process.
+     * @param attempt - The captured attempt whose completion is being driven.
+     * @returns A promise fulfilled on successful completion; attempt failures are recorded and rethrown.
+     */
+    private async processOperation(operation: PendingFileEvent, attempt: FileEventAttempt) {
+        await processStorageEventAttempt(this.eventState, operation, attempt, this.attempts);
+    }
+    /**
+     * Retain an event and await its current processing attempt.
+     * @param event - The already selected event to process.
+     * @returns A promise fulfilled when the attempt completes; a failed attempt rejects it.
+     */
+    async processFileEvent(event: FileEventItem) {
+        const operation = this.retainEvent(event).operation!;
+        await this.processOperation(operation, operation.attempt);
+    }
+    /**
+     * Persist the manager snapshot and optionally acknowledge one attempt in that snapshot.
+     * @param completion - Optional entry and attempt whose completion should be committed.
+     * @returns A promise for the serialised save; snapshot I/O failures reject it.
+     */
+    private persistSnapshot(completion?: SnapshotCompletion): Promise<void> {
+        return persistFileEventSnapshot(this.eventState, this.buffer, this.snapshotIO, completion);
+    }
+    /**
+     * Wait for the next serialised snapshot write.
+     * @returns A promise fulfilled after persistence; save failures reject it.
+     */
     async _takeSnapshot() {
-        // Register entries supplied by snapshot restoration before dispatch.
-        for (const event of this.bufferedQueuedItems) this.retainEvent(event);
-        for (const waiting of this._waitingMap.values()) this.retainEvent(waiting.event);
-        const save = this.snapshotTail.then(async () => {
-            const entries = [...this.pendingSnapshot.values()];
-            const completed = entries.filter((entry) => entry.completed);
-            const snapshot = entries.filter((entry) => !entry.completed).map((entry) => entry.event);
-            await this._saveSnapshot(snapshot);
-            for (const entry of completed) this.pendingSnapshot.delete(entry.event);
-            this.updateStatus();
-        });
-        // A failed adapter write must not break ordering for later attempts.
-        this.snapshotTail = save.catch(() => {});
-        await save;
+        await this.persistSnapshot();
     }
-
-    async _restoreFromSnapshot() {
-        const snapShot = await this._loadSnapshot();
-        if (snapShot && Array.isArray(snapShot) && snapShot.length > 0) {
-            // console.warn(`Restoring snapshot: ${snapShot.length} items`);
-            this._log(`Restoring storage operation snapshot: ${snapShot.length} items`, LOG_LEVEL_VERBOSE);
-            // Restore the snapshot
-            // Note: Mark all items as skipBatchWait to prevent apply the off-line batch saving.
-            this.bufferedQueuedItems = snapShot.map((event) =>
-                event.type === TYPE_SENTINEL_FLUSH
-                    ? event
-                    : { ...event, restoredFromPreviousRuntime: true, skipBatchWait: true }
-            );
-            this.updateStatus();
-            // A restored snapshot is part of start-up reconciliation. Wait until its
-            // actual file operations finish so that the following full scan observes
-            // their results rather than racing with fire-and-forget work.
-            await this.runQueuedEvents({ waitForProcessing: true });
-        } else {
-            this._log(`No snapshot to restore`, LOG_LEVEL_VERBOSE);
-            // console.warn(`No snapshot to restore`);
-        }
-    }
-
     /**
-     * Dispatch buffered storage events.
-     *
-     * Ordinary watcher events retain the existing fire-and-forget behaviour.
-     * Snapshot restoration requests completion so its caller can use the replay as
-     * a lifecycle boundary. In that mode, a sentinel also waits for every operation
-     * dispatched before it, preserving the ordering represented by the snapshot.
-     * An individual restored operation failure is logged but does not prevent the
-     * following Offline Scanner from reconciling the resulting current state.
+     * Load persisted events, dispatch them, and wait for their replay attempts.
+     * @returns A promise for restoration; storage or dispatch errors reject it, while failed attempt results are reported and retained.
+     */
+    async _restoreFromSnapshot() {
+        await restoreStorageEvents(this.queue);
+    }
+    /**
+     * Dispatch events in the buffer and optionally wait for captured processing attempts.
+     * @param options - Queue-run options, including whether to wait for processing.
+     * @returns A promise for dispatch; with `waitForProcessing`, failed attempt results are reported rather than thrown as operation errors.
      */
     protected async runQueuedEvents(options: RunQueuedEventsOptions = {}) {
-        for (const event of this.bufferedQueuedItems) this.retainEvent(event);
-        const accepted = this.pendingOperations();
-        if (!this.dispatching) {
-            const dispatch = async () => {
-                while (this.bufferedQueuedItems.length > 0) {
-                    const event = this.bufferedQueuedItems.shift()!;
-                    const entry = this.retainEvent(event);
-                    if (event.type === TYPE_SENTINEL_FLUSH) {
-                        // This boundary includes predecessors only. Waiting for
-                        // global idleness here would include its own successors.
-                        const results = await this.waitForOperations(this.pendingOperations(entry.sequence));
-                        if (results.every((result) => result.ok)) {
-                            entry.completed = true;
-                            try {
-                                await this._takeSnapshot();
-                            } catch (error) {
-                                entry.completed = false;
-                                this.reportOperationFailure(error);
-                            }
-                        }
-                    } else if (!entry.operation!.result) {
-                        fireAndForget(this.processFileEvent(event).catch(() => {}));
-                    }
-                }
-            };
-            this.dispatching = dispatch().finally(() => { this.dispatching = null; });
-        }
-        await this.dispatching;
-        if (options.waitForProcessing) {
-            const results = await this.waitForOperations(accepted);
-            for (const result of results) {
-                if (result.ok === false) this.reportOperationFailure(result.error);
-            }
-        }
+        await runBufferedStorageEvents(this.eventState, this.queue, options);
     }
-
-    protected processingCount = 0;
-    protected async requestProcessQueue(fei: FileEventItem) {
+    /**
+     * Start a background snapshot write and report any persistence failure.
+     * @returns Nothing; the write is deliberately not awaited by the caller.
+     */
+    private _triggerTakeSnapshot(): void {
+        fireAndForget(() => this._takeSnapshot().catch((error) => this.reportOperationFailure(error)));
+    }
+    /**
+     * Throttled callback for requesting a background snapshot write.
+     * @returns The callback bound to `_triggerTakeSnapshot` with a 100 ms throttle interval.
+     */
+    triggerTakeSnapshot = throttle(() => this._triggerTakeSnapshot(), 100);
+    /**
+     * Track a handler dispatch in status and restore the processing count in a `finally` block.
+     * @param event - The event passed to the host processing hook.
+     * @returns A promise fulfilled after handling; handler or status-update failures reject it.
+     */
+    protected async requestProcessQueue(event: FileEventItem) {
         try {
             this.processingCount++;
             this.updateStatus();
-            await this.handleFileEvent(fei);
+            await this.handleFileEvent(event);
         } finally {
             this.processingCount--;
             this.updateStatus();
         }
     }
-    override hasPendingFileEvent(filename: FilePath): boolean {
-        for (const entry of this.pendingSnapshot.values()) {
-            if (entry.completed || entry.event.type === TYPE_SENTINEL_FLUSH) continue;
-            const event = entry.event;
-            const relatedPath = event.type === "RENAME" ? event.args.oldPath : event.args.renameTarget;
-            if ([event.args.file.path, relatedPath].some((path) =>
-                path && (filename === path || filename.startsWith(`${path}/`)))) return true;
-        }
-        return false;
+    /**
+     * Delegate one event to the shared file-processing handler.
+     * @param event - The event to process.
+     * @returns A promise fulfilled after handling; processing failures propagate to the attempt.
+     * @remarks Protected so hosts can override event handling while retaining the queue lifecycle.
+     */
+    protected async handleFileEvent(event: FileEventItem): Promise<void> {
+        await handleStorageFileEvent(event, this.handler);
     }
-
-    isWaiting(filename: FilePath) {
-        return this._waitingMap.has(filename);
-    }
-
-    protected async handleFileEvent(queue: FileEventItem): Promise<void> {
-        const file = queue.args.file;
-        await serialized(`handleFile:${file.path}`, async () => {
-            if (queue.cancelled) throw new Error(`Storage operation has no confirmed result: ${file.path}`);
-            if (queue.type === "INTERNAL" || file.isInternal) {
-                const handler = this.fileProcessing.processOptionalFileEventWithResult;
-                if (handler && handler.hasHandlers !== false) {
-                    const operation = this.operations.get(queue);
-                    let whenFlushRequested: Promise<void> | undefined;
-                    if (operation) {
-                        operation.flushSignal ??= promiseWithResolvers<void>();
-                        if (operation.flushRequested) operation.flushSignal.resolve();
-                        whenFlushRequested = operation.flushSignal.promise;
-                    }
-                    const outcome = await handler(file.path as FilePath, { whenFlushRequested });
-                    if (outcome.kind === "veto") {
-                        throw new Error(`Optional storage operation declined: ${file.path} (${outcome.value})`);
-                    }
-                } else {
-                    // Legacy providers report notification handling, not persistence.
-                    await this.fileProcessing.processOptionalFileEvent(file.path as FilePath);
-                }
-            } else if (!(await this.fileProcessing.processFileEvent(queue))) {
-                throw new Error(`Storage operation failed: ${file.path}`);
-            }
-        });
-        this.updateStatus();
-    }
-
-    protected cancelRelativeEvent(item: FileEventItem): void {
-        this._cancelWaiting(item.args.file.path);
+    /**
+     * Cancel the batch gate associated with a relative event's path.
+     * @param event - The event whose path identifies the gate.
+     * @returns Nothing; cancelling the gate does not itself complete the operation.
+     */
+    protected cancelRelativeEvent(event: FileEventItem): void {
+        this._cancelWaiting(event.args.file.path);
     }
 
     /**
-     * Begin watching for storage events
+     * Wait for stored restoration to finish, then register the host watcher callbacks.
+     * @returns A promise fulfilled when watcher registration finishes; a restoration failure prevents registration and rejects it.
      */
     async beginWatch(): Promise<void> {
         await this.snapShotRestored;
@@ -757,88 +581,87 @@ export abstract class StorageEventManagerBase<
     }
 
     /**
-     * Platform-agnostic event handlers
+     * Admit an editor change for a selected file with an active batch gate.
+     * @typeParam TEditor - The platform editor type carried by the watcher callback.
+     * @typeParam TInfo - The platform editor-change payload type.
+     * @param editor - The editor callback value, retained for the host watcher signature.
+     * @param info - The editor-change envelope used to resolve file, path, and cached text.
+     * @returns Nothing; invalid payloads, disabled batching, active processing, and absent gates are skipped, and admission is not awaited.
+     * @remarks Protected so host subclasses can customise editor watcher handling.
      */
     protected watchEditorChange<TEditor = unknown, TInfo = unknown>(editor: TEditor, info: TInfo) {
-        if (typeof info !== "object" || info === null) {
-            return;
-        }
-        if (!("path" in info)) {
-            return;
-        }
-        if (!this.shouldBatchSave) {
-            return;
-        }
-        if (!("file" in info)) {
-            return;
-        }
-        const file = info?.file;
-        if (!file) return;
-        const path = this.adapter.typeGuard.isFile(file) ? (file as { path?: string }).path : info.path;
-        if (!path) return;
-
-        if (this.storageAccess.isFileProcessing(path as FilePath)) {
-            return;
-        }
-        if (!this.isWaiting(path as FilePath)) {
-            return;
-        }
-        const data = (info as { data?: string })?.data as string;
-        const fi: FileEvent = {
+        if (!hasEditorChangePath(info) || !this.shouldBatchSave) return;
+        const change = readEditorFileChange(info, (file) => this.adapter.typeGuard.isFile(file));
+        if (!change) return;
+        if (this.storageAccess.isFileProcessing(change.path)) return;
+        if (!this.isWaiting(change.path)) return;
+        const event: FileEvent = {
             type: "CHANGED",
-            file: this.adapter.converter.toFileInfo(file),
-            cachedData: data,
+            file: this.adapter.converter.toFileInfo(change.file),
+            cachedData: change.data,
         };
-        void this.appendQueue([fi]);
+        void this.appendQueue([event]);
     }
 
+    /**
+     * Forward a host create notification to facade admission.
+     * @typeParam TFile - The host file payload type.
+     * @typeParam TCtx - The host watcher context type.
+     * @param file - The untrusted host notification payload.
+     * @param ctx - Optional host context forwarded to admission.
+     * @returns Nothing; unrecognised payloads and paths reported as already processing are skipped, and admission is not awaited.
+     * @remarks This remains a protected override point; the base implementation shares validation and conversion through `forwardVaultEvent`.
+     */
     protected watchVaultCreate<TFile = unknown, TCtx = unknown>(file: TFile, ctx?: TCtx) {
-        if (this.adapter.typeGuard.isFolder(file)) return;
-        const path = (file as { path: string }).path as FilePath;
-        if (this.storageAccess.isFileProcessing(path)) {
-            return;
-        }
-        const fileInfo = this.adapter.converter.toFileInfo(file);
-        void this.appendQueue([{ type: "CREATE", file: fileInfo }], ctx);
+        forwardVaultEvent({ type: "CREATE", file }, ctx, this.watching);
     }
 
+    /**
+     * Forward a host change notification to facade admission.
+     * @typeParam TFile - The host file payload type.
+     * @typeParam TCtx - The host watcher context type.
+     * @param file - The untrusted host notification payload.
+     * @param ctx - Optional host context forwarded to admission.
+     * @returns Nothing; unrecognised payloads and paths reported as already processing are skipped, and admission is not awaited.
+     * @remarks This remains a protected override point; the base implementation shares validation and conversion through `forwardVaultEvent`.
+     */
     protected watchVaultChange<TFile = unknown, TCtx = unknown>(file: TFile, ctx?: TCtx) {
-        if (this.adapter.typeGuard.isFolder(file)) return;
-        const path = (file as { path: string }).path as FilePath;
-        if (this.storageAccess.isFileProcessing(path)) {
-            return;
-        }
-        const fileInfo = this.adapter.converter.toFileInfo(file);
-        void this.appendQueue([{ type: "CHANGED", file: fileInfo }], ctx);
+        forwardVaultEvent({ type: "CHANGED", file }, ctx, this.watching);
     }
 
+    /**
+     * Forward a host delete notification to facade admission.
+     * @typeParam TFile - The host file payload type.
+     * @typeParam TCtx - The host watcher context type.
+     * @param file - The untrusted host notification payload.
+     * @param ctx - Optional host context forwarded to admission.
+     * @returns Nothing; unrecognised payloads and paths reported as already processing are skipped, and admission is not awaited.
+     * @remarks This remains a protected override point; the base implementation shares validation and conversion through `forwardVaultEvent`.
+     */
     protected watchVaultDelete<TFile = unknown, TCtx = unknown>(file: TFile, ctx?: TCtx) {
-        if (this.adapter.typeGuard.isFolder(file)) return;
-        const path = (file as { path: string }).path as FilePath;
-        if (this.storageAccess.isFileProcessing(path)) {
-            return;
-        }
-        const fileInfo = this.adapter.converter.toFileInfo(file, true);
-        void this.appendQueue([{ type: "DELETE", file: fileInfo }], ctx);
+        forwardVaultEvent({ type: "DELETE", file }, ctx, this.watching);
     }
 
+    /**
+     * Forward a host rename as one operation with its source path.
+     * @typeParam TFile - The host file payload type.
+     * @typeParam TCtx - The host watcher context type.
+     * @param file - The untrusted host notification payload.
+     * @param oldPath - The path the file was renamed from.
+     * @param ctx - Optional host context forwarded to admission.
+     * @returns Nothing; unrecognised payloads are skipped, and admission is not awaited.
+     * @remarks Rename bypasses processing-path suppression and batching. This protected hook remains overridable by host subclasses.
+     */
     protected watchVaultRename<TFile = unknown, TCtx = unknown>(file: TFile, oldPath: string, ctx?: TCtx) {
-        if (this.adapter.typeGuard.isFile(file)) {
-            const fileInfo = this.adapter.converter.toFileInfo(file);
-            void this.appendQueue(
-                [
-                    {
-                        type: "RENAME",
-                        file: fileInfo,
-                        oldPath,
-                        skipBatchWait: true,
-                    },
-                ],
-                ctx
-            );
-        }
+        forwardVaultEvent({ type: "RENAME", file, oldPath }, ctx, this.watching);
     }
 
+    /**
+     * Route a raw internal-file callback to the host-specific raw-event hook.
+     * @param path - The vault-relative path reported by the host watcher.
+     * @returns Nothing; while ignore-file handling is enabled, the target check is started before the hook.
+     * @remarks Protected so platform subclasses can provide their raw-event policy.
+     */
     protected watchVaultRawEvents(path: FilePath) {
         if (this.storageAccess.isFileProcessing(path)) {
             return;
@@ -853,6 +676,11 @@ export abstract class StorageEventManagerBase<
         }
     }
 
+    /**
+     * Host extension point for platform-specific raw internal-file handling.
+     * @param path - The vault-relative internal-file path to inspect.
+     * @returns A resolved promise in the base implementation; subclasses may perform asynchronous handling.
+     */
     protected async _watchVaultRawEvents(path: FilePath) {
         // Override in platform-specific implementation if needed
         // For Obsidian: check syncInternalFiles, watchInternalFileChanges, etc.

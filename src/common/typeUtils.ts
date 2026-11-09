@@ -3,6 +3,9 @@ import type { DocumentID, FilePath, FilePathWithPrefix } from "./models/db.type"
 import { CHeader, ICHeader, ICHeaderLength, ICXHeader, PSCHeader } from "./models/fileaccess.const";
 import type { UXFileInfoStub } from "./types";
 
+/** Path conversion requires identity only; internal files need no storage statistics. */
+type FilePathInput = string | Pick<UXFileInfoStub, "path" | "isInternal">;
+
 /**
  * returns is internal chunk of file
  * @param id ID
@@ -12,7 +15,12 @@ export function isInternalMetadata(id: FilePath | FilePathWithPrefix | DocumentI
     return id.startsWith(ICHeader);
 }
 
-export function isInternalFile(file: UXFileInfoStub | string | FilePathWithPrefix) {
+/**
+ * Identify the internal namespace from a path or file identity.
+ * @param file - A path or identity whose optional internal flag is retained.
+ * @returns Whether the path namespace or explicit flag denotes an internal file.
+ */
+export function isInternalFile(file: FilePathInput) {
     if (typeof file == "string") return isInternalMetadata(file as FilePathWithPrefix);
     if (file.isInternal) return true;
     return false;
@@ -36,15 +44,30 @@ export function isCustomisationSyncMetadata(str: string): boolean {
     return str.startsWith(ICXHeader);
 }
 
-export function getPathFromUXFileInfo(file: UXFileInfoStub | string | FilePathWithPrefix) {
+/**
+ * Read the supplied path without changing its namespace or spelling.
+ * @param file - A path or file identity; storage statistics are not required.
+ * @returns The original path, including any namespace prefix.
+ */
+export function getPathFromUXFileInfo(file: FilePathInput) {
     if (typeof file == "string") return file as FilePathWithPrefix;
     return file.path;
 }
-export function getStoragePathFromUXFileInfo(file: UXFileInfoStub | string | FilePathWithPrefix) {
+/**
+ * Resolve a physical storage path from a path or file identity.
+ * @param file - A path or file identity; internal observations may omit statistics.
+ * @returns The path with recognised database namespace prefixes removed.
+ */
+export function getStoragePathFromUXFileInfo(file: FilePathInput) {
     if (typeof file == "string") return stripAllPrefixes(file as FilePathWithPrefix);
     return stripAllPrefixes(file.path);
 }
-export function getDatabasePathFromUXFileInfo(file: UXFileInfoStub | string | FilePathWithPrefix) {
+/**
+ * Resolve the database namespace from a path or file identity.
+ * @param file - A path or identity carrying its optional internal flag.
+ * @returns The existing customisation path or the path with its internal namespace applied.
+ */
+export function getDatabasePathFromUXFileInfo(file: FilePathInput) {
     if (typeof file == "string" && file.startsWith(ICXHeader)) return file as FilePathWithPrefix;
     const prefix = isInternalFile(file) ? ICHeader : "";
     if (typeof file == "string") return (prefix + stripAllPrefixes(file as FilePathWithPrefix)) as FilePathWithPrefix;
