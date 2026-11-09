@@ -4,7 +4,7 @@ import { promiseWithResolvers } from "octagonal-wheels/promises";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import { DEFAULT_SETTINGS, LOG_LEVEL_INFO, type DocumentID, type EntryDoc, type EntryLeaf, type FilePathWithPrefix, type UXFileInfo } from "@lib/common/types";
-import { compareMTime, createTextBlob } from "@lib/common/utils";
+import { compareMTime, createTextBlob, displayRev } from "@lib/common/utils";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import type { FileReflectionProvenanceRecord } from "@lib/interfaces/FileReflectionProvenance";
 import { LiveSyncLocalDB, type LiveSyncLocalDBEnv } from "@lib/pouchdb/LiveSyncLocalDB";
@@ -744,7 +744,9 @@ describe("strict scans with on-demand chunks", () => {
             expect(await fixture.getStorage().body.text()).toBe(original);
             expect(fixture.storageAccess.writeFileAuto).not.toHaveBeenCalled();
             expect(fixture.services.API.addLog).toHaveBeenCalledWith(
-                expect.stringContaining("useOnlyLocalChunk=true"), expect.any(Number), expect.any(String)
+                expect.stringContaining(
+                    `Could not reconcile ${path}: content for current database revision ${displayRev(fixture.baseRevision)} is unavailable; this file remains unresolved for a later scan.`
+                ), expect.any(Number), expect.any(String)
             );
         } finally {
             await fixture.dispose();
@@ -760,6 +762,30 @@ describe("strict scans with on-demand chunks", () => {
             )).resolves.toBe("completed");
             expect(fixture.chunkSource.fetchChunks).not.toHaveBeenCalled();
             expect((await liveLeaves(fixture)).map((leaf) => leaf._rev)).toEqual([fixture.baseRevision]);
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it("identifies an unreadable recorded revision without reporting current retrieval settings", async () => {
+        const fixture = await createScenario("recorded-edited", 1000, true);
+        try {
+            const unavailableIds = new Set((await fixture.db.get(path, { rev: fixture.baseRevision })).children);
+            const latestRevision = await advanceDatabase(fixture, [incoming]);
+            await omitLocalChunks(fixture, [fixture.baseRevision, latestRevision]);
+            fixture.chunkSource.fetchChunks.mockImplementation(async (ids) => ids.flatMap(
+                (id) => unavailableIds.has(id) ? [] : [fixture.remoteChunks.get(id)!]
+            ));
+
+            await expect(fixture.handler.storeFileToDB(
+                fixture.getStorage(), false, false, { revalidateStorage: true }
+            )).rejects.toMatchObject({
+                message: `Could not read the recorded file revision ${displayRev(fixture.baseRevision)} for ${path}`,
+            });
+            expect((await liveLeaves(fixture)).map((leaf) => leaf._rev)).toEqual([latestRevision]);
+            expect(fixture.provenance.get(path)?.revision).toBe(fixture.baseRevision);
+            expect(await fixture.getStorage().body.text()).toBe(localEdit);
+            expect(fixture.storageAccess.writeFileAuto).not.toHaveBeenCalled();
         } finally {
             await fixture.dispose();
         }

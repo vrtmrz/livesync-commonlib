@@ -13,6 +13,7 @@ import type {
 } from "@lib/common/types";
 import {
     createBlob,
+    displayRev,
     getDocDataAsArray,
     isDocContentSame,
     readContent,
@@ -300,7 +301,7 @@ export abstract class ServiceFileHandlerBase
             if (!base) {
                 const meta = await this.db.fetchEntryMeta(file, recordedRevision, true);
                 if (requireReadableContent && meta && !meta.deleted && !meta._deleted) {
-                    throw new Error(`Could not read the recorded file revision ${recordedRevision} for ${file.path} (useOnlyLocalChunk=${this.setting.currentSettings().useOnlyLocalChunk})`);
+                    throw new Error(`Could not read the recorded file revision ${displayRev(recordedRevision)} for ${file.path}`);
                 }
                 if ((!meta || meta.deleted || meta._deleted) && !hasContentHash(recorded)) await this.deleteProvenance(path);
             }
@@ -637,7 +638,7 @@ export abstract class ServiceFileHandlerBase
         if (!force && (currentIsLive || retryIfStorageChanges)) {
             if (retryIfStorageChanges && currentIsLive && !entry) {
                 this._log(
-                    `Could not reconcile ${file.path}: content for current database revision ${currentEntry._rev} is unavailable (useOnlyLocalChunk=${this.setting.currentSettings().useOnlyLocalChunk}); this file remains unresolved for a later scan.`,
+                    `Could not reconcile ${file.path}: content for current database revision ${displayRev(currentEntry._rev)} is unavailable; this file remains unresolved for a later scan.`,
                     LOG_LEVEL_VERBOSE
                 );
                 return false;
