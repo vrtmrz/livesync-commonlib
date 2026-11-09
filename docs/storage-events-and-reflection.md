@@ -2,7 +2,7 @@
 date: 2026-10-26
 commonlib-version: "0.2.1"
 self-hosted-livesync-version: "1.0.40"
-status: unreleased
+status: published
 ---
 
 # Storage events and database-to-storage reflection
@@ -11,8 +11,13 @@ This note separates storage-to-database event handling from
 database-to-storage reflection. It documents the current guard against a stale
 `DELETE` notification logically deleting Metadata while the same file is still
 present in storage, and the accepted local completion contract for queued file
-operations. The version fields identify the reviewed source versions; these
-changes remain unreleased.
+operations. The version fields identify the original reviewed source versions.
+
+> Publication note (9th November, 2026): This implementation, including the
+> [ordinary-file retry extension](#retrying-ordinary-file-operations), is included
+> in published [Commonlib 0.4.1](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.4.1).
+> The original review date and version baseline are retained above. Host
+> applications adopt this package through their own dependency updates.
 
 ## Event-manager terminology
 
@@ -249,12 +254,13 @@ current content for processing.
 
 ## Retrying ordinary file operations
 
-The following extension is unreleased. A failed ordinary `CREATE`, `CHANGED`,
-`DELETE`, or `RENAME` remains pending, while its attempt has a completed failure
-result. A later finite `commitPendingFileEvents()` request can start a new
-attempt. A subsequent event for the same path or related rename paths can also
-re-evaluate failed predecessors before proceeding. These paths share the event
-manager's ownership and use the existing current-state reconciliation rules.
+The following extension is available in Commonlib 0.4.1. A failed ordinary
+`CREATE`, `CHANGED`, `DELETE`, or `RENAME` remains pending, while its attempt has
+a completed failure result. A later finite `commitPendingFileEvents()` request
+can start a new attempt. A subsequent event for the same path or related rename
+paths can also re-evaluate failed predecessors before proceeding. These paths
+share the event manager's ownership and use the existing current-state
+reconciliation rules.
 
 Each request captures a finite set of operations and attempts. It may retry an
 existing failure once, shares an attempt already running, and reports failures
@@ -286,7 +292,7 @@ Runtime retries reuse its file-reconciliation rules without replacing the
 running manager through `restoreState()`. The saved format, handler return
 contracts, and optional-provider retry policy remain unchanged. Hosts can use
 their existing flush and lifecycle calls; no retry timer or new callback is
-required. See the [retry decision](https://github.com/vrtmrz/obsidian-livesync/blob/main/docs/adr/2026_11_local_file_operation_retry.md)
+required. See the [reviewed retry decision](https://github.com/vrtmrz/obsidian-livesync/blob/09c17e90dde3b1a2000c8a2e13301245107b915b/docs/adr/2026_11_local_file_operation_retry.md)
 for the operation matrix and considered alternatives.
 
 ## Optional file handlers

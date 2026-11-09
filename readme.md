@@ -14,8 +14,11 @@ This package is primarily for maintainers of those clients and for integrations 
 
 ## Status and versioning
 
-Commonlib [0.3.1](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.3.1)
-is published on npm. Self-hosted LiveSync
+Commonlib [0.4.1](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.4.1)
+is published on npm through `latest` and `next`
+([release notes](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.4.1)).
+
+Self-hosted LiveSync
 [1.0.44](https://github.com/vrtmrz/obsidian-livesync/releases/tag/1.0.44)
 uses Commonlib 0.2.3. The [0.2.3 release notes](updates.md#023) record its
 handler-setter source compatibility change and positive-infinity formatting
