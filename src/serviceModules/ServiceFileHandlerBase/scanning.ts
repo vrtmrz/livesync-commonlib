@@ -71,7 +71,7 @@ export async function canSkipUnchangedFile(
  * @param info - The supplied file observation or path.
  * @param expectedRevision - The exact revision the scan expects to remain current.
  * @returns Whether the exact still-current revision was recorded without writing file content.
- * @remarks The scan acquires the document lock before certifying evidence. It writes no document revision or storage content; inspection failures return false.
+ * @remarks The scan acquires the document lock before certifying evidence and may retrieve missing Chunks through the settings-controlled path. It writes no Metadata revision or storage content; inspection failures return false.
  */
 export async function tryRecordUntrackedFileRevision(
     ctx: FileHandlerContext,
@@ -95,7 +95,7 @@ export async function tryRecordUntrackedFileRevision(
             const current = await ctx.host.db().fetchEntryMeta(path, undefined, true);
             if (!isExpectedLiveRevision(current, expectedRevision)) return false;
             if ((await ctx.host.db().getConflictedRevs(path)).length > 0) return false;
-            const entry = await ctx.host.db().fetchEntry(path, expectedRevision, true, true, true);
+            const entry = await ctx.host.db().fetchEntry(path, expectedRevision, true, true);
             if (!isExpectedLiveRevision(entry, expectedRevision)) return false;
             if (!(await isDocContentSame(readContent(entry), file.body))) return false;
 

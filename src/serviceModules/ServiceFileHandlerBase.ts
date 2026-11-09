@@ -165,7 +165,7 @@ export abstract class ServiceFileHandlerBase
      * @param info - The supplied file observation or path.
      * @param expectedRevision - The exact revision the scan expects to remain current.
      * @returns Whether the exact still-current revision was recorded without writing file content.
-     * @remarks Acquire the document lock before attempting an evidence-only provenance update. No database revision or file content is written; inspection/store failures are logged and return false.
+     * @remarks Acquire the document lock before attempting an evidence-only provenance update. Missing Chunks follow the settings-controlled retrieval policy. No Metadata revision or file content is written; inspection/store failures are logged and return false.
      */
     async tryRecordUntrackedFileRevision(
         info: UXFileInfoStub | UXFileInfo,

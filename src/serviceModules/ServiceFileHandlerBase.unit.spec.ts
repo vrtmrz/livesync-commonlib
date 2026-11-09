@@ -2611,6 +2611,27 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
         expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
     });
 
+    it("retains recovery failure when unreadable metadata omits its revision", async () => {
+        const { handler, databaseFileAccess, storageFile } = createConflictedOperationHandler();
+        const current = createMeta("note.md", "unreadable current body");
+        delete current._rev;
+        databaseFileAccess.fetchEntry.mockResolvedValue(false);
+        databaseFileAccess.fetchEntryMeta.mockResolvedValue(current);
+        const log = vi.fn();
+        handler._log = log;
+
+        await expect(
+            handler.storeFileToDB(storageFile, false, false, { revalidateStorage: true })
+        ).resolves.toBe(false);
+
+        expect(log).toHaveBeenCalledWith(
+            expect.stringContaining("current database revision unknown is unavailable"),
+            expect.any(Number)
+        );
+        expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
+        expect(databaseFileAccess.storeIndependentRevision).not.toHaveBeenCalled();
+    });
+
     it("preserves an edit when conflicted winner content is unavailable but its metadata remains", async () => {
         const { handler, databaseFileAccess, provenance, conflict, storageFile } = createConflictedOperationHandler();
         provenance.get.mockResolvedValue(undefined);

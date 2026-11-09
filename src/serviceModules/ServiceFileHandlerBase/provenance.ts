@@ -3,7 +3,7 @@ import { isFolderInfo } from "./storage";
 import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 
 import type { FilePathWithPrefix, UXFileInfo } from "@lib/common/types";
-import { isDocContentSame, readContent } from "@lib/common/utils";
+import { displayRev, isDocContentSame, readContent } from "@lib/common/utils";
 
 import { computeFileContentHash } from "@lib/common/fileContentHash";
 
@@ -391,7 +391,7 @@ type DecodedProvenanceContent = { _rev?: string; data: string | string[] | Blob 
  * @param currentLoaded - An already decoded matching body, when available.
  * @param requireReadableContent - Whether missing live recorded content must reject recovery.
  * @returns The unchanged or edited recorded branch, or undefined when live-leaf fallback is required.
- * @remarks The caller retains its document lock. Hash comparison, local body reads, and stale-record cleanup keep their original order.
+ * @remarks The caller retains its document lock. Hash comparison, storage reads, and stale-record cleanup keep their order. Strict recovery uses settings-controlled Chunk retrieval; other recorded-base comparisons remain local-only.
  */
 async function classifyRecordedStorageContent(
     ctx: FileHandlerContext,
@@ -412,7 +412,7 @@ async function classifyRecordedStorageContent(
     const loadedContentIsDecoded = currentLoaded?._rev === recordedRevision;
     const base = loadedContentIsDecoded
         ? currentLoaded
-        : await ctx.host.db().fetchEntry(file, recordedRevision, true, true, true);
+        : await ctx.host.db().fetchEntry(file, recordedRevision, true, true, !requireReadableContent);
     if (
         base &&
         base._rev === recordedRevision &&
@@ -427,7 +427,9 @@ async function classifyRecordedStorageContent(
     if (!base) {
         const meta = await ctx.host.db().fetchEntryMeta(file, recordedRevision, true);
         if (requireReadableContent && meta && !meta.deleted && !meta._deleted) {
-            throw new Error(`Could not read the recorded file revision for ${file.path}`);
+            throw new Error(
+                `Could not read the recorded file revision ${displayRev(recordedRevision)} for ${file.path}`
+            );
         }
         if ((!meta || meta.deleted || meta._deleted) && !hasContentHash(recorded)) await deleteProvenance(ctx, path);
     }

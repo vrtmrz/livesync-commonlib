@@ -25,7 +25,7 @@ import type {
     UXFileInfoStub,
     UXInternalFileInfoStub,
 } from "@lib/common/types";
-import { getDocDataAsArray, isDocContentSame, readContent } from "@lib/common/utils";
+import { displayRev, getDocDataAsArray, isDocContentSame, readContent } from "@lib/common/utils";
 
 import type { StoreFileOptions } from "@lib/interfaces/FileHandler";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
@@ -248,7 +248,7 @@ interface StorageSaveObservation {
  * @param preferredBasePath - Rename-source provenance path, when supplied.
  * @param retryIfStorageChanges - Whether recovery revalidates the observed storage snapshot.
  * @returns The immutable body and associated provenance/database observations.
- * @remarks The caller holds the document lock. No retry or database write occurs in this stage.
+ * @remarks The caller holds the document lock. Recovery reads may retrieve missing Chunks through the settings-controlled path; ordinary reads remain local-only. This stage creates no Metadata revision and starts no retry.
  */
 async function observeStorageSave(
     ctx: FileHandlerContext,
@@ -262,7 +262,9 @@ async function observeStorageSave(
         retryIfStorageChanges
     );
     const readFile = await ctx.host.readFileFromStub(file);
-    const entry = await ctx.host.db().fetchEntry(file, undefined, true, true, true);
+    // Recovery comparisons may need chunks omitted by on-demand replication.
+    // Ordinary saves retain their local-first read.
+    const entry = await ctx.host.db().fetchEntry(file, undefined, true, true, !retryIfStorageChanges);
     const currentEntry = entry || (await ctx.host.db().fetchEntryMeta(file, undefined, true));
     const conflictedRevs = await ctx.host.db().getConflictedRevs(file);
     const isConflicted = conflictedRevs.length > 0;
@@ -288,7 +290,14 @@ async function saveClassifiedStorage(
 ): Promise<boolean> {
     const { entry, currentEntry } = save;
     const currentIsLive = currentEntry && !currentEntry.deleted && !currentEntry._deleted;
-    if (retryIfStorageChanges && currentIsLive && !entry) return false;
+    if (retryIfStorageChanges && currentIsLive && !entry) {
+        const revision = currentEntry._rev ? displayRev(currentEntry._rev) : "unknown";
+        ctx.host.log(
+            `Could not reconcile ${save.file.path}: content for current database revision ${revision} is unavailable; this file remains unresolved for a later scan.`,
+            LOG_LEVEL_VERBOSE
+        );
+        return false;
+    }
     const details = await observeClassifiedStorage(ctx, save, preferredBasePath, retryIfStorageChanges);
     const recovery: StorageSaveRecovery = { preferredBasePath, retryIfStorageChanges, snapshotRetry };
     const classification = details.classification;
