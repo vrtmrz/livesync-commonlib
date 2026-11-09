@@ -8,6 +8,7 @@ import {
     type FilePathWithPrefix,
     type UXFileInfo,
     type UXFileInfoStub,
+    type UXFolderInfo,
 } from "@lib/common/types";
 import { compareMTime, createTextBlob, isDocContentSame, readContent } from "@lib/common/utils";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
@@ -21,6 +22,10 @@ import {
     ServiceFileHandlerBase,
     type ServiceFileHandlerDependencies,
 } from "@lib/serviceModules/ServiceFileHandlerBase";
+
+import { StorageEventManagerBase, type FileEventItemSentinel } from "@lib/managers/StorageEventManager";
+import type { IStorageEventManagerAdapter } from "@lib/managers/adapters";
+import type { StorageEventManagerBaseDependencies } from "@lib/managers/StorageEventManager";
 
 PouchDB.plugin(MemoryAdapter);
 
@@ -70,7 +75,7 @@ async function createFixture() {
     const db = new PouchDB<EntryDoc>(name, { adapter: "memory", revs_limit: 1_000, auto_compaction: false });
     const provenance = new Map<FilePathWithPrefix, FileReflectionProvenanceRecord>();
     const storage = new Map<FilePathWithPrefix, UXFileInfo>();
-    const settings = { ...DEFAULT_SETTINGS, useOnlyLocalChunk: true, writeDocumentsIfConflicted: false };
+    const settings = { ...DEFAULT_SETTINGS, isConfigured: true, batchSave: false, useOnlyLocalChunk: true, writeDocumentsIfConflicted: false };
     const setting = { currentSettings: () => settings };
     const pathService = {
         path2id: async (path: string) => path.toLowerCase(),
@@ -103,9 +108,19 @@ async function createFixture() {
         expect(await localDatabase.initializeDatabase()).toBe(true);
         const storageAccess = {
             normalisePath: (path: string) => path,
-            getStub: async (path: string) => storage.get(path as FilePathWithPrefix) ?? null,
-            getFileStub: async (path: string) => storage.get(path as FilePathWithPrefix) ?? null,
-            readStubContent: async (file: UXFileInfo) => file,
+            getStub: async (path: string) => {
+                const file = storage.get(path as FilePathWithPrefix);
+                return file ? makeStub(file) : null;
+            },
+            getFileStub: async (path: string) => {
+                const file = storage.get(path as FilePathWithPrefix);
+                return file ? makeStub(file) : null;
+            },
+            readStubContent: vi.fn(async (file: UXFileInfoStub) => {
+                const current = storage.get(file.path);
+                if (!current) throw new Error("Storage file is absent: " + file.path);
+                return current;
+            }),
             ensureDir: async () => true,
             writeFileAuto: vi.fn(async (path: string, body: string, times: { mtime: number }) => {
                 storage.set(path as FilePathWithPrefix, makeFile(path as FilePathWithPrefix, body, times.mtime));
@@ -158,7 +173,7 @@ async function createFixture() {
             await db.destroy();
         };
         disposers.push(dispose);
-        return { access, db, handler, processFileEvent, provenance, storage };
+        return { access, db, handler, processFileEvent, provenance, storage, storageAccess, services };
     } catch (error) {
         localDatabase.offRemoteChunkFetchedHandler?.();
         await localDatabase.managers.teardownManagers();
@@ -391,4 +406,202 @@ describe("ServiceFileHandlerBase restored operation replay with PouchDB", () => 
         });
     });
 
+});
+
+class RuntimeStorageEventManager extends StorageEventManagerBase<IStorageEventManagerAdapter<UXFileInfoStub, UXFolderInfo>> {}
+
+function createRuntimeManager(fixture: Awaited<ReturnType<typeof createFixture>>) {
+    let saved: (FileEventItem | FileEventItemSentinel)[] = [];
+    const persistence = {
+        saveSnapshot: vi.fn(async (snapshot: (FileEventItem | FileEventItemSentinel)[]) => {
+            saved = JSON.parse(JSON.stringify(snapshot));
+        }),
+        loadSnapshot: async () => saved,
+    };
+    const adapter: IStorageEventManagerAdapter<UXFileInfoStub, UXFolderInfo> = {
+        persistence,
+        typeGuard: {
+            isFile: (file): file is UXFileInfoStub => !!file && !(file as UXFolderInfo).isFolder,
+            isFolder: (file): file is UXFolderInfo => !!file && (file as UXFolderInfo).isFolder === true,
+        },
+        converter: {
+            toFileInfo: (file) => file,
+            toInternalFileInfo: (path) => ({ path, name: path, isInternal: true, stat: undefined }),
+        },
+        watch: { beginWatch: async () => {} },
+        status: { updateStatus: () => {} },
+    };
+    const process = vi.fn(fixture.processFileEvent);
+    const dependencies = {
+        setting: fixture.services.setting,
+        vaultService: fixture.services.vault,
+        fileProcessing: { processFileEvent: process, onStorageFileEvent: () => {} },
+        storageAccessManager: fixture.storageAccess,
+        APIService: fixture.services.API,
+    } as unknown as StorageEventManagerBaseDependencies;
+    return {
+        manager: new RuntimeStorageEventManager(adapter, dependencies),
+        restart: () => new RuntimeStorageEventManager(adapter, dependencies),
+        persistence,
+        process,
+        snapshot: () => saved,
+    };
+}
+
+function runtimeEvent(type: FileEventItem["type"], file: UXFileInfo, key = type + ":" + file.path): FileEventItem {
+    return { type, key, args: { file: makeStub(file) }, skipBatchWait: true };
+}
+
+describe("StorageEventManager current-state retry with PouchDB", () => {
+    it("recovers a vanished temporary read on the next flush and completes the final save and deletion", async () => {
+        const fixture = await createFixture();
+        const temporary = await seedEntry(fixture, "note.md.tmp.1331.hash" as FilePathWithPrefix, "previous temporary bytes");
+        fixture.storage.set(temporary.path, temporary);
+        const runtime = createRuntimeManager(fixture);
+        fixture.storageAccess.readStubContent.mockImplementationOnce(async () => {
+            fixture.storage.delete(temporary.path);
+            throw Object.assign(new Error("temporary file vanished"), { code: "ENOENT" });
+        });
+        const original = runtime.manager.processFileEvent(runtimeEvent("CREATE", temporary));
+        await expect(original).rejects.toThrow("temporary file vanished");
+        expect(runtime.snapshot().some((item) => item.type === "CREATE")).toBe(true);
+
+        const final = makeFile("note.md" as FilePathWithPrefix, "final saved content", 2_000);
+        fixture.storage.set(final.path, final);
+        runtime.manager.enqueue(runtimeEvent("CHANGED", final));
+        runtime.manager.enqueue(runtimeEvent("DELETE", temporary));
+        await expect(runtime.manager.waitForIdle()).resolves.toBeUndefined();
+        await expectDatabaseBody(fixture, final.path, "final saved content");
+        expect((await requireMeta(fixture, temporary.path)).deleted).toBe(true);
+        expect(runtime.snapshot()).toEqual([]);
+        await expect(original).rejects.toThrow("temporary file vanished");
+    });
+
+    it("recognises completed DB and provenance effects after completion-snapshot failure", async () => {
+        const fixture = await createFixture();
+        const file = makeFile(targetPath, "saved once");
+        fixture.storage.set(file.path, file);
+        const runtime = createRuntimeManager(fixture);
+        const save = runtime.persistence.saveSnapshot.getMockImplementation()!;
+        let rejectCompletion = true;
+        runtime.persistence.saveSnapshot.mockImplementation(async (snapshot) => {
+            if (rejectCompletion && snapshot.length === 0) throw new Error("completion snapshot unavailable");
+            await save(snapshot);
+        });
+        await expect(runtime.manager.processFileEvent(runtimeEvent("CHANGED", file))).rejects.toThrow("completion snapshot unavailable");
+        const sequence = (await fixture.db.info()).update_seq;
+        expect(runtime.snapshot()).toHaveLength(1);
+        rejectCompletion = false;
+        await expect(runtime.manager.waitForIdle()).resolves.toBeUndefined();
+        expect((await fixture.db.info()).update_seq).toBe(sequence);
+        await expectDatabaseBody(fixture, targetPath, "saved once");
+        expect(runtime.snapshot()).toEqual([]);
+    });
+
+    it("retains a partial rename when its existing target cannot be attributed to this operation", async () => {
+        const fixture = await createFixture();
+        const old = await seedEntry(fixture, sourcePath, "rename bytes");
+        const moved = { ...old, path: targetPath, name: "New.md" };
+        fixture.storage.set(targetPath, moved);
+        const runtime = createRuntimeManager(fixture);
+        const deletion = vi.spyOn(fixture.access, "delete").mockRejectedValueOnce(new Error("source deletion unavailable"));
+        const rename = runtimeEvent("RENAME", moved);
+        rename.args.oldPath = sourcePath;
+        await expect(runtime.manager.processFileEvent(rename)).rejects.toThrow("source deletion unavailable");
+        const target = await requireMeta(fixture, targetPath);
+        const source = await requireMeta(fixture, sourcePath);
+        await expect(runtime.manager.waitForIdle()).rejects.toThrow("Storage operation failed");
+        expect((await requireMeta(fixture, targetPath))._rev).toBe(target._rev);
+        expect((await requireMeta(fixture, sourcePath))._rev).toBe(source._rev);
+        expect((await requireMeta(fixture, sourcePath)).deleted).not.toBe(true);
+        await expectDatabaseBody(fixture, targetPath, "rename bytes");
+        await expectDatabaseBody(fixture, sourcePath, "rename bytes");
+        expect(deletion).toHaveBeenCalledOnce();
+        expect(runtime.snapshot()).toEqual([rename]);
+    });
+
+    it("retries a completed rename after snapshot failure without adding any revisions", async () => {
+        const fixture = await createFixture();
+        const old = await seedEntry(fixture, sourcePath, "completed rename");
+        const moved = { ...old, path: targetPath, name: "New.md" };
+        fixture.storage.set(targetPath, moved);
+        const runtime = createRuntimeManager(fixture);
+        const save = runtime.persistence.saveSnapshot.getMockImplementation()!;
+        let rejectCompletion = true;
+        runtime.persistence.saveSnapshot.mockImplementation(async (snapshot) => {
+            if (rejectCompletion && snapshot.length === 0) throw new Error("completion snapshot unavailable");
+            await save(snapshot);
+        });
+        const rename = runtimeEvent("RENAME", moved);
+        rename.args.oldPath = sourcePath;
+        await expect(runtime.manager.processFileEvent(rename)).rejects.toThrow("completion snapshot unavailable");
+        expect((await requireMeta(fixture, sourcePath)).deleted).toBe(true);
+        const sequence = (await fixture.db.info()).update_seq;
+        rejectCompletion = false;
+        await expect(runtime.manager.waitForIdle()).resolves.toBeUndefined();
+        expect((await fixture.db.info()).update_seq).toBe(sequence);
+        await expectDatabaseBody(fixture, targetPath, "completed rename");
+        expect(runtime.snapshot()).toEqual([]);
+    });
+
+    it("restores the original intent if the runtime stops during its retry", async () => {
+        const fixture = await createFixture();
+        const file = makeFile(targetPath, "restart during retry");
+        fixture.storage.set(file.path, file);
+        const runtime = createRuntimeManager(fixture);
+        fixture.storageAccess.readStubContent.mockRejectedValueOnce(new Error("first read unavailable"));
+        await expect(runtime.manager.processFileEvent(runtimeEvent("CHANGED", file))).rejects.toThrow("first read unavailable");
+        let interrupt!: (error: Error) => void;
+        fixture.storageAccess.readStubContent.mockImplementationOnce(async () =>
+            await new Promise<UXFileInfo>((_resolve, reject) => { interrupt = reject; })
+        );
+        const retry = runtime.manager.waitForIdle();
+        void retry.catch(() => {});
+        await vi.waitFor(() => expect(interrupt).toBeTypeOf("function"));
+        const saved = runtime.snapshot()[0] as FileEventItem;
+        expect(Object.getOwnPropertySymbols(saved)).toEqual([]);
+        expect(saved.restoredFromPreviousRuntime).toBeUndefined();
+        interrupt(new Error("runtime interrupted"));
+        await expect(retry).rejects.toThrow("runtime interrupted");
+        const restarted = runtime.restart();
+        await restarted.restoreState();
+        await expect(restarted.waitForIdle()).resolves.toBeUndefined();
+        const sequence = (await fixture.db.info()).update_seq;
+        await restarted.restoreState();
+        expect((await fixture.db.info()).update_seq).toBe(sequence);
+        await expectDatabaseBody(fixture, targetPath, "restart during retry");
+        expect(runtime.snapshot()).toEqual([]);
+    });
+
+    it("retains repeated permission failures after one attempt per request", async () => {
+        const fixture = await createFixture();
+        const file = makeFile(targetPath, "permission-protected bytes");
+        fixture.storage.set(file.path, file);
+        const runtime = createRuntimeManager(fixture);
+        fixture.storageAccess.readStubContent.mockRejectedValue(
+            Object.assign(new Error("permission denied"), { code: "EACCES" })
+        );
+        await expect(runtime.manager.processFileEvent(runtimeEvent("CHANGED", file))).rejects.toThrow("permission denied");
+        await expect(runtime.manager.waitForIdle()).rejects.toThrow("permission denied");
+        await expect(runtime.manager.waitForIdle()).rejects.toThrow("permission denied");
+        expect(fixture.storageAccess.readStubContent).toHaveBeenCalledTimes(3);
+        expect(await fixture.access.fetchEntryMeta(targetPath, undefined, true)).toBe(false);
+        expect(runtime.snapshot()).toHaveLength(1);
+        expect(fixture.storage.get(targetPath)).toBe(file);
+    });
+
+    it("protects a recreated path while retrying its deletion and saving its new bytes", async () => {
+        const fixture = await createFixture();
+        const old = await seedEntry(fixture, sourcePath, "old bytes");
+        const runtime = createRuntimeManager(fixture);
+        vi.spyOn(fixture.access, "delete").mockRejectedValueOnce(new Error("deletion unavailable"));
+        await expect(runtime.manager.processFileEvent(runtimeEvent("DELETE", old))).rejects.toThrow("deletion unavailable");
+        const recreated = makeFile(sourcePath, "new bytes", 2_000);
+        fixture.storage.set(sourcePath, recreated);
+        await expect(runtime.manager.processFileEvent(runtimeEvent("CREATE", recreated))).resolves.toBeUndefined();
+        await expectDatabaseBody(fixture, sourcePath, "new bytes");
+        expect(fixture.storage.get(sourcePath)).toBe(recreated);
+        expect((await requireMeta(fixture, sourcePath)).deleted).not.toBe(true);
+        expect(runtime.snapshot()).toEqual([]);
+    });
 });

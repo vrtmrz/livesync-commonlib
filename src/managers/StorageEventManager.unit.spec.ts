@@ -13,6 +13,9 @@ import type {
     IStorageEventConverterAdapter,
     IStorageEventWatchHandlers,
 } from "./adapters";
+import { isReconcileEvent } from "@lib/common/models/fileaccess.definition";
+import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
+import { pendingFileOperations } from "./StorageEventManager/state";
 import type { FileEventItem } from "@lib/common/types";
 import type { FilePath, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/types";
 import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess";
@@ -473,6 +476,52 @@ describe("StorageEventManagerBase", () => {
             const oldPath = "old-folder";
             manager.testWatchVaultRename(folder, oldPath);
             expect(dependencies.fileProcessing.onStorageFileEvent).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("watcher admission contracts", () => {
+        it.each(["CREATE", "CHANGED", "DELETE"] as const)(
+            "preserves the context, adapter receiver, and deletion flag for %s",
+            (type) => {
+                const file = createMockFile("watched.md", "watched.md");
+                const ctx = { source: "watcher" };
+                const append = vi.spyOn(manager, "appendQueue").mockResolvedValue(undefined);
+                const convert = vi.spyOn(adapter.converter, "toFileInfo");
+                const watch = {
+                    CREATE: () => manager.testWatchVaultCreate(file, ctx),
+                    CHANGED: () => manager.testWatchVaultChange(file, ctx),
+                    DELETE: () => manager.testWatchVaultDelete(file, ctx),
+                };
+                watch[type]();
+                expect(convert).toHaveBeenCalledOnce();
+                expect(convert.mock.contexts[0]).toBe(adapter.converter);
+                expect(convert.mock.calls[0][0]).toBe(file);
+                expect(convert.mock.calls[0][1]).toBe(type === "DELETE" ? true : undefined);
+                expect(append).toHaveBeenCalledWith(
+                    [{ type, file: expect.objectContaining({ path: file.path }) }],
+                    ctx
+                );
+            }
+        );
+
+        it("preserves a rename as an immediate event even while its destination is processing", () => {
+            const file = createMockFile("destination.md", "destination.md");
+            const ctx = { source: "rename" };
+            vi.mocked(dependencies.storageAccessManager.isFileProcessing).mockReturnValue(true);
+            const append = vi.spyOn(manager, "appendQueue").mockResolvedValue(undefined);
+            manager.testWatchVaultRename(file, "source.md", ctx);
+            expect(dependencies.storageAccessManager.isFileProcessing).not.toHaveBeenCalled();
+            expect(append).toHaveBeenCalledWith(
+                [
+                    {
+                        type: "RENAME",
+                        file: expect.objectContaining({ path: file.path }),
+                        oldPath: "source.md",
+                        skipBatchWait: true,
+                    },
+                ],
+                ctx
+            );
         });
     });
 
@@ -1695,10 +1744,11 @@ describe("StorageEventManagerBase", () => {
 
             await processPromise;
 
-            // The failed operation remains available for a later restart.
+            // The cancelled attempt remains recoverable; a later flush makes a new attempt.
             expect(manager["_waitingMap"].has(file.path)).toBe(false);
             expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
-            await expect(manager.waitForIdle()).rejects.toThrow("without a successor");
+            await expect(manager.waitForIdle()).resolves.toBeUndefined();
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
         }, 10000);
 
         it("should restore previous waiting since for batch timeout calculation", async () => {
@@ -1780,7 +1830,9 @@ describe("StorageEventManagerBase", () => {
 
         it("processes an unrelated file while hot-file predecessors are still running", async () => {
             let releaseHotFile!: () => void;
-            const hotGate = new Promise<void>((resolve) => { releaseHotFile = resolve; });
+            const hotGate = new Promise<void>((resolve) => {
+                releaseHotFile = resolve;
+            });
             const process = vi.mocked(dependencies.fileProcessing.processFileEvent);
             process.mockImplementation(async (item) => {
                 if (item.args.file.path === "hot-queue.md") await hotGate;
@@ -1792,14 +1844,14 @@ describe("StorageEventManagerBase", () => {
                 key: `queue-${index}`,
                 skipBatchWait: true,
             });
-            const hot = Array.from({ length: 5 }, (_, index) =>
-                manager.processFileEvent(event("hot-queue.md", index))
-            );
+            const hot = Array.from({ length: 5 }, (_, index) => manager.processFileEvent(event("hot-queue.md", index)));
             const unrelated = manager.processFileEvent(event("unrelated-queue.md", 5));
             try {
                 await vi.waitFor(() => {
                     expect(process).toHaveBeenCalledTimes(2);
-                    expect(process.mock.calls.some(([item]) => item.args.file.path === "unrelated-queue.md")).toBe(true);
+                    expect(process.mock.calls.some(([item]) => item.args.file.path === "unrelated-queue.md")).toBe(
+                        true
+                    );
                 });
                 expect(process.mock.calls[0][0].args.file.path).toBe("hot-queue.md");
             } finally {
@@ -1811,9 +1863,10 @@ describe("StorageEventManagerBase", () => {
         });
 
         it("should properly release semaphore even when processing fails", async () => {
-            vi.mocked(dependencies.fileProcessing.processFileEvent).mockRejectedValueOnce(
-                new Error("Processing failed")
-            );
+            manager["concurrentProcessing"] = Semaphore(1);
+            vi.mocked(dependencies.fileProcessing.processFileEvent)
+                .mockRejectedValueOnce(new Error("Processing failed"))
+                .mockResolvedValue(true);
 
             const file = createMockFile("error.md", "error.md");
             const item: FileEventItem = {
@@ -1825,14 +1878,16 @@ describe("StorageEventManagerBase", () => {
                 skipBatchWait: true,
             };
 
-            try {
-                await manager["processFileEvent"](item);
-            } catch {
-                // Expected to fail
-            }
+            await expect(manager.processFileEvent(item)).rejects.toThrow("Processing failed");
 
-            // Semaphore should still be released (handled by finally block)
-            expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled();
+            // Independent work must acquire the only permit after the failed handler.
+            const following: FileEventItem = {
+                ...item,
+                args: { file: adapter.converter.toFileInfo(createMockFile("after-error.md", "after-error.md")) },
+                key: "after-error-key",
+            };
+            await expect(manager.processFileEvent(following)).resolves.toBeUndefined();
+            expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledTimes(2);
         }, 10000);
     });
 
@@ -1849,12 +1904,16 @@ describe("StorageEventManagerBase", () => {
         it("includes watcher admission already under way when flush is requested", async () => {
             let release!: (result: boolean) => void;
             vi.mocked(dependencies.fileProcessing.processFileEvent).mockReturnValue(
-                new Promise<boolean>((resolve) => { release = resolve; })
+                new Promise<boolean>((resolve) => {
+                    release = resolve;
+                })
             );
             const file = adapter.converter.toFileInfo(createMockFile("admitting.md", "admitting.md"));
             const admission = manager.appendQueue([{ type: "CHANGED", file, skipBatchWait: true }]);
             let settled = false;
-            const flush = manager.waitForIdle().then(() => { settled = true; });
+            const flush = manager.waitForIdle().then(() => {
+                settled = true;
+            });
             try {
                 await admission;
                 await vi.waitFor(() => expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled());
@@ -1869,13 +1928,17 @@ describe("StorageEventManagerBase", () => {
         it("stops new watcher admission while draining accepted operations", async () => {
             let release!: (result: boolean) => void;
             const process = vi.mocked(dependencies.fileProcessing.processFileEvent).mockReturnValue(
-                new Promise<boolean>((resolve) => { release = resolve; })
+                new Promise<boolean>((resolve) => {
+                    release = resolve;
+                })
             );
             const item = event("before-stop.md");
             manager.enqueue(item);
             await vi.waitFor(() => expect(process).toHaveBeenCalledOnce());
             let stopped = false;
-            const stopping = manager.stopWatching().then(() => { stopped = true; });
+            const stopping = manager.stopWatching().then(() => {
+                stopped = true;
+            });
             try {
                 const file = adapter.converter.toFileInfo(createMockFile("after-stop.md", "after-stop.md"));
                 await manager.appendQueue([{ type: "CHANGED", file, skipBatchWait: true }]);
@@ -1900,7 +1963,9 @@ describe("StorageEventManagerBase", () => {
         it("retains an event in the snapshot throughout its database write", async () => {
             let release!: (result: boolean) => void;
             vi.mocked(dependencies.fileProcessing.processFileEvent).mockReturnValue(
-                new Promise<boolean>((resolve) => { release = resolve; })
+                new Promise<boolean>((resolve) => {
+                    release = resolve;
+                })
             );
             const item = event("in-progress.md");
             manager.enqueue(item);
@@ -1917,14 +1982,18 @@ describe("StorageEventManagerBase", () => {
         it("waits for an in-progress write even when no batch timer remains", async () => {
             let release!: (result: boolean) => void;
             vi.mocked(dependencies.fileProcessing.processFileEvent).mockReturnValue(
-                new Promise<boolean>((resolve) => { release = resolve; })
+                new Promise<boolean>((resolve) => {
+                    release = resolve;
+                })
             );
             manager.enqueue(event("flush-running.md"));
             let settled = false;
             let flush: Promise<void> | undefined;
             try {
                 await vi.waitFor(() => expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled());
-                flush = manager.waitForIdle().then(() => { settled = true; });
+                flush = manager.waitForIdle().then(() => {
+                    settled = true;
+                });
                 await new Promise((resolve) => setTimeout(resolve, 20));
                 expect(settled).toBe(false);
             } finally {
@@ -1941,6 +2010,740 @@ describe("StorageEventManagerBase", () => {
             await vi.waitFor(() => expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled());
             await expect(manager.waitForIdle()).rejects.toThrow();
             expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+        });
+    });
+
+    it("keeps live settings and virtual host methods across the responsibility facade", async () => {
+        const seen: string[] = [];
+        class HostManager extends TestStorageEventManager {
+            override async processFileEvent(event: FileEventItem) {
+                seen.push(`process:${event.key}`);
+                await super.processFileEvent(event);
+            }
+            protected override async requestProcessQueue(event: FileEventItem) {
+                seen.push(`request:${event.key}`);
+                await super.requestProcessQueue(event);
+            }
+            protected override async handleFileEvent(event: FileEventItem) {
+                seen.push(`handle:${event.key}`);
+                await super.handleFileEvent(event);
+            }
+            override async _takeSnapshot() {
+                seen.push("takeSnapshot");
+                await super._takeSnapshot();
+            }
+            override async _saveSnapshot(events: (FileEventItem | FileEventItemSentinel)[]) {
+                seen.push("saveSnapshot");
+                await super._saveSnapshot(events);
+            }
+            override async _loadSnapshot() {
+                seen.push("loadSnapshot");
+                return await super._loadSnapshot();
+            }
+        }
+        const host = new HostManager(adapter, dependencies);
+        const save = vi.spyOn(adapter.persistence, "saveSnapshot");
+        const event = (path: string, key: string): FileEventItem => ({
+            type: "CHANGED",
+            key,
+            args: { file: adapter.converter.toFileInfo(createMockFile(path, path)) },
+        });
+        const first = event("batched-host.md", "batched-host");
+        const batched = host.processFileEvent(first);
+        void batched.catch(() => {});
+        await vi.waitFor(() => expect(host.isWaiting(first.args.file.path as FilePath)).toBe(true));
+        vi.mocked(dependencies.setting.currentSettings).mockReturnValue({
+            ...DEFAULT_SETTINGS,
+            isConfigured: true,
+            batchSave: false,
+        });
+        const second = event("immediate-host.md", "immediate-host");
+        const immediate = host.processFileEvent(second);
+        void immediate.catch(() => {});
+        try {
+            await vi.waitFor(() => expect(seen).toContain(`handle:${second.key}`));
+            expect(host.isWaiting(first.args.file.path as FilePath)).toBe(true);
+        } finally {
+            await host.waitForIdle();
+            await Promise.all([batched, immediate]);
+        }
+        const queued = event("queued-host.md", "queued-host");
+        host.enqueue(queued);
+        await host.waitForIdle();
+        await host.restoreState();
+        for (const item of [first, second, queued]) {
+            expect(seen).toContain(`process:${item.key}`);
+            expect(seen).toContain(`request:${item.key}`);
+            expect(seen).toContain(`handle:${item.key}`);
+        }
+        expect(seen).toContain("takeSnapshot");
+        expect(seen).toContain("saveSnapshot");
+        expect(seen).toContain("loadSnapshot");
+        expect(save.mock.contexts.every((context) => context === adapter.persistence)).toBe(true);
+        expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+    });
+
+    describe("issue 1331 investigation", () => {
+        function fileEvent(type: FileEventItem["type"], path: string): FileEventItem {
+            return {
+                type,
+                key: `${type}-${path}`,
+                skipBatchWait: true,
+                args: { file: adapter.converter.toFileInfo(createMockFile(path, path)) },
+            };
+        }
+
+        it("issue1331 retries a persistent failure only once in each later flush", async () => {
+            const temporaryPath = "note.md.tmp.1331.hash";
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent);
+            process.mockImplementation(async (item) => item.args.file.path !== temporaryPath);
+            const temporary = fileEvent("CREATE", temporaryPath);
+            manager.enqueue(temporary);
+            await expect(manager.waitForIdle()).rejects.toThrow(`Storage operation failed: ${temporaryPath}`);
+
+            const finalFile = fileEvent("CHANGED", "note.md");
+            manager.enqueue(finalFile);
+            await expect(manager.waitForIdle()).rejects.toThrow(`Storage operation failed: ${temporaryPath}`);
+            await expect(manager.waitForIdle()).rejects.toThrow(`Storage operation failed: ${temporaryPath}`);
+
+            expect(process.mock.calls.map(([item]) => item.args.file.path)).toEqual([
+                temporaryPath,
+                temporaryPath,
+                "note.md",
+                temporaryPath,
+            ]);
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(temporary);
+            expect(adapter.persistence.getStoredSnapshot()).not.toContainEqual(finalFile);
+            expect(manager.hasPendingFileEvent(temporaryPath as FilePath)).toBe(true);
+        });
+
+        it("issue1331 re-evaluates a vanished temporary-file save before its later deletion", async () => {
+            const temporaryPath = "note.md.tmp.1331.hash";
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent);
+            process.mockResolvedValueOnce(false).mockResolvedValue(true);
+            manager.enqueue(fileEvent("CREATE", temporaryPath));
+            await expect(manager.waitForIdle()).rejects.toThrow(`Storage operation failed: ${temporaryPath}`);
+
+            manager.enqueue(fileEvent("CHANGED", "note.md"));
+            manager.enqueue(fileEvent("DELETE", temporaryPath));
+            await expect(manager.waitForIdle()).resolves.toBeUndefined();
+            expect(process.mock.calls.map(([item]) => item.type)).toEqual(["CREATE", "CREATE", "CHANGED", "DELETE"]);
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+        });
+
+        it("issue1331 retries a failed predecessor before a later same-path edit without a flush", async () => {
+            const path = "edited-again.md";
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent);
+            process.mockResolvedValue(false);
+            const first = fileEvent("CHANGED", path);
+            first.key = "first-edit";
+            await expect(manager.processFileEvent(first)).rejects.toThrow(`Storage operation failed: ${path}`);
+
+            process.mockResolvedValue(true);
+            const later = fileEvent("CHANGED", path);
+            later.key = "later-edit";
+            await expect(manager.processFileEvent(later)).resolves.toBeUndefined();
+
+            expect(process.mock.calls.map(([item]) => item.key)).toEqual([first.key, first.key, later.key]);
+            const retry = process.mock.calls[1][0];
+            expect(isReconcileEvent(retry)).toBe(true);
+            expect(isReconcileEvent(first)).toBe(false);
+            expect(isReconcileEvent(later)).toBe(false);
+            expect(retry).not.toBe(first);
+            expect(JSON.parse(JSON.stringify(retry))).toEqual(first);
+            expect(isReconcileEvent(JSON.parse(JSON.stringify(retry)))).toBe(false);
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+            expect(manager.hasPendingFileEvent(path as FilePath)).toBe(false);
+        });
+
+        it("shares a retry between overlapping flushes without including a later same-path edit", async () => {
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent);
+            process.mockResolvedValueOnce(false);
+            const first = fileEvent("CHANGED", "overlap.md");
+            const original = manager.processFileEvent(first);
+            await expect(original).rejects.toThrow("Storage operation failed");
+
+            let releaseRetry!: (result: boolean) => void;
+            let releaseLater!: (result: boolean) => void;
+            process.mockImplementation(
+                async (item) =>
+                    await new Promise<boolean>((resolve) => {
+                        if (item.key === first.key) releaseRetry = resolve;
+                        else releaseLater = resolve;
+                    })
+            );
+            const flushing = Promise.all([manager.waitForIdle(), manager.waitForIdle()]);
+            void flushing.catch(() => {});
+            await vi.waitFor(() => expect(process).toHaveBeenCalledTimes(2));
+            expect(adapter.persistence.getStoredSnapshot()).toContain(first);
+            expect(Object.getOwnPropertySymbols(first)).toEqual([]);
+            const later = fileEvent("CHANGED", "overlap.md");
+            later.key = "later-overlap";
+            const editing = manager.processFileEvent(later);
+            try {
+                releaseRetry(true);
+                await flushing;
+                await vi.waitFor(() => expect(process).toHaveBeenCalledTimes(3));
+                expect(adapter.persistence.getStoredSnapshot()).toContainEqual(later);
+                expect(adapter.persistence.getStoredSnapshot()).not.toContainEqual(first);
+                await expect(original).rejects.toThrow("Storage operation failed");
+            } finally {
+                releaseLater?.(true);
+                await editing;
+            }
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+        });
+
+        it("does not retry an admitted attempt which first fails during this flush", async () => {
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent).mockResolvedValue(false);
+            const file = adapter.converter.toFileInfo(createMockFile("new-failure.md", "new-failure.md"));
+            const admission = manager.appendQueue([{ type: "CHANGED", file, skipBatchWait: true }]);
+            const flush = manager.waitForIdle();
+            await admission;
+            await expect(flush).rejects.toThrow("Storage operation failed");
+            expect(process).toHaveBeenCalledOnce();
+            await expect(manager.waitForIdle()).rejects.toThrow("Storage operation failed");
+            expect(process).toHaveBeenCalledTimes(2);
+        });
+
+        it("retains completion-snapshot failure for retry and for a fresh manager", async () => {
+            const first = fileEvent("CHANGED", "completion-failure.md");
+            const save = adapter.persistence.saveSnapshot.bind(adapter.persistence);
+            let rejectCompletion = true;
+            vi.spyOn(adapter.persistence, "saveSnapshot").mockImplementation(async (snapshot) => {
+                if (rejectCompletion && !snapshot.includes(first)) throw new Error("completion snapshot unavailable");
+                await save(snapshot);
+            });
+            await expect(manager.processFileEvent(first)).rejects.toThrow("completion snapshot unavailable");
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(first);
+            await expect(manager.waitForIdle()).rejects.toThrow("completion snapshot unavailable");
+            expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledTimes(2);
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(first);
+
+            rejectCompletion = false;
+            const restarted = new TestStorageEventManager(adapter, dependencies);
+            await restarted.restoreState();
+            await expect(restarted.waitForIdle()).resolves.toBeUndefined();
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+        });
+
+        it("does not extend retry to an internal provider", async () => {
+            const optional = vi
+                .mocked(dependencies.fileProcessing.processOptionalFileEvent)
+                .mockRejectedValue(new Error("optional provider unavailable"));
+            const item = fileEvent("INTERNAL", "internal.md");
+            await expect(manager.processFileEvent(item)).rejects.toThrow("optional provider unavailable");
+            await expect(manager.waitForIdle()).rejects.toThrow("optional provider unavailable");
+            expect(optional).toHaveBeenCalledOnce();
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+        });
+
+        it.each(["DELETE", "RENAME"] as const)(
+            "does not let a standalone %s sentinel wait for its successor",
+            async (type) => {
+                const item = fileEvent(type, "standalone.md");
+                if (type === "RENAME") item.args.oldPath = "source.md";
+                manager.enqueue(item);
+                await expect(manager.waitForIdle()).resolves.toBeUndefined();
+                expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledOnce();
+                expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+            }
+        );
+
+        it.each(["oldPath", "renameTarget"] as const)(
+            "retries a failed predecessor related through %s before a new event",
+            async (relation) => {
+                const process = vi
+                    .mocked(dependencies.fileProcessing.processFileEvent)
+                    .mockResolvedValueOnce(false)
+                    .mockResolvedValue(true);
+                const predecessor = fileEvent("CHANGED", "source.md");
+                await expect(manager.processFileEvent(predecessor)).rejects.toThrow("Storage operation failed");
+                const next = fileEvent(relation === "oldPath" ? "RENAME" : "DELETE", "target.md");
+                next.args[relation] = "source.md";
+                await expect(manager.processFileEvent(next)).resolves.toBeUndefined();
+                expect(process.mock.calls.map(([item]) => item.key)).toEqual([
+                    predecessor.key,
+                    predecessor.key,
+                    next.key,
+                ]);
+                expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+            }
+        );
+
+        it("does not retry a failure first observed behind a delete sentinel in the same request", async () => {
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent).mockResolvedValue(false);
+            manager.enqueue(fileEvent("CREATE", "first-failure.md"));
+            manager.enqueue(fileEvent("DELETE", "first-failure.md"));
+            await expect(manager.waitForIdle()).rejects.toThrow("Storage operation failed");
+            expect(process).toHaveBeenCalledOnce();
+            await expect(manager.waitForIdle()).rejects.toThrow("Storage operation failed");
+            expect(process).toHaveBeenCalledTimes(2);
+        });
+
+        it("re-evaluates a related predecessor which failed before it could register its handler", async () => {
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent);
+            vi.spyOn(adapter.persistence, "saveSnapshot").mockRejectedValueOnce(
+                new Error("admission snapshot unavailable")
+            );
+            const predecessor = fileEvent("CHANGED", "snapshot-admission.md");
+            manager.enqueue(predecessor);
+            await vi.waitFor(() => expect(manager["operations"].get(predecessor)?.attempt.result?.ok).toBe(false));
+            expect(process).not.toHaveBeenCalled();
+            const later = fileEvent("CHANGED", "snapshot-admission.md");
+            later.key = "after-snapshot-failure";
+            await expect(manager.processFileEvent(later)).resolves.toBeUndefined();
+            expect(process.mock.calls.map(([item]) => item.key)).toEqual([predecessor.key, later.key]);
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+        });
+
+        it("retries a coalesced predecessor and its failed successor without a wait cycle", async () => {
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent).mockResolvedValue(false);
+            const path = "coalesced-failure.md" as FilePath;
+            const predecessor = fileEvent("CHANGED", path);
+            predecessor.skipBatchWait = false;
+            const older = manager.processFileEvent(predecessor);
+            void older.catch(() => {});
+            await vi.waitFor(() => expect(manager.isWaiting(path)).toBe(true));
+            const successor = fileEvent("CHANGED", path);
+            successor.key = "failed-successor";
+            await expect(manager.processFileEvent(successor)).rejects.toThrow("Storage operation failed");
+            await expect(older).rejects.toThrow("Storage operation failed");
+            expect(process).toHaveBeenCalledOnce();
+            process.mockResolvedValue(true);
+            await expect(manager.waitForIdle()).resolves.toBeUndefined();
+            expect(process).toHaveBeenCalledTimes(3);
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+            await expect(older).rejects.toThrow("Storage operation failed");
+        });
+
+        it("rolls back a failed completion before the next queued snapshot captures pending work", async () => {
+            const item = fileEvent("CHANGED", "snapshot-race.md");
+            const save = adapter.persistence.saveSnapshot.bind(adapter.persistence);
+            let rejectCompletion!: (error: Error) => void;
+            let releaseFollowing!: () => void;
+            let failed = false;
+            let following: (FileEventItem | FileEventItemSentinel)[] | undefined;
+            vi.spyOn(adapter.persistence, "saveSnapshot").mockImplementation(async (snapshot) => {
+                if (!failed && snapshot.length === 0) {
+                    await new Promise<void>((_resolve, reject) => {
+                        rejectCompletion = reject;
+                    });
+                } else if (failed && !following) {
+                    following = snapshot;
+                    await new Promise<void>((resolve) => {
+                        releaseFollowing = resolve;
+                    });
+                }
+                await save(snapshot);
+            });
+            const attempted = expect(manager.processFileEvent(item)).rejects.toThrow("completion failed");
+            await vi.waitFor(() => expect(rejectCompletion).toBeTypeOf("function"));
+            const nextSnapshot = manager._takeSnapshot();
+            failed = true;
+            rejectCompletion(new Error("completion failed"));
+            try {
+                await attempted;
+                await vi.waitFor(() => expect(following).toBeDefined());
+                expect(following).toContainEqual(item);
+            } finally {
+                releaseFollowing?.();
+                await nextSnapshot;
+            }
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            await expect(manager.waitForIdle()).resolves.toBeUndefined();
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+        });
+
+        it("does not settle a started attempt while its admission snapshot failure is still being drained", async () => {
+            const item = fileEvent("CHANGED", "admission-race.md");
+            const save = adapter.persistence.saveSnapshot.bind(adapter.persistence);
+            let rejectAdmission!: (error: Error) => void;
+            let releaseProcessing!: () => void;
+            let calls = 0;
+            vi.spyOn(adapter.persistence, "saveSnapshot").mockImplementation(async (snapshot) => {
+                if (++calls === 1) {
+                    await new Promise<void>((_resolve, reject) => {
+                        rejectAdmission = reject;
+                    });
+                } else if (calls === 2) {
+                    await new Promise<void>((resolve) => {
+                        releaseProcessing = resolve;
+                    });
+                }
+                await save(snapshot);
+            });
+            manager.enqueue(item);
+            let settled = false;
+            const firstFlush = manager.waitForIdle().then(
+                (): undefined => {
+                    settled = true;
+                    return undefined;
+                },
+                (error: unknown) => {
+                    settled = true;
+                    return error;
+                }
+            );
+            await vi.waitFor(() => expect(manager["operations"].get(item)?.attempt.started).toBe(true));
+            rejectAdmission(new Error("admission failed"));
+            try {
+                await vi.waitFor(() => expect(releaseProcessing).toBeTypeOf("function"));
+                expect(settled).toBe(false);
+            } finally {
+                releaseProcessing?.();
+                expect(await firstFlush).toEqual(new Error("admission failed"));
+                await vi.waitFor(() => expect(adapter.status.processing).toBe(0));
+            }
+            expect(dependencies.fileProcessing.processFileEvent).not.toHaveBeenCalled();
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            await expect(manager.waitForIdle()).resolves.toBeUndefined();
+            expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledOnce();
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+        });
+
+        it("drains an active handler before reporting a delayed admission-snapshot failure", async () => {
+            const item = fileEvent("CHANGED", "active-admission-failure.md");
+            let rejectAdmission!: (error: Error) => void;
+            let releaseHandler!: (result: boolean) => void;
+            const snapshot = manager._takeSnapshot.bind(manager);
+            vi.spyOn(manager, "_takeSnapshot")
+                .mockImplementationOnce(
+                    async () =>
+                        await new Promise<void>((_resolve, reject) => {
+                            rejectAdmission = reject;
+                        })
+                )
+                .mockImplementation(snapshot);
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent).mockImplementationOnce(
+                async () =>
+                    await new Promise<boolean>((resolve) => {
+                        releaseHandler = resolve;
+                    })
+            );
+            manager.enqueue(item);
+            let settled = false;
+            const firstFlush = manager.waitForIdle().then(
+                (): undefined => {
+                    settled = true;
+                    return undefined;
+                },
+                (error: unknown) => {
+                    settled = true;
+                    return error;
+                }
+            );
+            await vi.waitFor(() => expect(process).toHaveBeenCalledOnce());
+            rejectAdmission(new Error("delayed admission failure"));
+            await vi.waitFor(() => expect(manager["operations"].get(item)?.attempt.admissionFailure).toBeDefined());
+            const overlap = manager.waitForIdle().catch((error: unknown) => error);
+            try {
+                expect(settled).toBe(false);
+                expect(process).toHaveBeenCalledOnce();
+            } finally {
+                releaseHandler(true);
+                expect(await firstFlush).toEqual(new Error("delayed admission failure"));
+                expect(await overlap).toEqual(new Error("delayed admission failure"));
+            }
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            await expect(manager.waitForIdle()).resolves.toBeUndefined();
+            expect(process).toHaveBeenCalledTimes(2);
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+        });
+
+        it("review retry preserves original failures through a naturally accumulated same-path history", async () => {
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent).mockResolvedValue(false);
+            const originals: Promise<void>[] = [];
+            for (let index = 0; index < 24; index++) {
+                const item = fileEvent("CHANGED", "retry-history.md");
+                item.key = `history-${index}`;
+                const attempted = manager.processFileEvent(item);
+                originals.push(attempted);
+                await expect(attempted).rejects.toThrow("Storage operation failed: retry-history.md");
+            }
+            expect(process).toHaveBeenCalledTimes(originals.length);
+            expect(adapter.persistence.getStoredSnapshot()).toHaveLength(originals.length);
+            process.mockResolvedValue(true);
+            await expect(manager.waitForIdle()).resolves.toBeUndefined();
+            expect(process).toHaveBeenCalledTimes(originals.length * 2);
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+            for (const original of originals) await expect(original).rejects.toThrow("Storage operation failed");
+        });
+
+        it("review retry settles a long retained same-path history after a further edit", async () => {
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent).mockResolvedValue(false);
+            const first = fileEvent("CHANGED", "long-retry-history.md");
+            await expect(manager.processFileEvent(first)).rejects.toThrow("Storage operation failed");
+            const root = manager["operations"].get(first)!;
+            let previous = root;
+            // Model a long history of failed, already-dispatched dependent edits.
+            // Admission persistence and status projection are separate from dependency traversal.
+            vi.spyOn(manager, "_takeSnapshot").mockResolvedValue();
+            vi.spyOn(manager as unknown as { updateStatus(): void }, "updateStatus").mockImplementation(() => {});
+            for (let index = 1; index < 12_000; index++) {
+                const item = fileEvent("CHANGED", first.args.file.path);
+                item.key = `retained-history-${index}`;
+                const operation = manager["retainEvent"](item).operation!;
+                operation.initialised = true;
+                operation.prerequisites.add(previous);
+                operation.attempt = { ...root.attempt };
+                previous = operation;
+            }
+            const latest = fileEvent("CHANGED", first.args.file.path);
+            latest.key = "edit-after-long-history";
+            await expect(manager.processFileEvent(latest)).rejects.toThrow(
+                "Storage operation failed: long-retry-history.md"
+            );
+            expect(process).toHaveBeenCalledTimes(2);
+            expect(
+                pendingFileOperations(manager["eventState"]).every(
+                    (operation) => operation.attempt.result?.ok === false
+                )
+            ).toBe(true);
+            expect(manager.hasPendingFileEvent(first.args.file.path as FilePath)).toBe(true);
+        }, 15_000);
+
+        it("review retry settles a long history which failed before any operation was dispatched", async () => {
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent).mockResolvedValue(false);
+            const first = fileEvent("CHANGED", "undispatched-history.md");
+            vi.spyOn(adapter.persistence, "saveSnapshot").mockRejectedValueOnce(new Error("initial admission failed"));
+            manager.enqueue(first);
+            await vi.waitFor(() => expect(manager["operations"].get(first)?.attempt.result?.ok).toBe(false));
+            const root = manager["operations"].get(first)!;
+            expect(root.initialised).toBe(false);
+            vi.spyOn(manager, "_takeSnapshot").mockResolvedValue();
+            vi.spyOn(manager as unknown as { updateStatus(): void }, "updateStatus").mockImplementation(() => {});
+            for (let index = 1; index < 12_000; index++) {
+                const item = fileEvent("CHANGED", first.args.file.path);
+                item.key = `undispatched-history-${index}`;
+                const operation = manager["retainEvent"](item).operation!;
+                operation.attempt = { ...root.attempt };
+            }
+            const latest = fileEvent("CHANGED", first.args.file.path);
+            latest.key = "edit-after-undispatched-history";
+            await expect(manager.processFileEvent(latest)).rejects.toThrow(
+                "Storage operation failed: undispatched-history.md"
+            );
+            expect(process).toHaveBeenCalledOnce();
+            expect(
+                pendingFileOperations(manager["eventState"]).every(
+                    (operation) => operation.attempt.result?.ok === false
+                )
+            ).toBe(true);
+        }, 15_000);
+
+        it("review retry releases the predecessor batch before a related rename retries an undispatched delete", async () => {
+            const calls: string[] = [];
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockImplementation(async (item) => {
+                calls.push(item.key);
+                return true;
+            });
+            const predecessor = fileEvent("CHANGED", "batched-source.md");
+            predecessor.key = "batched-predecessor";
+            predecessor.skipBatchWait = false;
+            const saving = manager.processFileEvent(predecessor);
+            void saving.catch(() => {});
+            await vi.waitFor(() => expect(manager.isWaiting(predecessor.args.file.path as FilePath)).toBe(true));
+            await manager._takeSnapshot();
+            vi.spyOn(adapter.persistence, "saveSnapshot").mockRejectedValueOnce(new Error("delete admission failed"));
+            const deletion = fileEvent("DELETE", predecessor.args.file.path);
+            deletion.key = "undispatched-delete";
+            manager.enqueue(deletion);
+            await vi.waitFor(() => expect(manager["operations"].get(deletion)?.attempt.result?.ok).toBe(false));
+            expect(calls).toEqual([]);
+            const rename = fileEvent("RENAME", "renamed-target.md");
+            rename.key = "related-rename";
+            rename.args.oldPath = predecessor.args.file.path;
+            const renaming = manager.processFileEvent(rename);
+            void renaming.catch(() => {});
+            const probe = fileEvent("CHANGED", "batch-ordering-probe.md");
+            probe.key = "independent-probe";
+            await manager.processFileEvent(probe);
+            expect(calls).toContain(predecessor.key);
+            await Promise.all([saving, renaming]);
+            expect(calls.filter((key) => key !== probe.key)).toEqual([predecessor.key, deletion.key, rename.key]);
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+        });
+
+        it("review retry settles setup failure so a later flush can start a new attempt", async () => {
+            const error = new Error("dependency preparation failed");
+            const planning = manager as unknown as { captureAttempts(): Map<unknown, unknown> };
+            vi.spyOn(planning, "captureAttempts").mockImplementationOnce(() => {
+                throw error;
+            });
+            const item = fileEvent("CHANGED", "setup-failure.md");
+            const original = manager.processFileEvent(item);
+            await expect(original).rejects.toBe(error);
+            expect(manager["operations"].get(item)?.attempt.result).toEqual({ ok: false, error });
+            expect(dependencies.fileProcessing.processFileEvent).not.toHaveBeenCalled();
+            await expect(manager.waitForIdle()).resolves.toBeUndefined();
+            await expect(original).rejects.toBe(error);
+            expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledOnce();
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+        });
+
+        it("review retry leaves existing attempts settled if dependency planning itself fails", async () => {
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent).mockResolvedValue(false);
+            const first = fileEvent("CHANGED", "planning-failure.md");
+            first.key = "planning-first";
+            await expect(manager.processFileEvent(first)).rejects.toThrow("Storage operation failed");
+            const second = fileEvent("CHANGED", first.args.file.path);
+            second.key = "planning-second";
+            await expect(manager.processFileEvent(second)).rejects.toThrow("Storage operation failed");
+            const firstOperation = manager["operations"].get(first)!;
+            const secondOperation = manager["operations"].get(second)!;
+            const attempts = [firstOperation.attempt, secondOperation.attempt];
+            const error = new Error("dependency iteration failed");
+            vi.spyOn(secondOperation.prerequisites, Symbol.iterator).mockImplementationOnce(() => {
+                throw error;
+            });
+            const later = fileEvent("CHANGED", first.args.file.path);
+            later.key = "after-planning-failure";
+            const original = manager.processFileEvent(later);
+            await expect(original).rejects.toBe(error);
+            expect(firstOperation.attempt).toBe(attempts[0]);
+            expect(secondOperation.attempt).toBe(attempts[1]);
+            expect(
+                pendingFileOperations(manager["eventState"]).every(
+                    (operation) => operation.attempt.result?.ok === false
+                )
+            ).toBe(true);
+            process.mockResolvedValue(true);
+            await expect(manager.waitForIdle()).resolves.toBeUndefined();
+            await expect(original).rejects.toBe(error);
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+        });
+
+        it.each(["DELETE", "RENAME"] as const)(
+            "review retry keeps an undispatched %s behind its predecessor sentinel",
+            async (type) => {
+                const calls: string[] = [];
+                let releasePredecessor!: (result: boolean) => void;
+                vi.mocked(dependencies.fileProcessing.processFileEvent).mockImplementation(async (item) => {
+                    calls.push(item.key);
+                    if (item.key === "running-predecessor") {
+                        return await new Promise<boolean>((resolve) => {
+                            releasePredecessor = resolve;
+                        });
+                    }
+                    return true;
+                });
+                const predecessor = fileEvent("CHANGED", "unrelated-running.md");
+                predecessor.key = "running-predecessor";
+                manager.enqueue(predecessor);
+                await vi.waitFor(() => expect(calls).toEqual([predecessor.key]));
+                const failure = new Error("destructive admission snapshot failed");
+                vi.spyOn(adapter.persistence, "saveSnapshot").mockRejectedValueOnce(failure);
+                const destructive = fileEvent(type, "destructive-target.md");
+                destructive.key = "destructive-retry";
+                if (type === "RENAME") destructive.args.oldPath = "destructive-source.md";
+                manager.enqueue(destructive);
+                await vi.waitFor(() =>
+                    expect(manager["operations"].get(destructive)?.attempt.result).toEqual({
+                        ok: false,
+                        error: failure,
+                    })
+                );
+                expect(manager["operations"].get(destructive)?.attempt.started).toBe(false);
+                const flushing = manager.waitForIdle();
+                void flushing.catch(() => {});
+                const probe = fileEvent("CHANGED", "independent-probe.md");
+                probe.key = "independent-probe";
+                try {
+                    await manager.processFileEvent(probe);
+                    expect(calls).toEqual([predecessor.key, probe.key]);
+                } finally {
+                    releasePredecessor(true);
+                    await flushing;
+                }
+                expect(calls).toEqual([predecessor.key, probe.key, destructive.key]);
+                expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+            }
+        );
+
+        it.each([
+            ["DELETE", false],
+            ["RENAME", false],
+            ["DELETE", true],
+            ["RENAME", true],
+        ] as const)(
+            "review retry keeps an already-dispatched %s behind new predecessor attempts (restored: %s)",
+            async (type, restored) => {
+                const calls: string[] = [];
+                const process = vi
+                    .mocked(dependencies.fileProcessing.processFileEvent)
+                    .mockImplementation(async (item) => {
+                        calls.push(item.key);
+                        return false;
+                    });
+                const predecessor = fileEvent("CHANGED", "failed-predecessor.md");
+                predecessor.key = "predecessor-retry";
+                const destructive = fileEvent(type, "failed-destructive.md");
+                destructive.key = "dispatched-destructive-retry";
+                if (type === "RENAME") destructive.args.oldPath = "failed-source.md";
+                if (restored) {
+                    await adapter.persistence.saveSnapshot([predecessor, { type: "SENTINEL_FLUSH" }, destructive]);
+                    await manager.restoreState();
+                } else {
+                    manager.enqueue(predecessor);
+                    manager.enqueue(destructive);
+                    await expect(manager.waitForIdle()).rejects.toThrow("Storage operation failed");
+                }
+                await vi.waitFor(() =>
+                    expect(
+                        pendingFileOperations(manager["eventState"]).find(
+                            (operation) => operation.event.key === destructive.key
+                        )?.attempt.result?.ok
+                    ).toBe(false)
+                );
+                expect(calls).toEqual([predecessor.key, destructive.key]);
+                calls.length = 0;
+                let releasePredecessor!: (result: boolean) => void;
+                process.mockImplementation(async (item) => {
+                    calls.push(item.key);
+                    if (item.key === predecessor.key) {
+                        return await new Promise<boolean>((resolve) => {
+                            releasePredecessor = resolve;
+                        });
+                    }
+                    return true;
+                });
+                const flushing = manager.waitForIdle();
+                void flushing.catch(() => {});
+                await vi.waitFor(() => expect(releasePredecessor).toBeTypeOf("function"));
+                const probe = fileEvent("CHANGED", "dispatched-probe.md");
+                probe.key = "independent-probe";
+                try {
+                    await manager.processFileEvent(probe);
+                    expect(calls).toEqual([predecessor.key, probe.key]);
+                } finally {
+                    releasePredecessor(true);
+                    await flushing;
+                }
+                expect(calls).toEqual([predecessor.key, probe.key, destructive.key]);
+                expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+            }
+        );
+
+        it("issue1331 replays the retained intent after a fresh manager is constructed", async () => {
+            const temporaryPath = "note.md.tmp.1331.hash";
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent);
+            process.mockResolvedValue(false);
+            manager.enqueue(fileEvent("CREATE", temporaryPath));
+            await expect(manager.waitForIdle()).rejects.toThrow(`Storage operation failed: ${temporaryPath}`);
+
+            process.mockClear();
+            process.mockResolvedValue(true);
+            const restarted = new TestStorageEventManager(adapter, dependencies);
+            await restarted.restoreState();
+            await expect(restarted.waitForIdle()).resolves.toBeUndefined();
+            expect(process).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    restoredFromPreviousRuntime: true,
+                    args: expect.objectContaining({ file: expect.objectContaining({ path: temporaryPath }) }),
+                })
+            );
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
         });
     });
 });

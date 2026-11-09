@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { FilePath, FilePathWithPrefix, UXFileInfoStub } from "./types";
+import type { FilePath, FilePathWithPrefix, UXFileInfoStub, UXInternalFileInfoStub } from "./types";
 import { getDatabasePathFromUXFileInfo, getStoragePathFromUXFileInfo } from "./typeUtils";
 
 describe("file path conversion", () => {
@@ -31,5 +31,15 @@ describe("file path conversion", () => {
         expect(getDatabasePathFromUXFileInfo(file)).toBe(prefixed);
         expect(getStoragePathFromUXFileInfo(prefixed)).toBe(path);
         expect(getDatabasePathFromUXFileInfo(prefixed)).toBe(prefixed);
+    });
+    it("resolves an internal file identity without requiring storage statistics", () => {
+        const file: UXInternalFileInfoStub = {
+            path: ".obsidian/Poem: Example.md" as FilePath,
+            name: "Poem: Example.md",
+            isInternal: true,
+            stat: undefined,
+        };
+        expect(getStoragePathFromUXFileInfo(file)).toBe(file.path);
+        expect(getDatabasePathFromUXFileInfo(file)).toBe(`i:${file.path}`);
     });
 });

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- Ordinary local file processing can recover from a transient failure during
+  the same application session. A later flush or related file change rechecks
+  the current state while retaining unresolved work and the existing revision
+  and deletion safeguards. This also lets existing host pending-change commands
+  recover without a restart. ([Self-hosted LiveSync #1331](https://github.com/vrtmrz/obsidian-livesync/issues/1331))
+
 ## 0.4.0
 
 7th November, 2026

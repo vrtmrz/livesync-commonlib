@@ -14,6 +14,37 @@ present in storage, and the accepted local completion contract for queued file
 operations. The version fields identify the reviewed source versions; these
 changes remain unreleased.
 
+## Event-manager terminology
+
+Hosts normally supply an adapter and, where necessary, override protected
+`StorageEventManagerBase` hooks. The responsibility modules implement the shared
+pipeline; hosts do not need to call every helper directly. Their TSDoc describes
+inputs, completion boundaries, state changes, and persistence preconditions for
+maintainers who extend or reuse them.
+
+| Term | Meaning in this implementation |
+| --- | --- |
+| Facade | The host-facing class which connects adapters and overridable hooks to the shared functions. |
+| Watcher | The host integration which receives file or editor change notifications. |
+| Admission | Filtering a received event and registering its operation. Its completion does not await the file handler. |
+| Operation | The accepted event intent whose identity survives failed attempts until completion is durably acknowledged. |
+| Attempt | One execution of an operation, with its own result and completion promise. |
+| Ownership | The identity relationships which determine which operation and attempt may acknowledge retained work. |
+| Batching | Delaying eligible content events so related updates can be processed together. |
+| Gate | A promise deciding whether a waiting operation may proceed or has been covered by a successor. Opening it is not handler completion. |
+| Coalescing | Combining pending intents by making an earlier operation depend on the result of a successor which covers it. |
+| Prerequisite | A related operation whose captured attempt must succeed before the dependent handler can run. |
+| Ordered predecessor | An earlier operation which must settle before an ordered event proceeds, even if the earlier result is a failure. |
+| Boundary | The finite selection of operations, admissions, or observed failures relevant to one request. |
+| Sentinel | A queue marker before deletion or rename which waits only for earlier operations. |
+| Dispatch | Taking buffered events and starting their processing; it does not itself establish durable completion. |
+| Flush | Releasing delays and waiting for the captured local completion boundary. It does not establish remote replication. |
+| Snapshot | The saved pending event intents. It is not a backup of every intermediate file body. |
+| Reconciliation | Re-evaluating intent against current storage, database state, and provenance before choosing an effect. |
+| Retry | Starting a new eligible attempt while preserving the result already observed by an earlier caller. |
+| Effects | Explicit callbacks for stateful work or I/O, separated from functions which only construct a plan. |
+| Type guard | A runtime predicate which also narrows the value's TypeScript type before it is used. |
+
 ## Processing directions
 
 `StorageEventManager.appendQueue` receives watcher events, applies target and
@@ -30,7 +61,7 @@ current-storage check therefore suppresses that deletion, even when the
 current file's path would itself be excluded from synchronisation.
 
 `ServiceFileHandlerBase` serialises this work by the canonical document ID
-derived from each path. Before a watcher `DELETE` reaches `deleteFileFromDB`,
+derived from each path. Before a watcher `DELETE` reaches the database deletion core,
 the handler rechecks current storage under that lock. Rename-derived deletions
 lock both source and destination document IDs. This direction updates database
 Metadata; it does not remove the physical file from storage.
@@ -43,10 +74,17 @@ snapshots without that field keep their conservative absence-only rule.
 
 Database-to-storage work follows the opposite direction. Replicated Metadata
 reaches `_anyProcessReplicatedDoc`, which applies target and size checks,
-obtains a storage stub, and calls `dbToStorage`. Logical deletion, conflicts,
+obtains a storage stub, and enters the reflection core under the same lock. Logical deletion, conflicts,
 and unsynchronised storage content retain their existing reflection rules.
 The watcher guard does not intercept this path or general explicit database
 deletion operations.
+
+The public `ServiceFileHandlerBase` import and operation signatures remain the
+host integration boundary. Its responsibility functions live in the sibling
+`ServiceFileHandlerBase/` implementation directory. Internal event processing
+reuses already-held locks, so it does not call the public wrappers which acquire
+those locks. The [developer guide](development.md#ordinary-file-handler-implementation)
+records the module responsibilities and existing override boundaries.
 
 ## Startup scans and pending operations
 
@@ -104,6 +142,48 @@ accepted and before asynchronous filtering or the touched-file check. Waiting
 timers do not occupy a processing slot, and time spent waiting for a slot does
 not restart the maximum delay. Once due, the operation acquires a slot and reads
 current content for processing.
+
+## Retrying ordinary file operations
+
+The following extension is unreleased. A failed ordinary `CREATE`, `CHANGED`,
+`DELETE`, or `RENAME` remains pending, while its attempt has a completed failure
+result. A later finite `commitPendingFileEvents()` request can start a new
+attempt. A subsequent event for the same path or related rename paths can also
+re-evaluate failed predecessors before proceeding. These paths share the event
+manager's ownership and use the existing current-state reconciliation rules.
+
+Each request captures a finite set of operations and attempts. It may retry an
+existing failure once, shares an attempt already running, and reports failures
+from its captured attempts without looping until success. Later edits do not
+extend that boundary indefinitely. Independent paths can continue, and a new
+file event only recovers its related dependency chain.
+
+An earlier caller retains its failed result. Completion removes only the
+operation which owns that result, after its ordered snapshot update succeeds;
+it cannot remove a newer event. Reconciliation checks current file content,
+database effects, and provenance instead of resending a saved body. An absent
+temporary file can make its old content save unnecessary, but following
+rename, deletion, and final-path save operations retain their own effects.
+
+Already represented deletions and completed renames retain their replay rules.
+Recreated files and later edits remain protected. A target's existence alone
+does not prove ownership of a partially completed rename. If the displayed
+source branch cannot be established, the existing conservative deletion and
+rename fallback preserves the branches and requests conflict checking; the
+requested deletion may remain unmet.
+
+The database and provenance writes remain separate. Their known interruption
+window may produce additional revisions or a preserved conflict under the
+[provenance contract](conflict-resolution.md). An empty pending set is not proof
+of preserved content or ancestry.
+
+Start-up continues to restore the existing saved snapshot before watching.
+Runtime retries reuse its file-reconciliation rules without replacing the
+running manager through `restoreState()`. The saved format, handler return
+contracts, and optional-provider retry policy remain unchanged. Hosts can use
+their existing flush and lifecycle calls; no retry timer or new callback is
+required. See the [retry decision](https://github.com/vrtmrz/obsidian-livesync/blob/main/docs/adr/2026_11_local_file_operation_retry.md)
+for the operation matrix and considered alternatives.
 
 ## Optional file handlers
 
