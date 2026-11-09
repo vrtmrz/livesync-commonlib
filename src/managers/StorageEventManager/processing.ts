@@ -10,8 +10,8 @@ import { withSemaphore, type SemaphoreObject } from "octagonal-wheels/concurrenc
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import {
     canRetryFileEvent,
-    checkFileEventAdmission,
-    requireSuccessfulFileEvents,
+    assertFileEventAdmission,
+    assertSuccessfulFileEvents,
     type FileEventAttempt,
     type OperationResult,
     type PendingFileEvent,
@@ -102,14 +102,14 @@ async function executeAttempt(
     if (!canProceed) {
         if (!attempt.successor)
             throw new Error(`Storage operation cancelled without a successor: ${operation.event.args.file.path}`);
-        requireSuccessfulFileEvents([await attempt.successor.completion.promise]);
+        assertSuccessfulFileEvents([await attempt.successor.completion.promise]);
         return;
     }
     // Ordering waits for settlement; related dependencies additionally require success.
     await effects.wait(attempt.orderedPredecessors!);
-    requireSuccessfulFileEvents(await effects.wait(attempt.prerequisites!));
+    assertSuccessfulFileEvents(await effects.wait(attempt.prerequisites!));
     await withSemaphore(effects.semaphore(), async () => {
-        checkFileEventAdmission(attempt);
+        assertFileEventAdmission(attempt);
         const event = attempt.reconcile ? createReconcileEvent(operation.event) : operation.event;
         state.operations.set(event, operation);
         await effects.requestProcessQueue(event);
@@ -135,7 +135,7 @@ export async function processStorageEventAttempt(
     effects: StorageEventAttemptEffects
 ): Promise<void> {
     if (attempt.started || attempt.result) {
-        requireSuccessfulFileEvents([await attempt.completion.promise]);
+        assertSuccessfulFileEvents([await attempt.completion.promise]);
         return;
     }
     attempt.started = true;
@@ -143,11 +143,11 @@ export async function processStorageEventAttempt(
     try {
         const gate = prepareAttempt(state, operation, attempt, effects);
         await effects.takeSnapshot();
-        checkFileEventAdmission(attempt);
+        assertFileEventAdmission(attempt);
         const canProceed = await gate;
-        checkFileEventAdmission(attempt);
+        assertFileEventAdmission(attempt);
         await executeAttempt(state, operation, attempt, canProceed, effects);
-        checkFileEventAdmission(attempt);
+        assertFileEventAdmission(attempt);
         await effects.completeSnapshot({ entry, attempt });
         completeFileEventAttempt(state, operation, attempt);
     } catch (error) {

@@ -8,7 +8,7 @@ import { fireAndForget } from "@lib/common/utils";
 import type { LogFunction } from "@lib/services/lib/logUtils";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import {
-    requireSuccessfulFileEvents,
+    assertSuccessfulFileEvents,
     type FileEventAttempt,
     type OperationResult,
     type PendingFileEvent,
@@ -132,7 +132,7 @@ export async function flushStorageEvents(state: StorageEventState, effects: Stor
     const results = await effects.wait(boundary);
     const failure = admitted.find((result) => result.status === "rejected");
     if (failure?.status === "rejected") throw failure.reason;
-    requireSuccessfulFileEvents(results);
+    assertSuccessfulFileEvents(results);
 }
 
 /**
@@ -184,7 +184,11 @@ export async function runBufferedStorageEvents(
     await shareRunningResult(state.dispatchKey, () => dispatchBufferedEvents(state, effects));
     if (options.waitForProcessing) {
         const results = await effects.wait(effects.capture(accepted));
-        for (const result of results) if (result.ok === false) effects.reportFailure(result.error);
+        for (const result of results) {
+            if (result.ok === false) {
+                effects.reportFailure(result.error);
+            }
+        }
     }
 }
 

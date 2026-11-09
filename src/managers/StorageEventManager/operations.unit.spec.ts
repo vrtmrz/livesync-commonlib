@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { FileEventItem, FilePath } from "@lib/common/types";
 import {
+    assertFileEventAdmission,
+    assertSuccessfulFileEvents,
+    type OperationResult,
     createFileEventAttempt,
     planFileEventAttempts,
     planFileEventPredecessors,
@@ -9,6 +12,7 @@ import {
 import { planFileEventSnapshot } from "./snapshot";
 import { TYPE_SENTINEL_FLUSH, type PendingSnapshotEntry } from "./state";
 
+/** Build a retained failure for pure planning tests without scheduling a handler. */
 function failedOperation(key: string, sequence: number): PendingFileEvent {
     const event: FileEventItem = {
         type: "CHANGED",
@@ -98,3 +102,58 @@ describe("StorageEventManager pure plans", () => {
         expect(newer.attempt.result?.ok).toBe(false);
     });
 });
+
+describe("file-event assertions", () => {
+    it("accepts an admission with no recorded failure without changing its state", () => {
+        const attempt = createFileEventAttempt();
+        expect(assertFileEventAdmission(attempt)).toBeUndefined();
+        expect(attempt).toMatchObject({ started: false, reconcile: false });
+        expect(attempt.result).toBeUndefined();
+        expect(attempt.admissionFailure).toBeUndefined();
+    });
+
+    it.each([new Error("original failure"), "non-Error rejection", undefined])(
+        "rethrows the original admission value without settling or replacing the attempt: %s",
+        (error) => {
+            const attempt = createFileEventAttempt();
+            const failure = { error };
+            attempt.admissionFailure = failure;
+            const capture = captureThrownValue(() => assertFileEventAdmission(attempt));
+            expect(capture).toEqual({ thrown: true, error });
+            expect(attempt.admissionFailure).toBe(failure);
+            expect(attempt.result).toBeUndefined();
+        }
+    );
+
+    it.each([[], [{ ok: true }], [{ ok: true }, { ok: true }]] satisfies OperationResult[][])(
+        "accepts an empty or wholly successful boundary: %j",
+        (...results) => {
+            expect(assertSuccessfulFileEvents(results)).toBeUndefined();
+        }
+    );
+
+    it.each([new Error("first failure"), "non-Error rejection", undefined])(
+        "throws the first failure value in input order: %s",
+        (error) => {
+            const results: OperationResult[] = [
+                { ok: true },
+                { ok: false, error },
+                { ok: false, error: new Error("later") },
+            ];
+            const before = [...results];
+            expect(captureThrownValue(() => assertSuccessfulFileEvents(results))).toEqual({ thrown: true, error });
+            expect(results).toEqual(before);
+            results.forEach((result, index) => expect(result).toBe(before[index]));
+        }
+    );
+});
+
+/** Observe arbitrary rejection values, including undefined, without normalising them to Error. */
+function captureThrownValue(callback: () => void): { thrown: boolean; error?: unknown } {
+    try {
+        callback();
+        return { thrown: false };
+    } catch (error) {
+        return { thrown: true, error };
+    }
+}

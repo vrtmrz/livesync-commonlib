@@ -22,28 +22,132 @@ pipeline; hosts do not need to call every helper directly. Their TSDoc describes
 inputs, completion boundaries, state changes, and persistence preconditions for
 maintainers who extend or reuse them.
 
-| Term | Meaning in this implementation |
-| --- | --- |
-| Facade | The host-facing class which connects adapters and overridable hooks to the shared functions. |
-| Watcher | The host integration which receives file or editor change notifications. |
-| Admission | Filtering a received event and registering its operation. Its completion does not await the file handler. |
-| Operation | The accepted event intent whose identity survives failed attempts until completion is durably acknowledged. |
-| Attempt | One execution of an operation, with its own result and completion promise. |
-| Ownership | The identity relationships which determine which operation and attempt may acknowledge retained work. |
-| Batching | Delaying eligible content events so related updates can be processed together. |
-| Gate | A promise deciding whether a waiting operation may proceed or has been covered by a successor. Opening it is not handler completion. |
-| Coalescing | Combining pending intents by making an earlier operation depend on the result of a successor which covers it. |
-| Prerequisite | A related operation whose captured attempt must succeed before the dependent handler can run. |
-| Ordered predecessor | An earlier operation which must settle before an ordered event proceeds, even if the earlier result is a failure. |
-| Boundary | The finite selection of operations, admissions, or observed failures relevant to one request. |
-| Sentinel | A queue marker before deletion or rename which waits only for earlier operations. |
-| Dispatch | Taking buffered events and starting their processing; it does not itself establish durable completion. |
-| Flush | Releasing delays and waiting for the captured local completion boundary. It does not establish remote replication. |
-| Snapshot | The saved pending event intents. It is not a backup of every intermediate file body. |
-| Reconciliation | Re-evaluating intent against current storage, database state, and provenance before choosing an effect. |
-| Retry | Starting a new eligible attempt while preserving the result already observed by an earlier caller. |
-| Effects | Explicit callbacks for stateful work or I/O, separated from functions which only construct a plan. |
-| Type guard | A runtime predicate which also narrows the value's TypeScript type before it is used. |
+| Term                | Meaning in this implementation                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Facade              | The host-facing class which connects adapters and overridable hooks to the shared functions.                                         |
+| Watcher             | The host integration which receives file or editor change notifications.                                                             |
+| Admission           | Filtering a received event and registering its operation. Its completion does not await the file handler.                            |
+| Operation           | The accepted event intent whose identity survives failed attempts until completion is durably acknowledged.                          |
+| Attempt             | One execution of an operation, with its own result and completion promise.                                                           |
+| Ownership           | The identity relationships which determine which operation and attempt may acknowledge retained work.                                |
+| Batching            | Delaying eligible content events so related updates can be processed together.                                                       |
+| Gate                | A promise deciding whether a waiting operation may proceed or has been covered by a successor. Opening it is not handler completion. |
+| Coalescing          | Combining pending intents by making an earlier operation depend on the result of a successor which covers it.                        |
+| Prerequisite        | A related operation whose captured attempt must succeed before the dependent handler can run.                                        |
+| Ordered predecessor | An earlier operation which must settle before an ordered event proceeds, even if the earlier result is a failure.                    |
+| Boundary            | The finite selection of operations, admissions, or observed failures relevant to one request.                                        |
+| Sentinel            | A queue marker before deletion or rename which waits only for earlier operations.                                                    |
+| Dispatch            | Taking buffered events and starting their processing; it does not itself establish durable completion.                               |
+| Flush               | Releasing delays and waiting for the captured local completion boundary. It does not establish remote replication.                   |
+| Snapshot            | The saved pending event intents. It is not a backup of every intermediate file body.                                                 |
+| Reconciliation      | Re-evaluating intent against current storage, database state, and provenance before choosing an effect.                              |
+| Retry               | Starting a new eligible attempt while preserving the result already observed by an earlier caller.                                   |
+| Effects             | Explicit callbacks for stateful work or I/O, separated from functions which only construct a plan.                                   |
+| Type guard          | A runtime predicate which also narrows the value's TypeScript type before it is used.                                                |
+
+## File-event structure and ownership
+
+The pipeline uses several related types. Their declarations are the source of
+truth; the following map explains which layer owns each value.
+
+```text
+Host FileEvent
+  -> admission and selection -> FileEventItem
+  -> PendingFileEvent -> FileEventAttempt (one result per attempt)
+  -> handler(original event or transient ReconcileFileEvent)
+
+Snapshot: original FileEventItem | FileEventItemSentinel
+```
+
+### Host notification: `FileEvent`
+
+[`FileEvent`](../src/interfaces/StorageEventManager.ts) is the input to
+`appendQueue()`. It contains `type`, `file`, and optional `oldPath`,
+`cachedData`, `skipBatchWait`, and `cancelled` fields. Admission filters the
+notification before creating a queue item; completion of `appendQueue()` means
+admission has finished, not that its file effect has completed.
+
+The event types are `CREATE`, `CHANGED`, `DELETE`, `RENAME`, and `INTERNAL`.
+The ordinary file stub has `path`, `name`, and `stat` (`ctime`, `mtime`, `size`,
+and `type`). An internal-file stub instead has `isInternal: true` and
+`stat: undefined`; a path does not imply that storage statistics are available.
+Neither stub contains the file body. A `UXFileInfo` additionally carries a
+`Blob` body when content has actually been read.
+
+### Retained intent: `FileEventItem`
+
+[`FileEventItem` and `FileEventArgs`](../src/common/models/fileaccess.type.ts)
+are the queue and snapshot shapes:
+
+| Field                          | Meaning                                                                                                                                                                |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`                         | The selected operation type, which can differ from the host notification after rename filtering.                                                                       |
+| `args.file`                    | The ordinary or internal-file observation. A rename uses the destination observation; a source-only selected rename becomes a deletion with a source-path observation. |
+| `args.oldPath?`                | The source path for a retained `RENAME`.                                                                                                                               |
+| `args.renameTarget?`           | The destination of a rename converted into source-only `DELETE`, retained for exclusion and preservation checks.                                                       |
+| `args.cache?`                  | Optional cached text or `ArrayBuffer`; host `cachedData` is mapped here. It is not an authoritative historical file version.                                           |
+| `args.ctx?`                    | Opaque host context passed to `appendQueue()`, forwarded to the handler. Its durable representation depends on the host snapshot adapter.                              |
+| `key`                          | A generated event label. Operation ownership and acknowledgement use event/attempt identity, not equality of this string or path.                                      |
+| `restoredFromPreviousRuntime?` | `true` on a replayed event; selects current-state revalidation. Restoration adds this marker and `skipBatchWait` to loaded file events.                                |
+| `skipBatchWait?`               | Bypass the intentional batch delay; processing and snapshot acknowledgement must still complete.                                                                       |
+| `cancelled?`                   | A queue-item cancellation marker. The handler rejects it rather than confirming an unperformed effect. It is not a successful completion result.                       |
+| `batched?`                     | An optional field retained in the shared type for compatibility. The current manager owns batching through gates and attempt dependencies.                             |
+
+Admission copies the selected type, file arguments, host context, cache, and
+batch-wait policy. It does not copy the host `cancelled` field into the new
+item. The declared host and queue shapes therefore must not be treated as
+interchangeable objects.
+
+For example, an ordinary rename retains these path relationships:
+
+```ts
+{
+    type: 'RENAME',
+    key: 'generated-event-label',
+    args: {
+        file: { path: 'new.md', name: 'new.md', stat: currentStat },
+        oldPath: 'old.md',
+    },
+}
+```
+
+If only `old.md` is selected, admission emits `DELETE` with
+`args.file.path: 'old.md'` and `args.renameTarget: 'new.md'` instead. This
+preserves the relationship without treating the excluded destination as an
+ordinary synchronisation target.
+
+### In-memory operation and attempts
+
+[`PendingFileEvent` and `FileEventAttempt`](../src/managers/StorageEventManager/operations.ts)
+are manager-local state. The operation retains its original `event`, insertion
+`sequence`, admission time and failure boundary, path predecessors, related
+prerequisites, ordering barrier, and current `attempt`. It survives a failed
+attempt. The attempt owns its completion promise, result, start state, captured
+dependency attempts, retry cutoff, and any admission failure. A retry replaces
+the current attempt, leaving earlier callers attached to their original
+result. These maps, promises, and counters are not the persisted event schema.
+
+[`PendingSnapshotEntry`](../src/managers/StorageEventManager/state.ts) links an
+event to its operation and provisional completion state. Its exact entry and
+attempt identities must still match before acknowledgement. A
+`FileEventItemSentinel` contains only `{ type: 'SENTINEL_FLUSH' }`; it has no
+file body or operation and orders only preceding work. Snapshots contain the
+original events and sentinels, with insertion and attempt state reconstructed
+when a new manager restores them.
+
+### Transient reconciliation request
+
+[`ReconcileFileEvent`](../src/common/models/fileaccess.definition.ts) is a
+shallow copy of a valid `FileEventItem` branded by a private symbol. Construct
+it with `createReconcileEvent()` and inspect it with `isReconcileEvent()`.
+Its arguments are shared with the original event. It selects current-state
+reconciliation for a running-session retry, while the manager continues to
+persist the original event. The symbol is not a persisted format or a new
+operation. Restart replay uses `restoredFromPreviousRuntime` separately.
+
+An event records intent. Current storage, database effects, and revision
+provenance determine what is still necessary when its handler executes; the
+saved stub, cache, and event label cannot establish completion by themselves.
 
 ## Processing directions
 
@@ -193,12 +297,12 @@ contract. Hosts can register `processOptionalFileEventWithResult` handlers with
 success value and a veto reason independently; a non-void payload is required
 in its branch. Dispatch follows priority and registration order:
 
-| Outcome | Dispatch and completion |
-| --- | --- |
-| `not-applicable` | Try the next provider. If none applies, complete the policy-approved skip. |
-| `completed` | Stop and complete the event after the provider's actual save or verified no-op. |
-| `veto` | Stop and retain the event with a reported refusal reason. |
-| Exception or rejection | Propagate the original error and retain the event. |
+| Outcome                | Dispatch and completion                                                         |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| `not-applicable`       | Try the next provider. If none applies, complete the policy-approved skip.      |
+| `completed`            | Stop and complete the event after the provider's actual save or verified no-op. |
+| `veto`                 | Stop and retain the event with a reported refusal reason.                       |
+| Exception or rejection | Propagate the original error and retain the event.                              |
 
 A completed result stops dispatch immediately; a later provider cannot veto
 it. Empty registration returns `not-applicable`. False or zero payloads remain
@@ -229,17 +333,17 @@ does not introduce an automatic retry loop for a failed operation.
 
 ## Event intent and current storage state
 
-| Event intent | Current storage observation | Admitted operation |
-| --- | --- | --- |
-| Watcher `CREATE` or `CHANGED` | A selected regular file is present | Keep the existing storage-to-database write. |
-| Watcher `DELETE` without `renameTarget` | A current file resolves to the same canonical document ID, including at an excluded path, or a folder occupies the path | Suppress the database deletion; no rename destination is known. |
-| Watcher `DELETE` without `renameTarget` | The host lookup reports no current item, or a file belonging to a distinct document ID | Use the existing deletion operation. |
-| Watcher `DELETE` without `renameTarget` | Lookup fails | Leave the database unchanged; failure is unknown, not absence. |
-| `RENAME` converted to `DELETE` | The destination is still selected when case-collision rejection is omitted | Suppress the database deletion. |
-| `RENAME` converted to `DELETE` | The destination is deliberately excluded, and the source is absent | Apply the old document's deletion. |
-| Case-only `RENAME` converted to `DELETE` | Source lookup resolves to the exact deliberately excluded destination, not the original path | Apply the old document's deletion despite the shared ID. |
-| Restored `DELETE` without `renameTarget` | A current item occupies the saved path | Keep the existing restored-event suppression. |
-| Replicated logical deletion | Storage contains a file | Keep the existing database-to-storage conflict and preservation rules. |
+| Event intent                             | Current storage observation                                                                                             | Admitted operation                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Watcher `CREATE` or `CHANGED`            | A selected regular file is present                                                                                      | Keep the existing storage-to-database write.                           |
+| Watcher `DELETE` without `renameTarget`  | A current file resolves to the same canonical document ID, including at an excluded path, or a folder occupies the path | Suppress the database deletion; no rename destination is known.        |
+| Watcher `DELETE` without `renameTarget`  | The host lookup reports no current item, or a file belonging to a distinct document ID                                  | Use the existing deletion operation.                                   |
+| Watcher `DELETE` without `renameTarget`  | Lookup fails                                                                                                            | Leave the database unchanged; failure is unknown, not absence.         |
+| `RENAME` converted to `DELETE`           | The destination is still selected when case-collision rejection is omitted                                              | Suppress the database deletion.                                        |
+| `RENAME` converted to `DELETE`           | The destination is deliberately excluded, and the source is absent                                                      | Apply the old document's deletion.                                     |
+| Case-only `RENAME` converted to `DELETE` | Source lookup resolves to the exact deliberately excluded destination, not the original path                            | Apply the old document's deletion despite the shared ID.               |
+| Restored `DELETE` without `renameTarget` | A current item occupies the saved path                                                                                  | Keep the existing restored-event suppression.                          |
+| Replicated logical deletion              | Storage contains a file                                                                                                 | Keep the existing database-to-storage conflict and preservation rules. |
 
 ## Rename exclusion and preservation
 

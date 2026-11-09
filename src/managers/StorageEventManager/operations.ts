@@ -75,9 +75,10 @@ export function createFileEventAttempt(reconcile = false): FileEventAttempt {
  * Enforce an admission failure recorded while an attempt's handler was active.
  * @param attempt - The attempt whose admission outcome must be checked before it advances.
  * @returns No value; returns normally when no admission failure is recorded.
- * @remarks Throws the original admission error when present and does not change attempt state.
+ * @throws The original admission error when present, without wrapping or replacing it.
+ * @remarks Does not change attempt state.
  */
-export function checkFileEventAdmission(attempt: FileEventAttempt): void {
+export function assertFileEventAdmission(attempt: FileEventAttempt): void {
     if (attempt.admissionFailure) throw attempt.admissionFailure.error;
 }
 
@@ -196,9 +197,10 @@ export function planFileEventPredecessors(
  * Require every captured operation result to be successful.
  * @param results - Results in their capture order.
  * @returns No value when all results are successful or the collection is empty.
- * @remarks Throws the error from the first failed result in input order; it does not alter any result or operation.
+ * @throws The error from the first failed result in input order, without wrapping or replacing it.
+ * @remarks Does not alter any result or operation.
  */
-export function requireSuccessfulFileEvents(results: readonly OperationResult[]): void {
+export function assertSuccessfulFileEvents(results: readonly OperationResult[]): void {
     const failure = results.find((result) => !result.ok);
     if (failure?.ok === false) throw failure.error;
 }

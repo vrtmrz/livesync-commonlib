@@ -74,6 +74,20 @@ export function finishBatchWaiting(batching: StorageEventBatching, path: string,
  * @param minimum - The minimum delay in milliseconds.
  * @param maximum - The maximum delay in milliseconds.
  * @returns Whether the maximum window has expired and the non-negative delay to schedule.
+ * @remarks The original timing sketch follows; each row shows an event arriving within the same maximum window.
+ * ```text
+ * x*<------- maxDelay --------->*
+ * x*<-- minDelay -->*
+ * x*       x<-- nextDelay -->*
+ * x*              x<-- Capped-->*
+ * x*                    x.......*
+ * x: event
+ * *: batch gate becomes eligible for processing
+ * ```
+ * The quiet delay is measured from the latest accepted event. Coalescing inherits the first uncommitted event's
+ * maximum window, so repeated events cannot postpone eligibility indefinitely. Filtering time already spent since
+ * acceptance counts towards both delays. The maximum caps intentional batching, not semaphore, I/O, or snapshot
+ * completion time; it does not guarantee a minimum interval between completed saves.
  */
 export function planBatchDeadline(now: number, acceptedAt: number, since: number, minimum: number, maximum: number) {
     const elapsed = now - since;

@@ -3,7 +3,7 @@
  * The snapshot tail keeps provisional marking, save, rollback, and in-memory acknowledgement in one ordered step.
  */
 import type { FileEventItem } from "@lib/common/types";
-import { checkFileEventAdmission } from "./operations";
+import { assertFileEventAdmission } from "./operations";
 import {
     retainBufferedFileEvents,
     retainFileEvent,
@@ -61,7 +61,7 @@ export function planFileEventSnapshot(entries: readonly PendingSnapshotEntry[]) 
 function markCompletion(state: StorageEventState, completion?: SnapshotCompletion): boolean {
     if (!completion) return true;
     const { entry, attempt } = completion;
-    checkFileEventAdmission(attempt);
+    assertFileEventAdmission(attempt);
     if (state.pendingSnapshot.get(entry.event) !== entry || entry.operation?.attempt !== attempt) return false;
     entry.completed = true;
     return true;
