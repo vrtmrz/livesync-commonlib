@@ -1,3 +1,4 @@
+import type { DeletionRecoveryResult } from "@vrtmrz/livesync-commonlib/compat/interfaces/FileHandler";
 import {
     firstHandledFunction,
     handlers,
@@ -98,3 +99,35 @@ void [
     compatibleInterface,
     compatibleService,
 ];
+
+// These assertions are checked by the independent packed consumer's TypeScript compiler.
+type AssertFalse<Value extends false> = Value;
+type PresentCompletionRejected = AssertFalse<
+    { status: "applied"; file: "present"; provenance: "cleared"; reason: string } extends DeletionRecoveryResult
+        ? true
+        : false
+>;
+type PendingCompletionRejected = AssertFalse<
+    { status: "applied"; file: "absent"; provenance: "pending"; reason: string } extends DeletionRecoveryResult
+        ? true
+        : false
+>;
+type PresentPendingCleanupRejected = AssertFalse<
+    { status: "failed"; file: "present"; provenance: "pending"; reason: string } extends DeletionRecoveryResult
+        ? true
+        : false
+>;
+const cleanupCompleteWithReleaseFailure: DeletionRecoveryResult = {
+    status: "failed",
+    file: "absent",
+    provenance: "cleared",
+    reason: "provenance-cleanup-failed",
+};
+function inspectAppliedDeletion(outcome: DeletionRecoveryResult) {
+    if (outcome.status === "applied") {
+        const absent: "absent" = outcome.file;
+        const cleared: "cleared" = outcome.provenance;
+        void [absent, cleared];
+    }
+}
+void [cleanupCompleteWithReleaseFailure, inspectAppliedDeletion];

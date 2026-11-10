@@ -17,6 +17,12 @@ export interface FileReflectionProvenance {
     set(path: FilePathWithPrefix, record: FileReflectionProvenanceRecord): Promise<void>;
     delete(path: FilePathWithPrefix): Promise<void>;
     move(from: FilePathWithPrefix, to: FilePathWithPrefix): Promise<void>;
+    /**
+     * Enumerate the complete provenance namespace without reading record values.
+     * @returns Existing paths; backing-store failures reject the promise.
+     * @remarks Absence of this optional method means that enumeration is unsupported.
+     */
+    listPaths?: () => Promise<FilePathWithPrefix[]>;
 }
 
 /**
@@ -30,7 +36,25 @@ export interface FileReflectionProvenance {
  * waits, so lifecycle violations and reset races cannot hang file processing.
  */
 export class StoredFileReflectionProvenance implements FileReflectionProvenance {
-    constructor(private readonly store: SimpleStore<FileReflectionProvenanceRecord>) {}
+    declare listPaths?: () => Promise<FilePathWithPrefix[]>;
+
+    /**
+     * Create a provenance view without opening or reading its backing store.
+     * @param store - The host-owned, namespaced store used by later operations.
+     * @param enableEnumeration - Advertise keys-only enumeration when true; defaults to false.
+     * @remarks Registering the optional capability performs no I/O. The host must
+     * complete its normal store lifecycle before invoking any provenance operation.
+     */
+    constructor(
+        private readonly store: SimpleStore<FileReflectionProvenanceRecord>,
+        enableEnumeration = false
+    ) {
+        // Register the optional capability without accessing a store which may not yet be open.
+        if (enableEnumeration) {
+            this.listPaths = async () =>
+                (await this.store.keys(undefined, undefined)).map((path) => path as FilePathWithPrefix);
+        }
+    }
 
     async get(path: FilePathWithPrefix): Promise<FileReflectionProvenanceRecord | undefined> {
         return (await this.store.get(path)) ?? undefined;

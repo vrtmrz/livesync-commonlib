@@ -1,6 +1,9 @@
+import "fake-indexeddb/auto";
+
 import { describe, expect, it, vi } from "vitest";
 
 import type { KeyValueDatabase } from "@lib/interfaces/KeyValueDatabase";
+import { createIndexedDBKeyValueDatabaseFactory } from "@lib/databases/IndexedDBKeyValueDatabase";
 import { createServiceContext } from "./ServiceBase";
 import { KeyValueDBService, type KeyValueDBDependencies } from "./KeyValueDBService";
 
@@ -76,6 +79,7 @@ describe("KeyValueDBService factory boundary", () => {
         const store = service.openSimpleStore("early-composition");
 
         await expect(store.get("key")).rejects.toThrow("KeyValueDB is not initialized yet");
+        await expect(store.keys(undefined, undefined)).rejects.toThrow("KeyValueDB is not initialized yet");
     });
 
     it("opens the database through the factory supplied by its composition", async () => {
@@ -116,5 +120,66 @@ describe("KeyValueDBService factory boundary", () => {
         expect(openKeyValueDatabase).toHaveBeenCalledWith("test-vault-livesync-kv");
         await store.set("key", "value");
         expect(database.set).toHaveBeenCalledWith("composed-before-open-key", "value");
+    });
+
+    it("enumerates all keys in a namespace without reading values", async () => {
+        const vaultName = `test-vault-${crypto.randomUUID()}`;
+        const databaseKey = `${vaultName}-livesync-kv`;
+        const openKeyValueDatabase = createIndexedDBKeyValueDatabaseFactory();
+        const database = await openKeyValueDatabase(databaseKey);
+        const get = vi.spyOn(database, "get");
+        let onSettingLoaded: (() => Promise<boolean>) | undefined;
+        const dependencies = {
+            openKeyValueDatabase,
+            vault: { getVaultName: () => vaultName },
+            appLifecycle: {
+                onSettingLoaded: {
+                    addHandler: (handler: () => Promise<boolean>) => {
+                        onSettingLoaded = handler;
+                    },
+                },
+            },
+            databaseEvents: {
+                onResetDatabase: { addHandler: vi.fn() },
+                onDatabaseInitialisation: { addHandler: vi.fn() },
+                onUnloadDatabase: { addHandler: vi.fn() },
+                onCloseDatabase: { addHandler: vi.fn() },
+            },
+        } as unknown as KeyValueDBDependencies;
+        const service = new TestKeyValueDBService(createServiceContext(), dependencies);
+        const store = service.openSimpleStore<string>("provenance");
+        const adjacentNamespace = service.openSimpleStore<string>("provenance.");
+        const astralPath = "\u{10000}.md";
+
+        try {
+            await expect(onSettingLoaded!()).resolves.toBe(true);
+            await store.set("a.md", "a");
+            await store.set("b.md", "b");
+            await store.set(astralPath, "astral");
+            await store.set("\uffff/end.md", "beyond a sentinel prefix");
+            await adjacentNamespace.set("other.md", "other namespace");
+
+            await expect(store.keys(undefined, undefined)).resolves.toEqual([
+                "a.md",
+                "b.md",
+                astralPath,
+                "\uffff/end.md",
+            ]);
+            await expect(store.keys("a.md", astralPath)).resolves.toEqual(["a.md", "b.md", astralPath]);
+            await expect(store.keys("a.md", astralPath, 2)).resolves.toEqual(["a.md", "b.md"]);
+            await expect(store.keys("b.md", undefined)).resolves.toEqual(["b.md", astralPath, "\uffff/end.md"]);
+            await store.set("", "empty key");
+            await expect(store.keys(undefined, "")).resolves.toEqual([""]);
+            await expect(store.keys(undefined, undefined)).resolves.toEqual([
+                "",
+                "a.md",
+                "b.md",
+                astralPath,
+                "\uffff/end.md",
+            ]);
+            expect(get).not.toHaveBeenCalled();
+        } finally {
+            await database.destroy();
+        }
     });
 });

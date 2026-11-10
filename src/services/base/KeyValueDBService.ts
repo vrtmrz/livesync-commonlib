@@ -129,6 +129,15 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
         }
     }
 
+    /**
+     * Create an inert namespaced handle over the service's current database.
+     * @param kind - Namespace identifier; stored keys receive this identifier and a trailing hyphen.
+     * @returns A handle whose operations resolve the current database when invoked.
+     * @remarks Construction performs no database I/O. Operations fail if the store
+     * is not ready. For keys, an undefined upper bound means the complete remaining
+     * namespace, including Unicode and empty keys. Explicit bounds are inclusive,
+     * and the optional count is passed to the database unchanged.
+     */
     openSimpleStore<T>(kind: string) {
         // Creating a namespaced handle is intentionally safe during service
         // composition, before onSettingLoaded has opened the backing database.
@@ -158,8 +167,10 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
                 await getDB().del(`${prefix}${key}`);
             },
             keys: async (from: string | undefined, to: string | undefined, count?: number): Promise<string[]> => {
+                // Prefixes end with `-`, so replacing it with `.` bounds the complete namespace.
+                const upperBound = to === undefined ? `${prefix.slice(0, -1)}.` : `${prefix}${to || ""}`;
                 const ret = await getDB().keys(
-                    IDBKeyRange.bound(`${prefix}${from || ""}`, `${prefix}${to || ""}`),
+                    IDBKeyRange.bound(`${prefix}${from || ""}`, upperBound, false, to === undefined),
                     count
                 );
                 return ret

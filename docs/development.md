@@ -53,6 +53,7 @@ not add consumer entry points.
 | `provenance.ts`, `scanning.ts` | Track the displayed revision and content evidence, classify storage, revalidate snapshots, and inspect scan hints. |
 | `saving.ts` | Save ordinary or reconciled storage content and handle explicit base-revision selection. |
 | `deletion.ts`, `renaming.ts` | Apply deletion, revision removal, and source-preserving rename operations. |
+| `deletionRecovery.ts` | Recover retained logical deletions and interrupted cleanup under opt-in provenance and shared file admission. |
 | `reflection.ts`, `protection.ts` | Reflect database revisions while protecting unsynchronised storage content. |
 | `events.ts`, `selection.ts` | Interpret ordinary, restored, retried, and replicated events against current selection and storage. |
 | `chunks.ts` | Repair chunks through the host's save method with bounded concurrency. |
@@ -307,3 +308,6 @@ The shared value extraction uses the declared Octagonal Wheels dependency. Its
 package's public duration and delimiter helpers; source tests cover the
 internal JSON copy adapter. When testing a future unpublished dependency, keep
 these checks tied to the same Octagonal Wheels tarball used by the downstream consumer.
+
+The opt-in ordinary deletion recovery contract, runtime budgets, and restart
+cleanup ownership are recorded in [Deletion recovery](deletion-recovery.md).

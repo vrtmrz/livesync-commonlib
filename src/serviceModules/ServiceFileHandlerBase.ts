@@ -10,6 +10,7 @@ import {
 } from "./ServiceFileHandlerBase/deletion";
 import { renameFileInDB } from "./ServiceFileHandlerBase/renaming";
 import { dbToStorageWithSpecificRev, dbToStorage } from "./ServiceFileHandlerBase/reflection";
+import { recoverDatabaseDeletion } from "./ServiceFileHandlerBase/deletionRecovery";
 import { createAllChunks } from "./ServiceFileHandlerBase/chunks";
 
 import type {
@@ -21,7 +22,7 @@ import type {
     UXFileInfoStub,
     UXInternalFileInfoStub,
 } from "@lib/common/types";
-import type { IFileHandler, StoreFileOptions } from "@lib/interfaces/FileHandler";
+import type { DeletionRecoveryResult, IFileHandler, StoreFileOptions } from "@lib/interfaces/FileHandler";
 import type { DatabaseFileAccess } from "@lib/interfaces/DatabaseFileAccess";
 import type { StorageAccess } from "@lib/interfaces/StorageAccess";
 import { ServiceModuleBase } from "./ServiceModuleBase";
@@ -158,6 +159,37 @@ export abstract class ServiceFileHandlerBase
      */
     async canSkipUnchangedFile(info: UXFileInfoStub, expected: MetaEntry): Promise<boolean> {
         return await canSkipUnchangedFile(this.context, info, expected);
+    }
+
+    /**
+     * Check the host's explicit deletion-recovery capability without store access.
+     * @returns Whether complete provenance-key enumeration is available.
+     * @remarks This pure capability check never enumerates keys or reads provenance values.
+     */
+    supportsDeletionRecovery(): boolean {
+        return !!this.context.provenance?.listPaths;
+    }
+
+    /**
+     * Enumerate the host's existing provenance keys for absent-file cleanup discovery.
+     * @returns Complete namespace-scoped provenance paths; host access errors propagate.
+     * @remarks Unsupported hosts reject. This operation reads keys without loading bodies or records.
+     */
+    async listDeletionRecoveryPaths(): Promise<FilePathWithPrefix[]> {
+        if (!this.context.provenance?.listPaths) throw new Error("Deletion recovery is unavailable for this host");
+        return await this.context.provenance.listPaths();
+    }
+
+    /**
+     * Recover one exact database deletion while preserving unproved or changed local content.
+     * @param expected - The current logical deletion selected by the ordinary scanner.
+     * @param cleanupOnly - Require an absent file and clear only stale device-local bookkeeping.
+     * @returns Separate observed file, provenance, and completion outcomes.
+     * @remarks The responsibility acquires a shared recovery permit before its document lock;
+     * verification failures are reported without changing normal incoming or save policy.
+     */
+    async recoverDatabaseDeletion(expected: MetaEntry, cleanupOnly = false): Promise<DeletionRecoveryResult> {
+        return await recoverDatabaseDeletion(this.context, expected, cleanupOnly);
     }
 
     /**

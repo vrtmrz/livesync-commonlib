@@ -46,4 +46,33 @@ describe("StoredFileReflectionProvenance", () => {
         await expect(provenance.get(newPath)).resolves.toEqual(record);
     });
 
+    it("keeps path enumeration disabled by default", () => {
+        const { store } = createStore();
+        const provenance = new StoredFileReflectionProvenance(store);
+
+        expect(provenance.listPaths).toBeUndefined();
+        expect(store.keys).not.toHaveBeenCalled();
+    });
+
+    it("enumerates paths from keys without reading values when enabled", async () => {
+        const { store } = createStore();
+        const provenance = new StoredFileReflectionProvenance(store, true);
+        const paths = ["one.md", "two.md"] as FilePathWithPrefix[];
+
+        vi.mocked(store.keys).mockResolvedValue(paths.map(String));
+
+        await expect(provenance.listPaths!()).resolves.toEqual(paths);
+        expect(store.keys).toHaveBeenCalledOnce();
+        expect(store.keys).toHaveBeenCalledWith(undefined, undefined);
+        expect(store.get).not.toHaveBeenCalled();
+    });
+
+    it("propagates path enumeration failures", async () => {
+        const { store } = createStore();
+        const provenance = new StoredFileReflectionProvenance(store, true);
+        const error = new Error("key enumeration failed");
+        vi.mocked(store.keys).mockRejectedValue(error);
+
+        await expect(provenance.listPaths!()).rejects.toBe(error);
+    });
 });
