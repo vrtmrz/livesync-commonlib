@@ -7,6 +7,12 @@ status: unreleased
 
 # Full offline scan
 
+The public entry remains `serviceFeatures/offlineScanner`. Internally,
+`src/serviceFeatures/offlineScanner/` separates shared types, path comparison,
+Metadata inspection and repair, last-seen persistence, file collection and
+reflection, and scan orchestration. The entry module retains lifecycle integration
+and re-exports its existing public functions; callers do not need to change imports.
+
 Implementation note: the settings-controlled strict comparison correction for [Self-hosted LiveSync #1329](https://github.com/vrtmrz/obsidian-livesync/issues/1329) is implemented but unreleased. The original reviewed-version fields above retain their historical baseline.
 
 This document defines the developer contract for `synchroniseAllFilesBetweenDBandStorage`. It describes how the scanner classifies each selected path, chooses an action, and records a database-to-storage reflection. Host-specific setup dialogue and recovery choices remain outside this contract.
@@ -179,3 +185,18 @@ Identity coverage verifies early quarantine when no consistent target exists, co
 Stored-event coverage verifies that current storage content replaces saved observations, a recreated path suppresses a stale deletion, distinct-ID rename halves are admitted independently from current path state, and a same-ID rename never performs a separate deletion. It also verifies that a storage-inspection failure does not become evidence for a destructive operation, that failed work remains pending, and that an individual replay failure does not prevent the full scan from running.
 
 Maintain that interaction boundary when changing file-handler results, last-seen persistence, Fast Setup reflection, or offline deletion detection.
+
+
+## Opt-in recovery of retained logical deletions
+
+The base action matrix remains the policy for hosts without deletion recovery.
+A host whose handler reports `supportsDeletionRecovery()` may recover a
+conflict-free, newer `both-db-deleted` pair during ordinary `NEWER_WINS` without
+extra policies. This guarded operation does not use `update-storage` or direct
+`delete-local`. Existing explicit policies retain their choices.
+
+For `db-only-deleted` pairs, one optional provenance key enumeration identifies
+stale bookkeeping. Cleanup-only work precedes new deletions and never reads file
+bodies or invokes physical deletion. All affected paths are revalidated by their
+handler. See [Deletion recovery](deletion-recovery.md) for completion, error,
+concurrency, and cost contracts. This extension is unreleased.

@@ -105,7 +105,7 @@ async function createScenario(scenario: Scenario, revsLimit = 1000, onDemand = f
             getStub: async () => {
                 const next = storageReadHook?.();
                 if (next) storage = next;
-                return storage;
+                return storage ?? null;
             },
             getFileStub: async () => storage,
             hasPendingFileEvent: () => false,
@@ -132,6 +132,7 @@ async function createScenario(scenario: Scenario, revsLimit = 1000, onDemand = f
             storageAccess,
             conflict,
             fileReflectionProvenance: {
+                listPaths: async () => [...provenance.keys()],
                 get: async (key: FilePathWithPrefix) => provenance.get(key),
                 set: async (key: FilePathWithPrefix, value: FileReflectionProvenanceRecord) => { provenance.set(key, value); },
                 delete: async (key: FilePathWithPrefix) => { provenance.delete(key); },
@@ -804,6 +805,43 @@ describe("strict scans with on-demand chunks", () => {
             expect(fixture.provenance.get(path)?.revision).toBe(fixture.baseRevision);
             expect(await fixture.getStorage().body.text()).toBe(localEdit);
             expect(fixture.storageAccess.writeFileAuto).not.toHaveBeenCalled();
+        } finally {
+            await fixture.dispose();
+        }
+    });
+});
+
+
+describe("deletion recovery with the real Chunk delivery pipeline", () => {
+    it.each([
+        [false, false],
+        [true, false],
+        [false, true],
+        [true, true],
+    ])("respects normal delivery with readChunksOnline=%s and suppression=%s", async (online, suppressed) => {
+        const fixture = await createScenario("recorded-unchanged", 1000, true);
+        try {
+            await omitLocalChunks(fixture);
+            fixture.settings.readChunksOnline = online;
+            fixture.settings.useOnlyLocalChunk = suppressed;
+            const base = await fixture.db.get(path);
+            await fixture.db.put({ ...base, deleted: true, mtime: originalMtime + 60000 });
+            const deletion = await fixture.access.fetchEntryMeta(path, undefined, true);
+            if (!deletion) throw new Error("Missing deletion fixture");
+            const result = await fixture.handler.recoverDatabaseDeletion(deletion);
+            expect((await fixture.db.get(path))._rev).toBe(deletion._rev);
+            expect(await fixture.access.getConflictedRevs(path)).toEqual([]);
+            if (suppressed) {
+                expect(result.status).toBe("failed");
+                expect(fixture.storageExists()).toBe(true);
+                expect(fixture.provenance.get(path)?.revision).toBe(fixture.baseRevision);
+                expect(fixture.chunkSource.fetchChunks).not.toHaveBeenCalled();
+            } else {
+                expect(result).toMatchObject({ status: "applied", file: "absent", provenance: "cleared" });
+                expect(fixture.storageExists()).toBe(false);
+                expect(fixture.provenance.has(path)).toBe(false);
+                expect(fixture.chunkSource.fetchChunks).toHaveBeenCalled();
+            }
         } finally {
             await fixture.dispose();
         }

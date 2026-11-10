@@ -272,6 +272,15 @@ standardIo.writeStdout("ready\n");
 
 See [the standard-I/O contract](docs/platform-standard-io.md) for host composition and test-double examples.
 
+## Ordinary deletion recovery (unreleased)
+
+Hosts using the ordinary file handler can opt in to recovery of retained logical
+deletions by supplying provenance key enumeration. Recovery preserves edited or
+unproven files, uses existing Chunk delivery policy, and reports physical removal
+and interrupted bookkeeping separately. Hosts which do not opt in retain their
+existing scanner policy. See [the recovery contract](docs/deletion-recovery.md)
+for capability composition, concurrency, runtime costs, and verification limits.
+
 ## Settings lifecycle
 
 New-Vault recommendations are deliberately separate from the conservative values used to complete older stored settings. The focused settings entry also reports migrations and safety-review requirements without changing a user's synchronisation choices or persisting a device-local acknowledgement.
