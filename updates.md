@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.4.2
+
+10th November, 2026
+
+### Added
+
+- Hosts can recover a received logical deletion during an ordinary scan when its
+  unchanged file remains in storage. Enable provenance path enumeration explicitly
+  to opt in. Recovery verifies the current deletion and recorded content evidence,
+  preserving edited or unverified files. ([Self-hosted LiveSync #1338](https://github.com/vrtmrz/obsidian-livesync/issues/1338))
+    - Recovery shares three file permits and follows the existing Chunk delivery
+      and Fetcher policy. Interrupted cleanup is rediscovered from existing
+      provenance and last-seen records, without a new persistent index or journal.
+    - This supplies a guarded recovery path; it does not establish or remove the
+      cause of the initial reflection failure. See the
+      [host contract and limits](docs/deletion-recovery.md).
+
+### Fixed
+
+- Unbounded namespaced key enumeration returns the full namespace, including
+  Unicode paths. Explicit upper bounds and count limits retain their behaviour.
+
 ## 0.4.1
 
 9th November, 2026
