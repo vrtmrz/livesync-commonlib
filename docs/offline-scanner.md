@@ -199,4 +199,5 @@ For `db-only-deleted` pairs, one optional provenance key enumeration identifies
 stale bookkeeping. Cleanup-only work precedes new deletions and never reads file
 bodies or invokes physical deletion. All affected paths are revalidated by their
 handler. See [Deletion recovery](deletion-recovery.md) for completion, error,
-concurrency, and cost contracts. This extension is unreleased.
+concurrency, and cost contracts. This opt-in extension is published in
+[Commonlib 0.4.2](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.4.2).
