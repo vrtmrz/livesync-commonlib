@@ -10,7 +10,7 @@ Commonlib separates three values which older integrations commonly treated as on
 
 ## Plaintext acceptance setting (Commonlib 0.4.3)
 
-Available in [Commonlib 0.4.3](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.4.3). The Self-hosted LiveSync dialogue changes remain unreleased.
+Available in [Commonlib 0.4.3](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.4.3). The corresponding Self-hosted LiveSync dialogue changes are available in [Self-hosted LiveSync 1.0.49](https://github.com/vrtmrz/obsidian-livesync/releases/tag/1.0.49).
 
 The `acceptUnencryptedContent` setting defaults to `false`; only the boolean value `true` enables it. With E2EE enabled, it permits receipt of unencrypted file content from third-party tools which do not use the E2EE passphrase. Content sent by the plug-in remains encrypted. Complete Setup URI and QR imports normalise a missing or invalid value to `false`. Settings Markdown includes the value regardless of credential-sharing choice; a partial Markdown import preserves the current value when the field is absent and treats an explicitly invalid value as `false`.
 
