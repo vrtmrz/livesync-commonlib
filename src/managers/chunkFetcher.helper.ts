@@ -36,7 +36,14 @@ export type FetchedChunkClassification = {
 
 function isValidChunk(chunk: unknown): chunk is EntryLeaf {
     const candidate = chunk as Partial<EntryLeaf> | null | undefined;
-    return !!candidate && typeof candidate._id === "string" && typeof candidate.data === "string";
+    // Match the database read boundary: control, local, and Metadata documents are not Chunks.
+    return (
+        !!candidate &&
+        candidate.type === "leaf" &&
+        typeof candidate._id === "string" &&
+        !candidate._id.startsWith("_local/") &&
+        typeof candidate.data === "string"
+    );
 }
 
 export function classifyFetchedChunks(

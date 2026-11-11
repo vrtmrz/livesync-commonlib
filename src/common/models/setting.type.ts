@@ -704,6 +704,9 @@ export interface EncryptionSettings {
      */
     encrypt: boolean;
 
+    /** Accept plaintext file content from the remote while E2EE is enabled. */
+    acceptUnencryptedContent: boolean;
+
     /**
      * The passphrase used for E2EE.
      */

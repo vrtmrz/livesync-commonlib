@@ -6,8 +6,7 @@ import {
     type AnyEntry,
     type DatabaseEntry,
     type EntryLeaf,
-    PREFIX_ENCRYPTED_CHUNK,
-    PREFIX_OBFUSCATED,
+    IDPrefixes,
     SYNCINFO_ID,
     type SyncInfo,
     type LoadedEntry,
@@ -25,6 +24,7 @@ import {
     type EncryptionSettings,
 } from "./types.ts";
 import { normaliseP2PConnectionPath, normaliseP2PMaxWirePayloadBytes } from "./models/setting.p2p.ts";
+import { normaliseAcceptUnencryptedContent } from "./models/setting.encryption.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { joinDelimitedList, replaceAll, replaceAllPairs, splitDelimitedList } from "octagonal-wheels/string";
 import { formatDuration } from "octagonal-wheels/notation/duration";
@@ -173,14 +173,14 @@ export async function isDocContentSame(
 }
 
 export function isObfuscatedEntry(doc: DatabaseEntry): doc is AnyEntry {
-    if (doc._id.startsWith(PREFIX_OBFUSCATED)) {
+    if (doc._id.startsWith(IDPrefixes.Obfuscated)) {
         return true;
     }
     return false;
 }
 
 export function isEncryptedChunkEntry(doc: DatabaseEntry): doc is EntryLeaf {
-    if (doc._id.startsWith(PREFIX_ENCRYPTED_CHUNK)) {
+    if (doc._id.startsWith(IDPrefixes.EncryptedChunk)) {
         return true;
     }
     return false;
@@ -611,6 +611,7 @@ export function pickEncryptionSettings(setting: ObsidianLiveSyncSettings | Encry
         passphrase: setting.passphrase,
         usePathObfuscation: setting.usePathObfuscation,
         encryptInternalMetadata: setting.encryptInternalMetadata,
+        acceptUnencryptedContent: normaliseAcceptUnencryptedContent(setting.acceptUnencryptedContent),
         idDerivationVersion: setting.idDerivationVersion,
         idDerivationKey: setting.idDerivationKey,
     };

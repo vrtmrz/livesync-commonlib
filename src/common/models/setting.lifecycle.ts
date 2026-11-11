@@ -6,6 +6,7 @@ import {
 } from "./setting.const";
 import type { ObsidianLiveSyncSettings } from "./setting.type";
 import { omitP2PRuntimeSettings } from "./setting.p2p";
+import { normaliseAcceptUnencryptedContent } from "./setting.encryption";
 
 export const SettingsMigrationReviewCodes = {
     LegacyUpdatePending: "legacy-update-review-pending",
@@ -133,8 +134,10 @@ export function prepareSettingsForLoad(
                 toVersion: CURRENT_SETTING_VERSION,
             },
         ];
+        const settings = cloneSettings(source, SETTINGS_SCHEMA_DEFAULTS);
+        settings.acceptUnencryptedContent = normaliseAcceptUnencryptedContent(source.acceptUnencryptedContent);
         return {
-            settings: cloneSettings(source, SETTINGS_SCHEMA_DEFAULTS),
+            settings,
             sourceVersion,
             targetVersion: sourceVersion,
             isNewVault: false,
@@ -179,6 +182,8 @@ export function prepareSettingsForLoad(
     if (normalisedFilenameCase) migrated = { ...migrated, handleFilenameCaseSensitive: false };
     const normalisedInternalMetadata = typeof migrated.encryptInternalMetadata !== "boolean";
     if (normalisedInternalMetadata) migrated = { ...migrated, encryptInternalMetadata: false };
+    const normalisedAcceptUnencryptedContent = typeof migrated.acceptUnencryptedContent !== "boolean";
+    if (normalisedAcceptUnencryptedContent) migrated = { ...migrated, acceptUnencryptedContent: false };
 
     return {
         settings: cloneSettings(migrated, SETTINGS_SCHEMA_DEFAULTS),
@@ -186,7 +191,12 @@ export function prepareSettingsForLoad(
         targetVersion,
         isNewVault: false,
         isFromFutureSchema: false,
-        changed: sourceVersion !== targetVersion || normalisedConfiguredState || normalisedFilenameCase || normalisedInternalMetadata,
+        changed:
+            sourceVersion !== targetVersion ||
+            normalisedConfiguredState ||
+            normalisedFilenameCase ||
+            normalisedInternalMetadata ||
+            normalisedAcceptUnencryptedContent,
         requiresSyncReview: reviewReasons.length > 0,
         reviewReasons,
     };

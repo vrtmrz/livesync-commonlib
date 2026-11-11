@@ -1,3 +1,4 @@
+import { defaultLogger, LOG_LEVEL_NOTICE, setGlobalLogFunction } from "@lib/common/logger.ts";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { ChunkFetcher, EVENT_MISSING_CHUNKS, EVENT_CHUNK_FETCHED, EVENT_MISSING_CHUNK_REMOTE } from "./ChunkFetcher";
 import type { ChunkFetcherOptions } from "./ChunkFetcher";
@@ -334,6 +335,75 @@ describe("ChunkFetcher", () => {
             expect(deliveryCoordinator.isActivityActiveFor(id)).toBe(false);
             expect(chunkFetcher.queue).toEqual([]);
             expect(mockReplicator.fetchRemoteChunks).not.toHaveBeenCalled();
+        });
+
+        it("reports rejected plaintext without storing it and permits a later explicit request", async () => {
+            const id = "h:+blocked" as DocumentID;
+            const fetchRemoteChunks = vi.fn().mockRejectedValue({
+                name: "UnencryptedContentRejectedError",
+                code: "UNENCRYPTED_CONTENT_REJECTED",
+                documentId: id,
+                contentKind: "chunk",
+                message: "Synthetic error text must not be logged wholesale",
+            });
+            mockReplicatorService.getActiveReplicator.mockReturnValue({ fetchRemoteChunks });
+            const log = vi.fn();
+            setGlobalLogFunction(log);
+            try {
+                chunkFetcher.queue = [id];
+                await chunkFetcher.requestMissingChunks();
+                expect(mockChunkManager.write).not.toHaveBeenCalled();
+                expect(mockChunkManager.emitEvent).not.toHaveBeenCalledWith(EVENT_CHUNK_FETCHED, expect.anything());
+                expect(collectingChunks.value).toBe(initialCollectingChunks);
+                expect(
+                    log.mock.calls.some(
+                        ([message, level]) =>
+                            level === LOG_LEVEL_NOTICE &&
+                            typeof message === "string" &&
+                            message.includes("Accept unencrypted content")
+                    )
+                ).toBe(true);
+                expect(log.mock.calls.some(([message]) => typeof message === "object")).toBe(false);
+
+                fetchRemoteChunks.mockResolvedValue([createMockLeaf(id)]);
+                chunkFetcher.queue = [id];
+                await chunkFetcher.requestMissingChunks();
+                expect(mockChunkManager.write).toHaveBeenCalledOnce();
+                expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(EVENT_CHUNK_FETCHED, createMockLeaf(id));
+                expect(collectingChunks.value).toBe(initialCollectingChunks);
+            } finally {
+                setGlobalLogFunction(defaultLogger);
+            }
+        });
+
+        it("logs invalid Chunk identifiers without bodies and allows a later valid response", async () => {
+            const id = "h:invalid-response" as DocumentID;
+            const body = "Synthetic rejected body must not appear in logs";
+            const fetchRemoteChunks = vi
+                .fn()
+                .mockResolvedValue([{ _id: id, type: "leaf", data: { body } }, { data: { body } }]);
+            mockReplicatorService.getActiveReplicator.mockReturnValue({ fetchRemoteChunks });
+            const log = vi.fn();
+            setGlobalLogFunction(log);
+            try {
+                chunkFetcher.queue = [id];
+                await chunkFetcher.requestMissingChunks();
+                expect(mockChunkManager.write).not.toHaveBeenCalled();
+                expect(mockChunkManager.emitEvent).not.toHaveBeenCalledWith(EVENT_CHUNK_FETCHED, expect.anything());
+                expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(EVENT_MISSING_CHUNK_REMOTE, id);
+                expect(collectingChunks.value).toBe(initialCollectingChunks);
+                expect(JSON.stringify(log.mock.calls)).not.toContain(body);
+                expect(JSON.stringify(log.mock.calls)).toContain(id);
+
+                fetchRemoteChunks.mockResolvedValue([createMockLeaf(id)]);
+                chunkFetcher.queue = [id];
+                await chunkFetcher.requestMissingChunks();
+                expect(mockChunkManager.write).toHaveBeenCalledOnce();
+                expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(EVENT_CHUNK_FETCHED, createMockLeaf(id));
+                expect(collectingChunks.value).toBe(initialCollectingChunks);
+            } finally {
+                setGlobalLogFunction(defaultLogger);
+            }
         });
 
         it("should handle no active replicator", async () => {

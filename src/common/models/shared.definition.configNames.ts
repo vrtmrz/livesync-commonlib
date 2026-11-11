@@ -34,6 +34,11 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         name: "Encrypt internal file Properties",
         desc: "Encrypt file properties (paths, times, sizes, and Chunk references) used by Hidden File Sync and Customisation Sync. This affects future writes; manually rebuild the remote database to protect existing properties. Requires E2EE V2, Property Encryption, and compatible clients on every device.",
     },
+    acceptUnencryptedContent: {
+        name: "Accept unencrypted content",
+        desc: "When E2EE is enabled, accept unencrypted content written by third-party tools which do not use the E2EE passphrase. Anyone with write access to the database can inject plaintext. Content sent by this plug-in remains encrypted.",
+        isAdvanced: true,
+    },
     enableCompression: {
         name: "Data Compression",
         level: LEVEL_ADVANCED,

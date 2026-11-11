@@ -144,6 +144,7 @@ function createFastFetchRebuilder(localDatabase: PouchDB.Database) {
         },
         replication: { markResolved: vi.fn(async () => undefined) },
         database: {
+            openDatabase: vi.fn(async () => true),
             onDatabaseReset: { addHandler: vi.fn() },
             localDatabase: { localDatabase },
         },
@@ -441,8 +442,34 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
         expect(services.replication.markResolved).toHaveBeenCalledOnce();
     });
 
+    it("rejects plaintext through Fast Fetch and accepts the same remote revision after explicit opt-in", async () => {
+        const { rebuilder, services } = createFastFetchRebuilder(localDB);
+        const settings = services.setting.currentSettings();
+        settings.encrypt = true;
+        settings.acceptUnencryptedContent = false;
+        await remoteDB.put({ _id: VERSIONING_DOCID, type: "versioninfo", version: 13, used_features: [] } as any);
+        const leaf = { _id: "h:+plaintext-fast-fetch", type: "leaf", data: "synthetic plaintext body" };
+        await remoteDB.put(leaf);
+        const remoteBefore = await remoteDB.get(leaf._id);
+
+        await expect(rebuilder.$fetchLocalDBFast(false)).rejects.toMatchObject({
+            stage: "decryption",
+            retryable: false,
+            cause: { code: "UNENCRYPTED_CONTENT_REJECTED" },
+        });
+        await expect(localDB.get(leaf._id)).rejects.toMatchObject({ status: 404 });
+        expect(services.replication.markResolved).not.toHaveBeenCalled();
+
+        settings.acceptUnencryptedContent = true;
+        await rebuilder.$fetchLocalDBFast(false);
+        await expect(localDB.get(leaf._id)).resolves.toMatchObject({ ...leaf, _rev: remoteBefore._rev });
+        await expect(remoteDB.get(leaf._id)).resolves.toEqual(remoteBefore);
+        expect(services.replication.markResolved).toHaveBeenCalledOnce();
+    });
+
     it("preflights generation 13, resets local state, then decrypts encrypted and plain internal Metadata", async () => {
         const { rebuilder, services, passphrase, salt, resetLocalDatabase } = createFastFetchRebuilder(localDB);
+        services.setting.currentSettings().encrypt = true;
         await remoteDB.put({
             _id: VERSIONING_DOCID,
             type: "versioninfo",

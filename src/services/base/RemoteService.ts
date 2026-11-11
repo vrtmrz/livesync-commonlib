@@ -430,7 +430,8 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                     false,
                     getPBKDF2Salt,
                     encryptionAlgorithm,
-                    connectionOptions.encryptInternalMetadata ?? false
+                    connectionOptions.encryptInternalMetadata ?? false,
+                    connectionOptions.acceptUnencryptedContent ?? false
                 );
             }
         } catch (ex) {

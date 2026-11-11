@@ -15,6 +15,7 @@ import {
     type PlainEntry,
 } from "@lib/common/types.ts";
 import { getConfiguredFunctionsForEncryption } from "@lib/pouchdb/encryption.ts";
+import { isUnencryptedContentRejectedError } from "@lib/replication/UnencryptedContentRejectedError.ts";
 
 class TestRemoteService extends RemoteService {}
 
@@ -97,12 +98,22 @@ type ConnectWithOptions = (
     customHeaders: Record<string, string>,
     useRequestAPI: boolean,
     getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
-    options: { signal?: AbortSignal; allowNativeFallback?: boolean; encryptionAlgorithm?: E2EEAlgorithm }
+    options: {
+        signal?: AbortSignal;
+        allowNativeFallback?: boolean;
+        encryptionAlgorithm?: E2EEAlgorithm;
+        acceptUnencryptedContent?: boolean;
+    }
 ) => ReturnType<TestRemoteService["connect"]>;
 
 async function connectOwned(
     service: TestRemoteService,
-    options: { signal?: AbortSignal; allowNativeFallback?: boolean; encryptionAlgorithm?: E2EEAlgorithm } = {},
+    options: {
+        signal?: AbortSignal;
+        allowNativeFallback?: boolean;
+        encryptionAlgorithm?: E2EEAlgorithm;
+        acceptUnencryptedContent?: boolean;
+    } = {},
     skipInfo = true,
     passphrase: string | false = false
 ) {
@@ -111,8 +122,8 @@ async function connectOwned(
         service,
         "https://example.com/db",
         { username: "user", password: "password", type: "basic" },
-        passphrase,
         false,
+        passphrase,
         false,
         false,
         skipInfo,
@@ -254,6 +265,41 @@ describe("RemoteService request activity", () => {
             } finally {
                 await opened.close();
             }
+        }
+    );
+
+    it.each([true, false])(
+        "passes the unencrypted-content option through the remote connection (accept=%s)",
+        async (acceptUnencryptedContent) => {
+            const document = {
+                _id: "h:+remote-plaintext" as DocumentID,
+                _rev: "1-remote",
+                type: "leaf",
+                data: "remote plaintext content",
+            } as EntryLeaf;
+            const { service } = createService(
+                async () =>
+                    new Response(JSON.stringify(document), {
+                        status: 200,
+                        headers: { "content-type": "application/json" },
+                    })
+            );
+            const opened = await connectOwned(
+                service,
+                { encryptionAlgorithm: E2EEAlgorithms.V2, acceptUnencryptedContent },
+                true,
+                "remote-policy-secret"
+            );
+            let error: unknown;
+            try {
+                await opened.db.get(document._id);
+            } catch (caught) {
+                error = caught;
+            } finally {
+                await (opened as typeof opened & { close(): Promise<void> }).close();
+            }
+
+            expect(isUnencryptedContentRejectedError(error)).toBe(!acceptUnencryptedContent);
         }
     );
 

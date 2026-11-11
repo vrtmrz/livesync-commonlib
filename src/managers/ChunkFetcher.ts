@@ -1,6 +1,11 @@
+import { getUnencryptedContentRejectionMessage } from "@lib/replication/unencryptedContentMessages.ts";
+import {
+    getUnencryptedContentRejection,
+    isUnencryptedContentRejectedError,
+} from "@lib/replication/UnencryptedContentRejectedError.ts";
 import { delay, promiseWithResolvers } from "octagonal-wheels/promises";
 import { unique } from "octagonal-wheels/collection";
-import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf } from "@lib/common/types.ts";
 
 import { type ChunkManager } from "./ChunkManager.ts";
@@ -322,7 +327,16 @@ export class ChunkFetcher {
                 LOG_LEVEL_VERBOSE
             );
             for (const chunk of invalidChunks) {
-                Logger(`Invalid chunk: ${JSON.stringify(chunk)}`, LOG_LEVEL_VERBOSE);
+                const id =
+                    typeof chunk === "object" && chunk !== null && "_id" in chunk && typeof chunk._id === "string"
+                        ? chunk._id
+                        : undefined;
+                Logger(
+                    id === undefined
+                        ? "Invalid chunk without a string document ID."
+                        : `Invalid chunk document: ${JSON.stringify(id)}`,
+                    LOG_LEVEL_VERBOSE
+                );
             }
         }
         if (chunks.length === 0) {
@@ -482,8 +496,22 @@ export class ChunkFetcher {
 
             this.applyMissingChunkResults(missingIds, requestClaims, requestCompletionVersion);
         } catch (error) {
-            Logger("An error occurred while fetching remote chunks.", LOG_LEVEL_VERBOSE);
-            Logger(error, LOG_LEVEL_VERBOSE);
+            if (isUnencryptedContentRejectedError(error)) {
+                Logger(
+                    getUnencryptedContentRejectionMessage("on-demand"),
+                    LOG_LEVEL_NOTICE,
+                    "unencrypted-content-rejected"
+                );
+                const rejection = getUnencryptedContentRejection(error);
+                const identifiers = rejection ? [rejection.documentId] : requestIDs;
+                Logger(
+                    `On-demand retrieval rejected unencrypted content: ${identifiers.join(", ")}`,
+                    LOG_LEVEL_VERBOSE
+                );
+            } else {
+                Logger("An error occurred while fetching remote chunks.", LOG_LEVEL_VERBOSE);
+                Logger(error, LOG_LEVEL_VERBOSE);
+            }
         } finally {
             for (const [id, pending] of requestClaims) {
                 if (pending.inFlight) this.settleClaim(id, pending);

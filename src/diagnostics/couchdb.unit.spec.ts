@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, E2EEAlgorithms, type EntryDoc, type RemoteDBSettings } from "../common/types.ts";
 import { getConfiguredFunctionsForEncryption } from "../pouchdb/encryption.ts";
 import { createCouchDBDiagnosticSource } from "./couchdb.ts";
+import { UnencryptedContentRejectedError } from "../replication/UnencryptedContentRejectedError.ts";
 
 const settings: RemoteDBSettings = {
     ...DEFAULT_SETTINGS,
@@ -102,6 +103,39 @@ describe("CouchDB diagnostic reader", () => {
             expect(missingSeedFetch).toHaveBeenCalledTimes(2);
         } finally {
             await missing.close();
+        }
+    });
+
+    it("preserves the typed plaintext rejection through direct and bulk diagnostic reads", async () => {
+        const id = "h:+diagnostic-plaintext";
+        const document = { _id: id, _rev: "1-plaintext", type: "leaf", data: "plaintext body" };
+        const encryptedSettings = {
+            ...settings,
+            encrypt: true,
+            passphrase: "diagnostic-policy-secret",
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            acceptUnencryptedContent: false,
+        };
+        const source = createCouchDBDiagnosticSource({
+            settings: encryptedSettings,
+            fetch: async (request) => {
+                if (new URL(request).pathname.endsWith("/_all_docs")) {
+                    return json({ rows: [{ key: id, id, doc: document }] });
+                }
+                return json(document);
+            },
+        });
+        try {
+            await expect(source.get(id)).rejects.toBeInstanceOf(UnencryptedContentRejectedError);
+            const results = await source.getMany!([id]);
+            expect(results[0]?.error).toBeInstanceOf(UnencryptedContentRejectedError);
+            expect(results[0]?.error).toMatchObject({
+                documentId: id,
+                contentKind: "chunk",
+                code: "UNENCRYPTED_CONTENT_REJECTED",
+            });
+        } finally {
+            await source.close();
         }
     });
 

@@ -29,6 +29,17 @@ describe("Doctor translation boundary", () => {
         expect(configurationNames.enableCompression?.status).toBeUndefined();
     });
 
+    it("describes plaintext acceptance in its English fallback", () => {
+        expect(configurationNames.acceptUnencryptedContent).toMatchObject({
+            name: "Accept unencrypted content",
+            isAdvanced: true,
+        });
+        expect(configurationNames.acceptUnencryptedContent?.desc).toContain(
+            "third-party tools which do not use the E2EE passphrase"
+        );
+        expect(configurationNames.acceptUnencryptedContent?.desc).toContain("write access to the database");
+    });
+
     it("accepts Data Compression as a supported opt-in setting", () => {
         const result = checkUnsuitableValues({
             ...DEFAULT_SETTINGS,

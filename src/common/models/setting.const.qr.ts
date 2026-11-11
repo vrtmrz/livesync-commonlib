@@ -185,4 +185,5 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     batchSaveInLiveSync: 169,
     useCouchDBCacheControlHeadersOnly: 170,
     encryptedIdDerivationKey: -1,
+    acceptUnencryptedContent: 171,
 } as const;

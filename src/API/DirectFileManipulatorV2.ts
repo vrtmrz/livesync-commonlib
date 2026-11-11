@@ -74,6 +74,7 @@ export type DirectFileManipulatorOptions = {
     idDerivationKey?: string;
     pathNormalizationVersion?: 0 | 1;
     encryptInternalMetadata?: boolean;
+    acceptUnencryptedContent?: boolean;
     useDynamicIterationCount?: boolean;
     customChunkSize?: number;
     minimumChunkSize?: number;
@@ -297,7 +298,8 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 false,
                 async () => await this.getReplicationPBKDF2Salt(this.getSettings()),
                 this.options.E2EEAlgorithm ?? E2EEAlgorithms.V2,
-                usesEncryptedInternalMetadata(this.settings)
+                usesEncryptedInternalMetadata(this.settings),
+                this.options.acceptUnencryptedContent ?? false
             );
         }
         return Promise.resolve(true);
@@ -355,6 +357,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                     this.options.handleFilenameCaseSensitive ?? DEFAULT_SETTINGS.handleFilenameCaseSensitive,
                 usePathObfuscation: !!this.options.obfuscatePassphrase,
                 encryptInternalMetadata: this.options.encryptInternalMetadata ?? false,
+                acceptUnencryptedContent: this.options.acceptUnencryptedContent ?? DEFAULT_SETTINGS.acceptUnencryptedContent,
                 syncInternalFiles: this.options.syncInternalFiles ?? DEFAULT_SETTINGS.syncInternalFiles,
                 E2EEAlgorithm: this.options.E2EEAlgorithm ?? E2EEAlgorithms.V2,
             },

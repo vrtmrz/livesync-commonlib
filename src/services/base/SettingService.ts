@@ -16,6 +16,7 @@ import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { IAPIService, ISettingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
+import { normaliseAcceptUnencryptedContent } from "@lib/common/models/setting.encryption";
 import { isCloudantURI } from "@lib/pouchdb/utils_couchdb";
 import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
 import { encryptWithEphemeralSalt, HKDF_SALTED_ENCRYPTED_PREFIX } from "octagonal-wheels/encryption/hkdf";
@@ -115,6 +116,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
      * @param settings The settings to adjust.
      */
     adjustSettings(settings: ObsidianLiveSyncSettings): Promise<ObsidianLiveSyncSettings> {
+        settings.acceptUnencryptedContent = normaliseAcceptUnencryptedContent(settings.acceptUnencryptedContent);
         if (
             migrateLegacyRemoteConfigurationsInPlace(settings, (message) => {
                 this._log(message, LOG_LEVEL_NOTICE);

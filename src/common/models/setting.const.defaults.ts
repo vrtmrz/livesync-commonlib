@@ -66,6 +66,7 @@ export const SETTINGS_SCHEMA_DEFAULTS: ObsidianLiveSyncSettings = {
     periodicReplicationInterval: 60,
     syncOnFileOpen: false,
     encrypt: false,
+    acceptUnencryptedContent: false,
     passphrase: "",
     idDerivationVersion: 0,
     idDerivationKey: "",
