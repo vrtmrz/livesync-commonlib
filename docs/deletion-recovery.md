@@ -2,7 +2,7 @@
 date: 2026-11-10
 commonlib-version: "0.4.1"
 self-hosted-livesync-version: "1.0.47"
-status: accepted; unreleased
+status: accepted; published in Commonlib 0.4.2
 ---
 
 # Recovering unapplied logical deletions
@@ -10,7 +10,10 @@ status: accepted; unreleased
 An ordinary scan can recover a received deletion which reached the local database
 but did not remove its unchanged Vault file. This is an opt-in host capability;
 it does not change incoming reflection, explicit Fetch, or forced Inspector
-operations. The implementation is unreleased.
+operations. The implementation is published in
+[Commonlib 0.4.2](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.4.2).
+The reviewed-version fields retain the original baseline; application adoption
+and physical iPhone performance remain separate follow-ups.
 
 ## Host contract
 

@@ -14,9 +14,9 @@ This package is primarily for maintainers of those clients and for integrations 
 
 ## Status and versioning
 
-Commonlib [0.4.1](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.4.1)
+Commonlib [0.4.2](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.4.2)
 is published on npm through `latest` and `next`
-([release notes](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.4.1)).
+([release notes](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.4.2)).
 
 Self-hosted LiveSync
 [1.0.44](https://github.com/vrtmrz/obsidian-livesync/releases/tag/1.0.44)
@@ -272,10 +272,12 @@ standardIo.writeStdout("ready\n");
 
 See [the standard-I/O contract](docs/platform-standard-io.md) for host composition and test-double examples.
 
-## Ordinary deletion recovery (unreleased)
+<a id="ordinary-deletion-recovery-unreleased"></a>
 
-Hosts using the ordinary file handler can opt in to recovery of retained logical
-deletions by supplying provenance key enumeration. Recovery preserves edited or
+## Ordinary deletion recovery
+
+Available in Commonlib 0.4.2. Hosts using the ordinary file handler can opt in to
+recovery of retained logical deletions by supplying provenance key enumeration. Recovery preserves edited or
 unproven files, uses existing Chunk delivery policy, and reports physical removal
 and interrupted bookkeeping separately. Hosts which do not opt in retain their
 existing scanner policy. See [the recovery contract](docs/deletion-recovery.md)
