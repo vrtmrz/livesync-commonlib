@@ -14,9 +14,9 @@ This package is primarily for maintainers of those clients and for integrations 
 
 ## Status and versioning
 
-Commonlib [0.4.2](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.4.2)
+Commonlib [0.4.3](https://www.npmjs.com/package/@vrtmrz/livesync-commonlib/v/0.4.3)
 is published on npm through `latest` and `next`
-([release notes](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.4.2)).
+([release notes](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.4.3)).
 
 Self-hosted LiveSync
 [1.0.44](https://github.com/vrtmrz/obsidian-livesync/releases/tag/1.0.44)
