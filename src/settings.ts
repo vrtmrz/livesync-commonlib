@@ -18,6 +18,7 @@ export {
     PREFERRED_SETTING_SELF_HOSTED,
 } from "./common/models/setting.const.preferred.ts";
 export { CURRENT_SETTING_VERSION } from "./common/models/setting.const.ts";
+export { normaliseAcceptUnencryptedContent } from "./common/models/setting.encryption.ts";
 export {
     deriveIdKey,
     deriveOrImportIdKey,
@@ -46,7 +47,12 @@ export type {
     TweakTransitionReason,
 } from "./common/models/tweak.compatibility.ts";
 export type { TweakReconstruction, TweakValues } from "./common/models/tweak.definition.ts";
-export type { ObsidianLiveSyncSettings, RemoteDBSettings, RemoteTypeSettings } from "./common/models/setting.type.ts";
+export type {
+    EncryptionSettings,
+    ObsidianLiveSyncSettings,
+    RemoteDBSettings,
+    RemoteTypeSettings,
+} from "./common/models/setting.type.ts";
 export {
     SETTINGS_PROPERTY_POLICY,
     SettingPolicies,

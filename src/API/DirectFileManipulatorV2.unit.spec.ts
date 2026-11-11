@@ -427,6 +427,26 @@ describe("DirectFileManipulator", () => {
     });
 
     it.each([
+        { option: undefined, expected: false },
+        { option: false, expected: false },
+        { option: true, expected: true },
+    ])("maps acceptUnencryptedContent option $option to settings", ({ option, expected }) => {
+        const options: DirectFileManipulatorOptions = {
+            url: "https://example.com/couchdb",
+            database: "vault",
+            username: "alice",
+            password: "secret",
+            passphrase: undefined,
+            obfuscatePassphrase: undefined,
+            ...(option === undefined ? {} : { acceptUnencryptedContent: option }),
+        };
+        const getSettings = Object.getOwnPropertyDescriptor(DirectFileManipulator.prototype, "settings")?.get;
+        if (!getSettings) throw new Error("DirectFileManipulator.settings getter is unavailable");
+
+        expect(getSettings.call({ options } as DirectFileManipulator).acceptUnencryptedContent).toBe(expected);
+    });
+
+    it.each([
         { version: undefined, expected: 0 },
         { version: 0, expected: 0 },
         { version: 1, expected: 1 },

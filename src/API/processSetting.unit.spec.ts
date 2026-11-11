@@ -8,7 +8,7 @@ import {
     isTimeBoundSetupURIUsableNow,
     decodeSettingsFromQRCodeData,
 } from "@lib/API/processSetting";
-import { configURIBase, DEFAULT_SETTINGS } from "@lib/common/types";
+import { configURIBase, DEFAULT_SETTINGS, KeyIndexOfSettings } from "@lib/common/types";
 import type { RemoteConfiguration } from "@lib/common/models/setting.type";
 import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
 import { defaultLogger, setGlobalLogFunction } from "octagonal-wheels/common/logger";
@@ -29,6 +29,32 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
             })
         );
         expect(decoded.pathNormalizationVersion).toBe(1);
+    });
+
+    it.each([false, true])("round-trips plaintext acceptance %s in QR data", (acceptUnencryptedContent) => {
+        const decoded = decodeSettingsFromQRCodeData(
+            encodeSettingsToQRCodeData({ ...DEFAULT_SETTINGS, acceptUnencryptedContent })
+        );
+
+        expect(KeyIndexOfSettings.acceptUnencryptedContent).toBe(171);
+        expect(decoded.acceptUnencryptedContent).toBe(acceptUnencryptedContent);
+    });
+
+    it("defaults a legacy short QR without the appended plaintext acceptance index to false", () => {
+        const currentValues = decodeAnyArray(
+            encodeSettingsToQRCodeData({ ...DEFAULT_SETTINGS, acceptUnencryptedContent: true })
+        );
+
+        expect(decodeSettingsFromQRCodeData(encodeAnyArray(currentValues.slice(0, 171))).acceptUnencryptedContent).toBe(
+            false
+        );
+    });
+
+    it("normalises an invalid plaintext acceptance value from QR data to false", () => {
+        const values = decodeAnyArray(encodeSettingsToQRCodeData({ ...DEFAULT_SETTINGS }));
+        values[KeyIndexOfSettings.acceptUnencryptedContent] = "true";
+
+        expect(decodeSettingsFromQRCodeData(encodeAnyArray(values)).acceptUnencryptedContent).toBe(false);
     });
 
     it.each([false, true])("round-trips the LiveSync batching choice %s in QR data", (batchSaveInLiveSync) => {
@@ -269,6 +295,18 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(decoded && decoded.remoteConfigurations.p2p.uri).toBe(profileURI);
     });
 
+    it.each([false, true])("round-trips plaintext acceptance %s in a Setup URI", async (acceptUnencryptedContent) => {
+        const uri = await encodeSettingsToSetupURI(
+            { ...DEFAULT_SETTINGS, acceptUnencryptedContent },
+            "setup-pass",
+            [],
+            false
+        );
+        const decoded = await decodeSettingsFromSetupURI(uri, "setup-pass");
+
+        expect(decoded && decoded.acceptUnencryptedContent).toBe(acceptUnencryptedContent);
+    });
+
     it("keeps legacy Setup URI output and decoding for manual settings", async () => {
         const settings = {
             ...DEFAULT_SETTINGS,
@@ -310,6 +348,7 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
     it("completes an old Setup URI without the new preferences as legacy defaults", async () => {
         const payload: Partial<typeof DEFAULT_SETTINGS> = { ...DEFAULT_SETTINGS };
         delete payload.encryptInternalMetadata;
+        delete payload.acceptUnencryptedContent;
         delete payload.idDerivationVersion;
         delete payload.idDerivationKey;
         const encrypted = await encryptString(JSON.stringify(payload), "setup-pass");
@@ -318,8 +357,20 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
             "setup-pass"
         );
         expect(decoded && decoded.encryptInternalMetadata).toBe(false);
+        expect(decoded && decoded.acceptUnencryptedContent).toBe(false);
         expect(decoded && decoded.idDerivationVersion).toBe(0);
         expect(decoded && decoded.idDerivationKey).toBe("");
+    });
+
+    it("normalises an invalid plaintext acceptance value in a Setup URI to false", async () => {
+        const payload = { ...DEFAULT_SETTINGS, acceptUnencryptedContent: "true" };
+        const encrypted = await encryptString(JSON.stringify(payload), "setup-pass");
+        const decoded = await decodeSettingsFromSetupURI(
+            `${configURIBase}${encodeURIComponent(encrypted)}`,
+            "setup-pass"
+        );
+
+        expect(decoded && decoded.acceptUnencryptedContent).toBe(false);
     });
 
     it("defaults an omitted path identity version in an old Setup URI to zero", async () => {

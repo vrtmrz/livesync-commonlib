@@ -1,3 +1,8 @@
+import { getUnencryptedContentRejectionMessage } from "@lib/replication/unencryptedContentMessages.ts";
+import {
+    getUnencryptedContentRejection,
+    isUnencryptedContentRejectedError,
+} from "@lib/replication/UnencryptedContentRejectedError.ts";
 import type PouchDB from "pouchdb-core";
 import type { CouchDBReplicationProgress, ReplicationStatics } from "@lib/common/models/shared.definition.ts";
 import { observeReplicationProgress } from "./replicationProgress.ts";
@@ -149,6 +154,16 @@ async function* genReplication(
     void s.on("denied", (err) => push(["denied", err]));
     void s.on("error", (err) => push(["error", err]));
     void s.on("paused", (err) => push(["paused", err]));
+    // PouchDB Sync omits the error when it forwards a child Replication's paused event.
+    // Listen at the pull owner so a policy rejection cannot turn into a transport retry.
+    const requestSource = (s as { pull?: PouchDB.Replication.Replication<EntryDoc> }).pull ?? s;
+    let policyFailureReported = false;
+    const onRequestError = (error: unknown) => {
+        if (policyFailureReported || !isUnencryptedContentRejectedError(error)) return;
+        policyFailureReported = true;
+        push(["error", error]);
+    };
+    requestSource.addListener("requestError", onRequestError);
     void s.then(() => push(["finally"])).catch(() => push(["finally"]));
     const onAbort = () => inbox.close();
     signal.addEventListener("abort", onAbort, { once: true });
@@ -168,6 +183,7 @@ async function* genReplication(
         }
     } finally {
         signal.removeEventListener("abort", onAbort);
+        requestSource.removeListener("requestError", onRequestError);
         s.cancel();
         inbox.close();
     }
@@ -247,13 +263,29 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     /** Own the checkpoint handoff for one fresh, suspended Fast Fetch only. */
     createInitialFetchFastForwardResource(setting: RemoteDBSettings): InitialFetchFastForwardResource {
         const snapshot = { ...setting };
-        const identity = (value: RemoteDBSettings) => JSON.stringify([
-            value.couchDB_URI, value.couchDB_DBNAME, value.couchDB_USER, value.couchDB_PASSWORD,
-            value.couchDB_CustomHeaders, value.useJWT, value.jwtAlgorithm, value.jwtKey,
-            value.jwtExpDuration, value.jwtKid, value.jwtSub, value.encrypt, value.passphrase,
-            value.E2EEAlgorithm, value.enableCompression, value.pathNormalizationVersion,
-            value.readChunksOnline, value.useRequestAPI, value.useCouchDBCacheControlHeadersOnly === true,
-        ]);
+        const identity = (value: RemoteDBSettings) =>
+            JSON.stringify([
+                value.couchDB_URI,
+                value.couchDB_DBNAME,
+                value.couchDB_USER,
+                value.couchDB_PASSWORD,
+                value.couchDB_CustomHeaders,
+                value.useJWT,
+                value.jwtAlgorithm,
+                value.jwtKey,
+                value.jwtExpDuration,
+                value.jwtKid,
+                value.jwtSub,
+                value.encrypt,
+                value.passphrase,
+                value.E2EEAlgorithm,
+                value.encrypt === true && value.acceptUnencryptedContent === true,
+                value.enableCompression,
+                value.pathNormalizationVersion,
+                value.readChunksOnline,
+                value.useRequestAPI,
+                value.useCouchDBCacheControlHeadersOnly === true,
+            ]);
         const binding = identity(snapshot);
         let connection: OwnedCouchDBConnection<EntryDoc> | undefined;
         let prepared = false;
@@ -264,8 +296,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 prepared = true;
                 if (this.currentSettings.doNotSuspendOnFetching || snapshot.useRequestAPI) return undefined;
                 const local = this.rawDatabase;
-                const isCurrent = () => !disposed && this.rawDatabase === local &&
-                    this.currentSettings.suspendFileWatching && this.currentSettings.suspendParseReplicationResult &&
+                const isCurrent = () =>
+                    !disposed &&
+                    this.rawDatabase === local &&
+                    this.currentSettings.suspendFileWatching &&
+                    this.currentSettings.suspendParseReplicationResult &&
                     identity(this.currentSettings) === binding;
                 if (!isCurrent()) return undefined;
                 const openedConnection = await this.openOwnedConnection<EntryDoc>(snapshot);
@@ -274,10 +309,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     return undefined;
                 }
                 connection = openedConnection;
-                return await prepareInitialFetchFastForward(local, connection.db, {
-                    push: {},
-                    ...(snapshot.readChunksOnline ? { pull: { ...selectorOnDemandPull } } : {}),
-                }, isCurrent);
+                return await prepareInitialFetchFastForward(
+                    local,
+                    connection.db,
+                    {
+                        push: {},
+                        ...(snapshot.readChunksOnline ? { pull: { ...selectorOnDemandPull } } : {}),
+                    },
+                    isCurrent
+                );
             },
             dispose: async () => {
                 if (disposed) return;
@@ -490,6 +530,17 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         this.syncStatus = "ERRORED";
         this.abortController();
         this.updateInfo();
+        if (isUnencryptedContentRejectedError(e)) {
+            Logger(getUnencryptedContentRejectionMessage("replication"), LOG_LEVEL_NOTICE, "sync");
+            const rejection = getUnencryptedContentRejection(e);
+            if (rejection) {
+                Logger(
+                    `CouchDB replication rejected ${rejection.contentKind}: ${rejection.documentId}`,
+                    LOG_LEVEL_VERBOSE
+                );
+            }
+            return;
+        }
         Logger("Replication error", LOG_LEVEL_NOTICE, "sync");
         Logger(e, LOG_LEVEL_VERBOSE);
     }
@@ -584,6 +635,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         return "FAILED";
                     case "error":
                         this.replicationErrored(e);
+                        if (isUnencryptedContentRejectedError(e)) return "FAILED";
                         Logger("Replication stopped.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
                         if (this.env.services.remote.hadLastPostFailedBySize) {
                             if (e && (e as { status?: number }).status == 413) {
@@ -614,6 +666,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             }
             return "CANCELLED";
         } catch (ex) {
+            if (isUnencryptedContentRejectedError(ex)) {
+                this.replicationErrored(ex);
+                return "FAILED";
+            }
             Logger(`Unexpected synchronization exception`);
             Logger(ex, LOG_LEVEL_VERBOSE);
             return "FAILED";
@@ -927,10 +983,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 if (cancellationRequested()) {
                     return false;
                 }
-                if (
-                    (await this.ensurePBKDF2Salt(setting, showResult, false)) === false ||
-                    cancellationRequested()
-                ) {
+                if ((await this.ensurePBKDF2Salt(setting, showResult, false)) === false || cancellationRequested()) {
                     return false;
                 }
                 if (this.controller) {
@@ -1746,6 +1799,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 ...connectionOptions,
                 encryptionAlgorithm: settings.E2EEAlgorithm,
                 encryptInternalMetadata: usesEncryptedInternalMetadata(settings),
+                acceptUnencryptedContent: settings.acceptUnencryptedContent === true,
                 useCouchDBCacheControlHeadersOnly: settings.useCouchDBCacheControlHeadersOnly === true,
             }
         );

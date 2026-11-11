@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
@@ -600,6 +601,7 @@ describe("LiveSyncCouchDBReplicator connection settings", () => {
                 allowNativeFallback: false,
                 encryptionAlgorithm: E2EEAlgorithms.ForceV1,
                 encryptInternalMetadata: false,
+                acceptUnencryptedContent: false,
                 useCouchDBCacheControlHeadersOnly: headersOnly === true,
             });
 
@@ -610,6 +612,7 @@ describe("LiveSyncCouchDBReplicator connection settings", () => {
                     E2EEAlgorithm: E2EEAlgorithms.V2,
                     usePathObfuscation: true,
                     encryptInternalMetadata: true,
+                    acceptUnencryptedContent: true,
                     passphrase: "secret",
                 },
                 false,
@@ -620,6 +623,7 @@ describe("LiveSyncCouchDBReplicator connection settings", () => {
             expect(connect.mock.calls[1][11]).toMatchObject({
                 encryptionAlgorithm: E2EEAlgorithms.V2,
                 encryptInternalMetadata: true,
+                acceptUnencryptedContent: true,
                 useCouchDBCacheControlHeadersOnly: headersOnly === true,
             });
         }
@@ -1243,6 +1247,7 @@ describe("LiveSyncCouchDBReplicator initial-fetch Fast Forward ownership", () =>
 
     it.each([
         "settings binding",
+        "plaintext receipt policy",
         "local database",
         "file-watching suspension",
         "replication-result suspension",
@@ -1251,7 +1256,7 @@ describe("LiveSyncCouchDBReplicator initial-fetch Fast Forward ownership", () =>
         const local = createInitialFetchFastForwardDatabase();
         const remote = createInitialFetchFastForwardDatabase();
         const replacement = createInitialFetchFastForwardDatabase();
-        const fixture = createInitialFetchFastForwardResourceFixture(local, remote);
+        const fixture = createInitialFetchFastForwardResourceFixture(local, remote, { encrypt: true });
 
         try {
             await remote.put({ _id: "imported-note", type: "plain", value: "imported" } as never);
@@ -1261,6 +1266,9 @@ describe("LiveSyncCouchDBReplicator initial-fetch Fast Forward ownership", () =>
             switch (reason) {
                 case "settings binding":
                     fixture.currentSettings.couchDB_DBNAME = "another-remote";
+                    break;
+                case "plaintext receipt policy":
+                    fixture.currentSettings.acceptUnencryptedContent = true;
                     break;
                 case "local database":
                     fixture.setLocalDatabase(replacement);
@@ -2198,5 +2206,63 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
         await expect(replicator.fetchRemoteChunks([], false)).rejects.toThrow("chunk fetch failed");
 
         expect(connectionClose).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe("plaintext receipt policy failures", () => {
+    it.each(["sync", "pullOnly"] as const)("stops %s after a plaintext rejection from requestError", async (mode) => {
+        const replicator = createOneShotReplicator({ close: vi.fn(async () => undefined) });
+        replicator.env.services.remote = { hadLastPostFailedBySize: false } as never;
+        const unresolved = new Promise<void>(() => undefined);
+        const handler = Object.assign(new EventEmitter(), {
+            ...(mode === "sync" ? { pull: new EventEmitter(), push: new EventEmitter() } : {}),
+            cancel: vi.fn(),
+            then: unresolved.then.bind(unresolved),
+        });
+        const source = handler.pull ?? handler;
+        const log = vi.fn();
+        setGlobalLogFunction(log);
+        try {
+            const result = replicator.processSync(handler as never, false, 0, 0, mode, false);
+            source.emit("requestError", {
+                name: "UnencryptedContentRejectedError",
+                code: "UNENCRYPTED_CONTENT_REJECTED",
+                documentId: "h:+blocked",
+                contentKind: "chunk",
+                message: "Synthetic error text must not be logged wholesale",
+            });
+            handler.emit("complete", { ok: true });
+            await expect(result).resolves.toBe("FAILED");
+            expect(handler.cancel).toHaveBeenCalledOnce();
+            expect(source.listenerCount("requestError")).toBe(0);
+            expect(
+                log.mock.calls.some(
+                    ([message]) => typeof message === "string" && message.includes("Accept unencrypted content")
+                )
+            ).toBe(true);
+            expect(log.mock.calls.some(([message]) => typeof message === "object")).toBe(false);
+        } finally {
+            replicator.controller?.abort();
+            setGlobalLogFunction(defaultLogger);
+        }
+    });
+
+    it("preserves normal transport retry events until replication completes", async () => {
+        const replicator = createOneShotReplicator({ close: vi.fn(async () => undefined) });
+        const unresolved = new Promise<void>(() => undefined);
+        const handler = Object.assign(new EventEmitter(), {
+            pull: new EventEmitter(),
+            push: new EventEmitter(),
+            cancel: vi.fn(),
+            then: unresolved.then.bind(unresolved),
+        });
+        const result = replicator.processSync(handler as never, false, 0, 0, "sync", false);
+        handler.pull.emit("requestError", { status: 503, message: "temporary fixture failure" });
+        handler.emit("paused");
+        handler.emit("active");
+        handler.emit("complete", { ok: true });
+        await expect(result).resolves.toBe("DONE");
+        expect(handler.cancel).toHaveBeenCalledOnce();
+        expect(handler.pull.listenerCount("requestError")).toBe(0);
     });
 });

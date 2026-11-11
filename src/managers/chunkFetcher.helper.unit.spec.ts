@@ -103,17 +103,17 @@ describe("classifyFetchedChunks", () => {
         });
     });
 
-    it("accepts the existing identifier-and-data contract without requiring a type field", () => {
-        const chunks = [
+    it("rejects identifier-and-data responses without the Chunk type", () => {
+        const invalidChunks = [
             { _id: firstId, data: "" },
             { _id: secondId, data: "data", type: "unexpected" },
         ];
 
-        expect(classifyFetchedChunks([firstId, secondId], chunks)).toEqual({
-            chunks,
-            invalidChunks: [],
+        expect(classifyFetchedChunks([firstId, secondId], invalidChunks)).toEqual({
+            chunks: [],
+            invalidChunks,
             missingIds: [],
-            invalidIds: [],
+            invalidIds: [firstId, secondId],
         });
     });
 

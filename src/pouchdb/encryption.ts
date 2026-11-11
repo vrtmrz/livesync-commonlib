@@ -11,12 +11,35 @@ import {
     isMetaEntry,
 } from "@lib/common/types";
 import { isEncryptedChunkEntry, isSyncInfoEntry, isObfuscatedEntry } from "@lib/common/utils";
-import { isPathProbablyObfuscated, obfuscatePath } from "octagonal-wheels/encryption/encryption";
+import { normaliseAcceptUnencryptedContent } from "@lib/common/models/setting.encryption.ts";
+import { ENCRYPT_V2_PREFIX, isPathProbablyObfuscated, obfuscatePath } from "octagonal-wheels/encryption/encryption";
 // import { encryptHKDF, decryptHKDF } from "../encryption/encryptHKDF.ts";
 import { getPath } from "@lib/string_and_binary/path.ts";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
-import { PREFIX_OBFUSCATED } from "@lib/common/types";
+import { IDPrefixes } from "@lib/common/types";
 import { encryptWorker, decryptWorker, encryptHKDFWorker, decryptHKDFWorker } from "#worker";
+import type { LogFunction } from "@lib/services/lib/logUtils.ts";
+import {
+    assertUnencryptedContentPolicy,
+    hasForceV1CiphertextHeaderFor,
+    isEncryptedEntry,
+} from "./encryption.policy.ts";
+import {
+    EDEN_ENCRYPTED_KEY,
+    EDEN_ENCRYPTED_KEY_HKDF,
+    shouldEncryptEden,
+    shouldEncryptEdenHKDF,
+    shouldDecryptEden,
+    shouldDecryptEdenHKDF,
+} from "./encryption.eden.ts";
+export {
+    EDEN_ENCRYPTED_KEY,
+    EDEN_ENCRYPTED_KEY_HKDF,
+    shouldEncryptEden,
+    shouldEncryptEdenHKDF,
+    shouldDecryptEden,
+    shouldDecryptEdenHKDF,
+} from "./encryption.eden.ts";
 
 export const encrypt = encryptWorker;
 export const decrypt = decryptWorker;
@@ -24,7 +47,7 @@ export const encryptHKDF = encryptHKDFWorker;
 export const decryptHKDF = decryptHKDFWorker;
 
 const Encrypt_HKDF_Header = "%=";
-const Encrypt_OLD_Header = "%";
+const Encrypt_OLD_Header = ENCRYPT_V2_PREFIX;
 
 const EncryptionVersions = {
     UNENCRYPTED: 0,
@@ -50,16 +73,13 @@ async function tryDecryptV1AsFallback(
     encryptedData: string,
     passphrase: string,
     useDynamicIterationCount: boolean,
-    log: typeof Logger = Logger
+    log: LogFunction = Logger
 ): Promise<string | false> {
     try {
         return await decrypt(encryptedData, passphrase, useDynamicIterationCount);
     } catch (ex) {
         try {
-            log(
-                "Failed to decrypt with V1 method. Fallback to disable useDynamicIterationCount.",
-                LOG_LEVEL_VERBOSE
-            );
+            log("Failed to decrypt with V1 method. Fallback to disable useDynamicIterationCount.", LOG_LEVEL_VERBOSE);
             log(ex, LOG_LEVEL_VERBOSE);
             return await decrypt(encryptedData, passphrase, false);
         } catch (ex) {
@@ -79,9 +99,7 @@ export function isEncryptedMeta<T extends AnyEntry>(doc: T) {
     return "path" in doc && doc.path.startsWith(ENCRYPTED_META_PREFIX);
 }
 function isInternalObfuscatedEntry(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
-    return [ICHeader, ICXHeader, PSCHeader].some((prefix) =>
-        doc._id.startsWith(`${prefix}${PREFIX_OBFUSCATED}`)
-    );
+    return [ICHeader, ICXHeader, PSCHeader].some((prefix) => doc._id.startsWith(`${prefix}${IDPrefixes.Obfuscated}`));
 }
 type EncryptProps = {
     path: string;
@@ -218,11 +236,14 @@ async function outgoingDecryptHKDF(
     passphrase: string,
     useDynamicIterationCount: boolean,
     getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
-    log: typeof Logger
+    log: LogFunction,
+    algorithm: E2EEAlgorithm,
+    acceptUnencryptedContent: boolean
 ): Promise<AnyEntry | EntryLeaf> {
     const loadDoc = {
         ...doc,
     } as EncryptedDocument<AnyEntry | EntryLeaf>;
+    assertUnencryptedContentPolicy(loadDoc, algorithm, acceptUnencryptedContent);
     //TODO
 
     if (isEncryptedChunkEntry(loadDoc) || isSyncInfoEntry(loadDoc)) {
@@ -389,30 +410,35 @@ async function outgoingDecryptV1(
     decrypted: Map<DocumentID, boolean>,
     passphrase: string,
     useDynamicIterationCount: boolean,
-    log: typeof Logger
+    log: LogFunction,
+    acceptUnencryptedContent: boolean
 ): Promise<AnyEntry | EntryLeaf> {
     const loadDoc = {
         ...doc,
     } as AnyEntry | EntryLeaf;
     const _isChunkOrSyncInfo = isEncryptedChunkEntry(loadDoc) || isSyncInfoEntry(loadDoc);
-
     const _isObfuscatedEntry = isObfuscatedEntry(loadDoc);
     const _shouldDecryptEden = shouldDecryptEden(loadDoc);
-    if (_isChunkOrSyncInfo || _isObfuscatedEntry || _shouldDecryptEden) {
+    const hasMarkedCiphertext = "e_" in loadDoc && loadDoc.e_ === true;
+    // Classify markerless content once for both the policy guard and the decrypt branch.
+    // Marked ciphertext goes directly to authenticated decryption.
+    const hasForceV1CiphertextHeader =
+        _isChunkOrSyncInfo && !hasMarkedCiphertext && hasForceV1CiphertextHeaderFor(loadDoc.data);
+    assertUnencryptedContentPolicy(
+        loadDoc,
+        E2EEAlgorithms.ForceV1,
+        acceptUnencryptedContent,
+        hasForceV1CiphertextHeader
+    );
+    const _shouldDecryptData = isEncryptedEntry(loadDoc, hasForceV1CiphertextHeader);
+    if (_shouldDecryptData || _isObfuscatedEntry || _shouldDecryptEden) {
         if (migrationDecrypt && decrypted.has(loadDoc._id)) {
             return loadDoc; // once decrypted.
         }
         try {
-            if (_isChunkOrSyncInfo) {
+            if (_shouldDecryptData) {
                 loadDoc.data = await decrypt(loadDoc.data, passphrase, useDynamicIterationCount);
-                delete (loadDoc as unknown as Record<string, unknown>).e_;
-            } else if ("e_" in loadDoc) {
-                (loadDoc as unknown as Record<string, unknown>).data = await decrypt(
-                    (loadDoc as unknown as { data: string }).data,
-                    passphrase,
-                    useDynamicIterationCount
-                );
-                delete (loadDoc as unknown as Record<string, unknown>).e_;
+                if ("e_" in loadDoc) delete loadDoc.e_;
             }
             if (_isObfuscatedEntry) {
                 const path = getPath(loadDoc);
@@ -435,7 +461,7 @@ async function outgoingDecryptV1(
         } catch (ex) {
             if (useDynamicIterationCount) {
                 try {
-                    if (_isChunkOrSyncInfo) {
+                    if (_shouldDecryptData) {
                         loadDoc.data = await decrypt(loadDoc.data, passphrase, false);
                     }
                     if (_isObfuscatedEntry) {
@@ -485,12 +511,14 @@ export function getConfiguredFunctionsForEncryption(
     getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
     algorithm: E2EEAlgorithm,
     encryptInternalMetadata = false,
-    log: typeof Logger = Logger
+    log: LogFunction = Logger,
+    acceptUnencryptedContent: boolean = false
 ): {
     incoming: (doc: AnyEntry | EntryLeaf) => Promise<AnyEntry | EntryLeaf>;
     outgoing: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>;
 } {
     const decryptedCache = new Map();
+    const acceptUnencrypted = normaliseAcceptUnencryptedContent(acceptUnencryptedContent);
     const incoming = (doc: AnyEntry | EntryLeaf) =>
         algorithm === E2EEAlgorithms.V2
             ? incomingEncryptHKDF(doc, passphrase, useDynamicIterationCount, getPBKDF2Salt, encryptInternalMetadata)
@@ -505,9 +533,19 @@ export function getConfiguredFunctionsForEncryption(
                   passphrase,
                   useDynamicIterationCount,
                   getPBKDF2Salt,
-                  log
+                  log,
+                  algorithm,
+                  acceptUnencrypted
               )
-            : outgoingDecryptV1(doc, migrationDecrypt, decryptedCache, passphrase, useDynamicIterationCount, log);
+            : outgoingDecryptV1(
+                  doc,
+                  migrationDecrypt,
+                  decryptedCache,
+                  passphrase,
+                  useDynamicIterationCount,
+                  log,
+                  acceptUnencrypted
+              );
     return {
         incoming,
         outgoing,
@@ -521,7 +559,8 @@ export const enableEncryption = (
     migrationDecrypt: boolean,
     getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
     algorithm: E2EEAlgorithm,
-    encryptInternalMetadata = false
+    encryptInternalMetadata = false,
+    acceptUnencryptedContent: boolean = false
 ) => {
     const { incoming, outgoing } = getConfiguredFunctionsForEncryption(
         passphrase,
@@ -529,7 +568,9 @@ export const enableEncryption = (
         migrationDecrypt,
         getPBKDF2Salt,
         algorithm,
-        encryptInternalMetadata
+        encryptInternalMetadata,
+        Logger,
+        acceptUnencryptedContent
     );
     //@ts-ignore
     db.transform({
@@ -545,36 +586,4 @@ export function disableEncryption() {
     preprocessIncoming = async (doc) => {
         return await Promise.resolve(doc);
     };
-}
-
-export const EDEN_ENCRYPTED_KEY = "h:++encrypted" as DocumentID;
-export const EDEN_ENCRYPTED_KEY_HKDF = "h:++encrypted-hkdf" as DocumentID;
-export function shouldEncryptEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
-    if ("eden" in doc && !(EDEN_ENCRYPTED_KEY in doc.eden)) {
-        return true;
-    }
-    return false;
-}
-export function shouldEncryptEdenHKDF(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
-    if ("eden" in doc && !(EDEN_ENCRYPTED_KEY_HKDF in doc.eden)) {
-        if (Object.keys(doc.eden).length === 0) {
-            return false; // If eden is empty, do not encrypt.
-        }
-        return true;
-    }
-    return false;
-}
-
-export function shouldDecryptEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
-    if ("eden" in doc && EDEN_ENCRYPTED_KEY in doc.eden) {
-        return true;
-    }
-    return false;
-}
-
-export function shouldDecryptEdenHKDF(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
-    if ("eden" in doc && EDEN_ENCRYPTED_KEY_HKDF in doc.eden) {
-        return true;
-    }
-    return false;
 }

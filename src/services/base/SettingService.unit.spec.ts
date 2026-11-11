@@ -429,6 +429,25 @@ describe("SettingService", () => {
         expect(deviceValues.values.has(deviceNameKey)).toBe(false);
     });
 
+    it.each([undefined, null, "true", 1])("normalises invalid acceptance value %s during adjustment", async (value) => {
+        const service = createService();
+        const settings = {
+            ...DEFAULT_SETTINGS,
+            acceptUnencryptedContent: value,
+        } as unknown as ObsidianLiveSyncSettings;
+
+        const adjusted = await service.adjustSettings(settings);
+
+        expect(adjusted.acceptUnencryptedContent).toBe(false);
+    });
+
+    it("retains an explicit plaintext acceptance choice during adjustment", async () => {
+        const service = createService();
+        const adjusted = await service.adjustSettings({ ...DEFAULT_SETTINGS, acceptUnencryptedContent: true });
+
+        expect(adjusted.acceptUnencryptedContent).toBe(true);
+    });
+
     it("adjustSettings should migrate legacy remote settings into remoteConfigurations", async () => {
         const service = createService();
         const settings = {
@@ -865,6 +884,18 @@ describe("SettingService", () => {
         await service.loadSettings();
 
         expect(service.currentSettings().isConfigured).toBe(false);
+    });
+
+    it("normalises plaintext acceptance before saving settings", async () => {
+        const service = createService();
+        service.settings = {
+            ...DEFAULT_SETTINGS,
+            acceptUnencryptedContent: "true",
+        } as unknown as ObsidianLiveSyncSettings;
+
+        await service.saveSettingData();
+
+        expect(service.lastSavedSetting?.acceptUnencryptedContent).toBe(false);
     });
 
     it("saveSettingData should apply patches from onBeforeSaveSettingData handlers", async () => {

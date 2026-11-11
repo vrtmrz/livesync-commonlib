@@ -1,3 +1,4 @@
+import { getUnencryptedContentRejectionMessage } from "@lib/replication/unencryptedContentMessages.ts";
 import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
 import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
@@ -23,7 +24,7 @@ import type { ControlService } from "@lib/services/base/ControlService";
 import type { IFileProcessingService, IPathService } from "@lib/services/base/IService";
 import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
 import { assertMetadataPathIdentities, assertUniqueStoragePathIdentities } from "@lib/common/pathIdentity";
-import { VERSIONING_DOCID } from "@lib/common/types";
+import { VERSIONING_DOCID, type EntryDoc } from "@lib/common/types";
 import { assertDatabasePathIdentity, assertMatchingPathIdentityFeature } from "@lib/pouchdb/pathIdentityCompatibility";
 import { assessRemoteFeatureDocument, describeRemoteFeatureRejection } from "@lib/pouchdb/remoteFeatureCompatibility";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb";
@@ -34,6 +35,10 @@ import {
 } from "@lib/pouchdb/StreamingFetch";
 import { getConfiguredFunctionsForEncryption } from "@lib/pouchdb/encryption";
 import { AuthorizationHeaderGenerator, generateCredentialObject } from "@lib/replication/httplib";
+import {
+    getUnencryptedContentRejection,
+    isUnencryptedContentRejectedError,
+} from "@lib/replication/UnencryptedContentRejectedError";
 import { isRemediationModeActive, parseHeaderValues } from "@lib/common/utils";
 import { sizeToHumanReadable } from "octagonal-wheels/number";
 import { REMOTE_RESOURCE_KINDS } from "@lib/replication";
@@ -678,13 +683,18 @@ Are you sure you wish to proceed?`;
         let fastForwardResource: InitialFetchFastForwardResource | undefined;
         let fastForward: InitialFetchFastForward | undefined;
         try {
-            const enc = getConfiguredFunctionsForEncryption(
-                settings.passphrase,
-                false,
-                false,
-                () => securitySeed.read(),
-                settings.E2EEAlgorithm
-            );
+            const decrypt = settings.encrypt
+                ? getConfiguredFunctionsForEncryption(
+                      settings.passphrase,
+                      false,
+                      false,
+                      () => securitySeed.read(),
+                      settings.E2EEAlgorithm,
+                      false,
+                      undefined,
+                      settings.acceptUnencryptedContent
+                  ).outgoing
+                : async (doc: EntryDoc) => doc;
 
             if (startsFresh && !settings.doNotSuspendOnFetching && (await localDB.info()).doc_count === 0) {
                 fastForwardResource = await this.replicator.createRemoteResource(
@@ -700,7 +710,7 @@ Are you sure you wish to proceed?`;
                         localDB,
                         remote,
                         authHeader,
-                        enc.outgoing,
+                        decrypt,
                         since,
                         (progress) => {
                             this._log(
@@ -718,6 +728,22 @@ Are you sure you wish to proceed?`;
                     );
                     break;
                 } catch (ex) {
+                    if (isUnencryptedContentRejectedError(ex)) {
+                        this._log(
+                            getUnencryptedContentRejectionMessage("fast-fetch"),
+                            LOG_LEVEL_NOTICE,
+                            "fetch-init-plaintext-rejected"
+                        );
+                        const rejection = getUnencryptedContentRejection(ex);
+                        if (rejection) {
+                            this._log(
+                                `Fast Fetch rejected ${rejection.contentKind}: ${JSON.stringify(rejection.documentId)}`,
+                                LOG_LEVEL_VERBOSE,
+                                "fetch-init-plaintext-rejected"
+                            );
+                        }
+                        throw ex;
+                    }
                     // StreamingFetch owns failure classification. Retrying only its
                     // explicitly transient transport failures prevents deterministic
                     // authentication, protocol, decryption, or storage failures from

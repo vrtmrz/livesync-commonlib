@@ -10,6 +10,8 @@ export interface RemoteConnectionOpenOptions {
     readonly encryptionAlgorithm?: E2EEAlgorithm;
     /** Apply HKDF Metadata encryption to obfuscated internal entries on writes. */
     readonly encryptInternalMetadata?: boolean;
+    /** Accept plaintext file content on reads while E2EE is enabled. */
+    readonly acceptUnencryptedContent?: boolean;
     /** Use HTTP headers alone for cache control; an absent value is false. */
     readonly useCouchDBCacheControlHeadersOnly?: boolean;
     /**

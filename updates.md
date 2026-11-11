@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.4.3
+
+11th November, 2026
+
+### Fixed
+
+- E2EE-enabled CouchDB receivers reject unencrypted file content by default,
+  including ordinary replication, direct reads, and Fast Fetch.
+    - Integrations that intentionally accept plaintext can set
+      `acceptUnencryptedContent` to `true`. It defaults to `false`; outgoing
+      content remains encrypted.
+- On-demand Chunk retrieval rejects responses which are not valid Chunk
+  documents. Diagnostics omit rejected document bodies.
+
+### Acknowledgements
+
+- @Hama1cco, for reporting plaintext content acceptance with E2EE enabled.
+
 ## 0.4.2
 
 10th November, 2026

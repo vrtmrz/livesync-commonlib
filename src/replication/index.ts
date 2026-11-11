@@ -22,6 +22,8 @@ export {
     supportedCapability,
 } from "./ReplicatorProvider.ts";
 export type { ReplicatorInstance } from "./ReplicatorInstance.ts";
+export { isUnencryptedContentRejectedError, UnencryptedContentRejectedError } from "./UnencryptedContentRejectedError.ts";
+export type { UnencryptedContentKind } from "./UnencryptedContentRejectedError.ts";
 export type {
     ActiveReplicatorContext,
     CapabilitySupport,

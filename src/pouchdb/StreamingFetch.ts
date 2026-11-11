@@ -1,7 +1,6 @@
 import { _fetch } from "@lib/common/coreEnvFunctions";
 import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 import type { EntryDoc } from "@lib/common/models/db.definition";
-import type { AnyEntry, EntryLeaf } from "@lib/common/models/db.type";
 import { VERSIONING_DOCID } from "@lib/common/types";
 import { assessRemoteFeatureDocument, describeRemoteFeatureRejection } from "./remoteFeatureCompatibility";
 import { assertMatchingPathIdentityFeature } from "./pathIdentityCompatibility";
@@ -326,7 +325,7 @@ async function saveCheckpoint(
 
 function generatePouchDBBatchWriter(
     downloadToDB: PouchDB.Database,
-    decryptFunction: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>,
+    decryptFunction: (doc: EntryDoc) => Promise<EntryDoc>,
     onCheckpoint?: (sequence: DBSequence) => void | Promise<void>,
     onStoredRevisions?: (revisions: readonly { id: string; rev: string }[]) => void | Promise<void>
 ) {
@@ -400,8 +399,8 @@ function generatePouchDBBatchWriter(
         batchCheckpointSequence = undefined;
     };
 
-    const prepare = async (doc: EntryDoc): Promise<{ document: AnyEntry | EntryLeaf; serialisedSize: number }> => {
-        let decryptedDoc: AnyEntry | EntryLeaf;
+    const prepare = async (doc: EntryDoc): Promise<{ document: EntryDoc; serialisedSize: number }> => {
+        let decryptedDoc: EntryDoc;
         if (doc._deleted) {
             // A deletion tombstone carries no encrypted payload to decrypt.
             // Pass it through unchanged so the local database records the
@@ -409,7 +408,7 @@ function generatePouchDBBatchWriter(
             // obfuscated entries (f: ids) and throw for tombstones, which
             // would otherwise abort the whole fetch at the first deleted
             // document in the feed.
-            decryptedDoc = doc as unknown as AnyEntry;
+            decryptedDoc = doc;
         } else {
             try {
                 decryptedDoc = await decryptFunction(doc);
@@ -440,7 +439,7 @@ function generatePouchDBBatchWriter(
     };
 
     const writePrepared = async (
-        prepared: { document: AnyEntry | EntryLeaf; serialisedSize: number },
+        prepared: { document: EntryDoc; serialisedSize: number },
         revision: RevisionRef
     ) => {
         const key = revisionRefKey(revision);
@@ -579,7 +578,7 @@ export async function fetchChangesForInitialSync(
     downloadToDB: PouchDB.Database,
     remoteDbUrl: string,
     authHeader: string,
-    decryptFunction: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>,
+    decryptFunction: (doc: EntryDoc) => Promise<EntryDoc>,
     since: number | string = "0",
     onProgress?: (progress: FetchChangesForInitialSyncProgress) => void,
     onCheckpoint?: (sequence: DBSequence) => void | Promise<void>,
@@ -660,7 +659,7 @@ export async function fetchChangesForInitialSync(
     interface PendingRevision {
         ref: RevisionRef;
         rows: Set<ChangeRowProgress>;
-        includedDocument?: { document: AnyEntry | EntryLeaf; serialisedSize: number };
+        includedDocument?: { document: EntryDoc; serialisedSize: number };
     }
 
     const rowProgress: ChangeRowProgress[] = [];
@@ -691,7 +690,7 @@ export async function fetchChangesForInitialSync(
 
     const markPreparedRevisionDurable = async (
         revision: PendingRevision,
-        prepared: { document: AnyEntry | EntryLeaf; serialisedSize: number }
+        prepared: { document: EntryDoc; serialisedSize: number }
     ) => {
         await batchWriter.writePrepared(prepared, revision.ref);
         settleRevision(revision);
@@ -947,7 +946,7 @@ export async function fetchChangesForInitialSync(
     const enqueueRevision = async (
         ref: RevisionRef,
         row: ChangeRowProgress,
-        includedDocument?: { document: AnyEntry | EntryLeaf; serialisedSize: number }
+        includedDocument?: { document: EntryDoc; serialisedSize: number }
     ) => {
         const key = revisionRefKey(ref);
         const remoteExisting = pendingRemoteRevisions.get(key);
@@ -1111,7 +1110,7 @@ export async function fetchChangesForInitialSync(
                 );
             }
             const leafRevisions = [...new Set(change.changes.map(({ rev }) => rev))];
-            let includedDocument: { document: AnyEntry | EntryLeaf; serialisedSize: number } | undefined;
+            let includedDocument: { document: EntryDoc; serialisedSize: number } | undefined;
             if (change.doc !== undefined) {
                 if (!isObject(change.doc) || typeof change.doc._rev !== "string" || !leafRevisions.includes(change.doc._rev)) {
                     throw new StreamingFetchFailure(

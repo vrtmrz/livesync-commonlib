@@ -69,6 +69,35 @@ describe("settings property policy", () => {
         expect(original.remoteConfigurations.inactive.uri).toContain("synthetic-secret");
     });
 
+    it.each([false, true])("shares the plaintext acceptance choice regardless of credential sharing (%s)", (includeCredentials) => {
+        const original = { ...settings(), acceptUnencryptedContent: true };
+        const exported = createMarkdownSettings(original, includeCredentials);
+
+        expect(exported.acceptUnencryptedContent).toBe(true);
+    });
+
+    it("preserves a saved plaintext acceptance choice when a partial Markdown import omits it", () => {
+        const current = { ...settings(), acceptUnencryptedContent: true };
+        const merged = mergeMarkdownSettings({ periodicReplicationInterval: 123 }, current);
+
+        expect(merged.acceptUnencryptedContent).toBe(true);
+    });
+
+    it("normalises invalid plaintext acceptance values in Markdown imports and persistence", () => {
+        const current = { ...settings(), acceptUnencryptedContent: true };
+        const merged = mergeMarkdownSettings(
+            { acceptUnencryptedContent: "true" } as unknown as Partial<ObsidianLiveSyncSettings>,
+            current
+        );
+        const persisted = prepareSettingsForPersistence({
+            ...DEFAULT_SETTINGS,
+            acceptUnencryptedContent: "true",
+        } as unknown as ObsidianLiveSyncSettings);
+
+        expect(merged.acceptUnencryptedContent).toBe(false);
+        expect(persisted.acceptUnencryptedContent).toBe(false);
+    });
+
     it("includes shared connection values and known properties", () => {
         const original = { ...settings(), unexpectedCredential: "synthetic-unknown-secret" };
         const output = createMarkdownSettings(original, true);

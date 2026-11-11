@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
-import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
+import { E2EEAlgorithms, REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
 import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
 import { ServiceRebuilder } from "./Rebuilder";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
@@ -11,6 +12,7 @@ import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import { DEFAULT_SETTINGS, type EntryDoc } from "@lib/common/types";
 import { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
+import { UnencryptedContentRejectedError } from "@lib/replication/UnencryptedContentRejectedError";
 import { PathServiceCompat } from "@lib/services/implements/injectable/InjectablePathService";
 import { ServiceContext } from "@lib/services/base/ServiceBase";
 import type { ISettingService } from "@lib/services/base/IService";
@@ -623,6 +625,119 @@ describe("ServiceRebuilder fast fetch retry", () => {
             "CF-Access-Client-Id": "client-id",
             "CF-Access-Client-Secret": "client-secret",
         });
+    });
+});
+
+describe("ServiceRebuilder fast fetch plaintext policy", () => {
+    const plaintextDocument = (id: string, data: string): EntryDoc =>
+        ({ _id: id, type: "leaf", data }) as EntryDoc;
+
+    it("uses identity processing when E2EE is disabled", async () => {
+        const { rebuilder, settings } = createRebuilder();
+        const document = plaintextDocument("h:fast-fetch-plaintext-policy", "synthetic body");
+        settings.encrypt = false;
+        settings.E2EEAlgorithm = E2EEAlgorithms.V2;
+        settings.acceptUnencryptedContent = false;
+
+        fetchChangesForInitialSyncMock.mockReset().mockImplementationOnce(async (...args: any[]) => {
+            const decrypt = args[3] as (doc: EntryDoc) => Promise<EntryDoc>;
+            expect(await decrypt(document)).toBe(document);
+        });
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(fetchChangesForInitialSyncMock).toHaveBeenCalledOnce();
+    });
+
+    it("applies explicit plaintext acceptance to the E2EE Fast Fetch decryptor", async () => {
+        const { rebuilder, settings } = createRebuilder();
+        const document = plaintextDocument("h:fast-fetch-plaintext-policy", "synthetic body");
+        settings.encrypt = true;
+        settings.passphrase = "synthetic-fast-fetch-passphrase";
+        settings.E2EEAlgorithm = E2EEAlgorithms.V2;
+        settings.acceptUnencryptedContent = true;
+
+        fetchChangesForInitialSyncMock.mockReset().mockImplementationOnce(async (...args: any[]) => {
+            const decrypt = args[3] as (doc: EntryDoc) => Promise<EntryDoc>;
+            expect(await decrypt(document)).toEqual(document);
+        });
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(fetchChangesForInitialSyncMock).toHaveBeenCalledOnce();
+    });
+
+    it("stops on a wrapped plaintext rejection without advancing its failed batch or finalising", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        const documentId = "h:fast-fetch-plaintext-rejected";
+        const body = "synthetic-fast-fetch-plaintext-body";
+        const passphrase = "synthetic-fast-fetch-passphrase";
+        const acceptedSequence = "safe-sequence-before-rejection";
+        const rejectedSequence = "must-not-be-checkpointed";
+        const document = plaintextDocument(documentId, body);
+        settings.encrypt = true;
+        settings.passphrase = passphrase;
+        settings.E2EEAlgorithm = E2EEAlgorithms.V2;
+        settings.acceptUnencryptedContent = false;
+
+        fetchChangesForInitialSyncMock.mockReset().mockImplementationOnce(async (...args: any[]) => {
+            await args[6](acceptedSequence);
+            const decrypt = args[3] as (doc: EntryDoc) => Promise<EntryDoc>;
+            try {
+                await decrypt(document);
+            } catch (cause) {
+                throw Object.assign(new Error("Fast Fetch rejected a remote document."), {
+                    name: "StreamingFetchFailure",
+                    stage: "decryption",
+                    retryable: false,
+                    cause,
+                });
+            }
+            await args[6](rejectedSequence);
+        });
+
+        const finishRebuild = vi.spyOn(rebuilder, "finishRebuild");
+
+        await expect(rebuilder.$fetchLocalDBFast(true)).rejects.toMatchObject({
+            name: "StreamingFetchFailure",
+            stage: "decryption",
+            retryable: false,
+            cause: expect.any(UnencryptedContentRejectedError),
+        });
+
+        expect(fetchChangesForInitialSyncMock).toHaveBeenCalledOnce();
+        const savedCheckpoints = services.setting.config.setValue.mock.calls
+            .filter(([key]) => key === "fast-fetch-checkpoint")
+            .map(([, value]) => JSON.parse(value));
+        expect(savedCheckpoints).toEqual([
+            expect.objectContaining({ remote: "https://example.com/db", sequence: acceptedSequence }),
+        ]);
+        await expect((rebuilder as any).getFastFetchCheckpoint("https://example.com/db")).resolves.toEqual({
+            remote: "https://example.com/db",
+            sequence: acceptedSequence,
+        });
+        expect(services.setting.config.delete).not.toHaveBeenCalledWith("fast-fetch-checkpoint");
+        expect(services.replication.markResolved).not.toHaveBeenCalled();
+        expect(services.vault.scanVault).not.toHaveBeenCalled();
+        expect(finishRebuild).not.toHaveBeenCalled();
+        expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+
+        expect(services.API.addLog).toHaveBeenCalledWith(
+            expect.stringContaining("Fast Fetch stopped without completing because unencrypted content was rejected"),
+            LOG_LEVEL_NOTICE,
+            "fetch-init-plaintext-rejected"
+        );
+        expect(services.API.addLog).toHaveBeenCalledWith(
+            expect.stringContaining(`Fast Fetch rejected chunk: ${JSON.stringify(documentId)}`),
+            LOG_LEVEL_VERBOSE,
+            "fetch-init-plaintext-rejected"
+        );
+        const loggedValues = services.API.addLog.mock.calls
+            .map(([message]) => (message instanceof Error ? message.message : String(message)))
+            .join("\n");
+        expect(loggedValues).toContain("'Accept unencrypted content' in the E2EE Advanced settings");
+        expect(loggedValues).not.toContain(body);
+        expect(loggedValues).not.toContain(passphrase);
     });
 });
 

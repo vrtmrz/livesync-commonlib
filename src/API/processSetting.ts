@@ -12,6 +12,7 @@ import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
 import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 import { configuredIdKey } from "@lib/common/idDerivation";
 import { assertSupportedPathNormalizationVersion, getPathNormalizationVersion } from "@lib/common/pathNormalization";
+import { normaliseAcceptUnencryptedContent } from "@lib/common/models/setting.encryption";
 
 /**
  * Encode settings to a tiny array to encode in QRCode,
@@ -82,6 +83,7 @@ export function decodeSettingsFromQRCodeData(qr: string): ObsidianLiveSyncSettin
         );
     }
 
+    newSettings.acceptUnencryptedContent = normaliseAcceptUnencryptedContent(newSettings.acceptUnencryptedContent);
     configuredIdKey(newSettings);
     newSettings.pathNormalizationVersion = getPathNormalizationVersion(newSettings);
     return omitP2PRuntimeSettings(newSettings) as ObsidianLiveSyncSettings;
@@ -315,6 +317,7 @@ export async function decodeSettingsFromSetupURI(uri: string, passphrase: string
         const imported = JSON.parse(decrypted) as ObsidianLiveSyncSettings;
         const settings = {
             ...imported,
+            acceptUnencryptedContent: normaliseAcceptUnencryptedContent(imported.acceptUnencryptedContent),
             encryptInternalMetadata:
                 typeof imported.encryptInternalMetadata === "boolean" ? imported.encryptInternalMetadata : false,
             idDerivationVersion: imported.idDerivationVersion ?? 0,

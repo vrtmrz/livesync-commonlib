@@ -1,6 +1,7 @@
 import { DOCID_SYNC_PARAMETERS, type EntryDoc, type RemoteDBSettings } from "../common/types.ts";
 import { isObfuscatedEntry, parseHeaderValues } from "../common/utils.ts";
 import { getConfiguredFunctionsForEncryption, isEncryptedMeta } from "../pouchdb/encryption.ts";
+import { isUnencryptedContentRejectedError } from "../replication/UnencryptedContentRejectedError.ts";
 import { isPathProbablyObfuscated } from "octagonal-wheels/encryption/encryption";
 import { decompressDoc } from "../pouchdb/compress.ts";
 import { AuthorizationHeaderGenerator, generateCredentialObject } from "../replication/httplib.ts";
@@ -90,7 +91,8 @@ export function createCouchDBDiagnosticSource({
               readSalt,
               settings.E2EEAlgorithm,
               false,
-              () => {}
+              () => {},
+              settings.acceptUnencryptedContent
           ).outgoing
         : async (doc: EntryDoc) => doc;
     const decode = async (id: string, value: unknown): Promise<EntryDoc> => {
@@ -194,7 +196,7 @@ export function createCouchDBDiagnosticSource({
                                 return {
                                     id,
                                     error:
-                                        error instanceof DiagnosticReadError
+                                        error instanceof DiagnosticReadError || isUnencryptedContentRejectedError(error)
                                             ? error
                                             : new DiagnosticReadError("document-unreadable"),
                                 };

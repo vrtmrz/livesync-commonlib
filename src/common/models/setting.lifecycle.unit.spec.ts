@@ -32,6 +32,31 @@ describe("prepareSettingsForLoad", () => {
         }
     });
 
+    it("normalises omitted and invalid plaintext acceptance while preserving explicit choices", () => {
+        const complete = {
+            ...DEFAULT_SETTINGS,
+            settingVersion: CURRENT_SETTING_VERSION,
+            isConfigured: true,
+            handleFilenameCaseSensitive: false,
+        };
+        const missingSettings = { ...complete };
+        delete (missingSettings as Partial<ObsidianLiveSyncSettings>).acceptUnencryptedContent;
+        const missing = prepareSettingsForLoad(missingSettings);
+        const invalid = prepareSettingsForLoad({
+            ...complete,
+            acceptUnencryptedContent: "true",
+        } as unknown as Partial<ObsidianLiveSyncSettings>);
+        const enabled = prepareSettingsForLoad({ ...complete, acceptUnencryptedContent: true });
+
+        expect(missing.settings.acceptUnencryptedContent).toBe(false);
+        expect(missing.changed).toBe(true);
+        expect(invalid.settings.acceptUnencryptedContent).toBe(false);
+        expect(invalid.changed).toBe(true);
+        expect(enabled.settings.acceptUnencryptedContent).toBe(true);
+        expect(enabled.changed).toBe(false);
+        expect(prepareSettingsForLoad(missing.settings).changed).toBe(false);
+    });
+
     it("enables internal Metadata protection only for genuinely new settings", () => {
         expect(prepareSettingsForLoad(undefined).settings.encryptInternalMetadata).toBe(true);
         const existing = prepareSettingsForLoad({

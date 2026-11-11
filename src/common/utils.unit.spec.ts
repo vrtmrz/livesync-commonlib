@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { isRemediationModeActive, pickP2PSyncSettings } from "./utils";
+import { isRemediationModeActive, pickEncryptionSettings, pickP2PSyncSettings } from "./utils";
+import { DEFAULT_SETTINGS } from "./models/setting.const.defaults";
+
+describe("pickEncryptionSettings", () => {
+    it.each([false, true])("preserves plaintext acceptance when picking E2EE settings (%s)", (value) => {
+        const picked = pickEncryptionSettings({ ...DEFAULT_SETTINGS, acceptUnencryptedContent: value });
+
+        expect(picked.acceptUnencryptedContent).toBe(value);
+    });
+
+    it("normalises an invalid plaintext acceptance value to false", () => {
+        const picked = pickEncryptionSettings({
+            ...DEFAULT_SETTINGS,
+            acceptUnencryptedContent: "true",
+        } as unknown as typeof DEFAULT_SETTINGS);
+
+        expect(picked.acceptUnencryptedContent).toBe(false);
+    });
+});
 
 describe("pickP2PSyncSettings managed TURN state", () => {
     it("preserves the managed provider scalars", () => {

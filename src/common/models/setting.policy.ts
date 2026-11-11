@@ -1,6 +1,7 @@
 import type { ObsidianLiveSyncSettings } from "./setting.type";
 import type { TaggedType } from "./shared.type.util";
 import { DEFAULT_SETTINGS } from "./setting.const.defaults";
+import { normaliseAcceptUnencryptedContent } from "./setting.encryption";
 
 type PersistencePolicyFor<K extends keyof ObsidianLiveSyncSettings> = K extends "passphrase"
     ? "passphrase"
@@ -146,6 +147,7 @@ export const SETTINGS_PROPERTY_POLICY = {
     forcePathStyle: SettingPolicies.Default,
     remoteType: SettingPolicies.Default,
     encrypt: SettingPolicies.Default,
+    acceptUnencryptedContent: SettingPolicies.Default,
     passphrase: SettingPolicies.E2EEPassphrase,
     idDerivationVersion: SettingPolicies.MarkdownCredentials,
     pathNormalizationVersion: SettingPolicies.MarkdownCredentials,
@@ -302,6 +304,9 @@ export function createMarkdownSettings(
         copySetting(output, settings, key);
     }
     if (output.remoteConfigurations) output.remoteConfigurations = cloneProfiles(output);
+    if ("acceptUnencryptedContent" in output) {
+        output.acceptUnencryptedContent = normaliseAcceptUnencryptedContent(output.acceptUnencryptedContent);
+    }
     return output as MarkdownSettings;
 }
 
@@ -318,6 +323,11 @@ export function mergeMarkdownSettings(
         }
     }
     merged.remoteConfigurations = cloneProfiles(merged);
+    merged.acceptUnencryptedContent = normaliseAcceptUnencryptedContent(
+        Object.prototype.hasOwnProperty.call(incoming, "acceptUnencryptedContent")
+            ? incoming.acceptUnencryptedContent
+            : current.acceptUnencryptedContent
+    );
     return merged;
 }
 
@@ -358,6 +368,7 @@ export function requireConfigurationCiphertext(value: string): ConfigurationCiph
 
 /** Grant the persistence type only after the runtime policy has been checked. */
 export function prepareSettingsForPersistence(settings: ObsidianLiveSyncSettings): PersistedSettings {
+    settings.acceptUnencryptedContent = normaliseAcceptUnencryptedContent(settings.acceptUnencryptedContent);
     if (hasConnectionSettings(settings)) throw new Error("Connection settings were not prepared for persistence.");
     if (settings.encrypt && settings.passphrase !== "")
         throw new Error("The passphrase was not prepared for persistence.");
