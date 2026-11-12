@@ -8,6 +8,7 @@ class ChunkTransport implements TransportAdapter {
     readonly sent: SentMessage[] = [];
     receive: (message: RpcWireMessage, peerId: string) => void = () => undefined;
     onSend?: (message: RpcWireMessage, peerId: string) => void | Promise<void>;
+    private leaveHandler?: (peerId: string) => void;
 
     send(message: RpcWireMessage, peerId: string) {
         this.sent.push({ message, peerId });
@@ -19,6 +20,17 @@ class ChunkTransport implements TransportAdapter {
         return () => {
             this.receive = () => undefined;
         };
+    }
+
+    onPeerLeave(handler: (peerId: string) => void) {
+        this.leaveHandler = handler;
+        return () => {
+            this.leaveHandler = undefined;
+        };
+    }
+
+    leavePeer(peerId: string) {
+        this.leaveHandler?.(peerId);
     }
 
     chunk(streamId: string, index: number, total = 3, payload = "part", peerId = "peer-a") {
@@ -140,6 +152,70 @@ describe("RPC missing-chunk waiting lifetime", () => {
             peerId: "peer-a",
         });
         expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it("drops only the departed peer's outgoing chunks and retains retransmission for another peer", async () => {
+        const { room, transport } = fixture();
+        const payload = "x".repeat(40_000);
+        await room.notify("peer-a", "events.changed", [payload]);
+        await room.notify("peer-b", "events.changed", [payload]);
+        const firstChunks = new Map<string, Extract<RpcWireMessage, { wire: "chunk" }>>();
+        for (const { message, peerId } of transport.sent) {
+            if (message.wire === "chunk" && !firstChunks.has(peerId)) {
+                firstChunks.set(peerId, message);
+            }
+        }
+        const departed = firstChunks.get("peer-a");
+        const retained = firstChunks.get("peer-b");
+        if (!departed || !retained) {
+            throw new Error("Both notifications must have sent chunks");
+        }
+        transport.sent.length = 0;
+
+        transport.leavePeer("peer-a");
+        transport.receive({ wire: "chunk-ack", streamId: departed.streamId, missing: [0] }, "peer-a");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(transport.sent).toEqual([]);
+        transport.receive({ wire: "chunk-ack", streamId: retained.streamId, missing: [0] }, "peer-b");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(transport.sent).toEqual([{ message: retained, peerId: "peer-b" }]);
+    });
+
+    it("aborts only the departed peer's active handler", async () => {
+        const { room, transport } = fixture();
+        const signals = new Map<string, AbortSignal>();
+        room.registerCancellable("jobs.wait", async (context, peerId): Promise<null> => {
+            signals.set(peerId, context.signal);
+            await new Promise<void>((resolve) => {
+                context.signal.addEventListener("abort", () => resolve(), { once: true });
+            });
+            return null;
+        });
+        for (const peerId of ["peer-a", "peer-b"]) {
+            transport.receive(
+                {
+                    wire: "raw",
+                    payload: JSON.stringify({
+                        kind: "request",
+                        requestId: "active-" + peerId,
+                        method: "jobs.wait",
+                        args: [],
+                        expectsResponse: false,
+                    }),
+                },
+                peerId
+            );
+        }
+        await vi.advanceTimersByTimeAsync(0);
+        expect(signals.size).toBe(2);
+
+        transport.leavePeer("peer-a");
+        expect(signals.get("peer-a")?.aborted).toBe(true);
+        expect(signals.get("peer-b")?.aborted).toBe(false);
+        await vi.advanceTimersByTimeAsync(0);
+        transport.leavePeer("peer-b");
+        expect(signals.get("peer-b")?.aborted).toBe(true);
+        await vi.advanceTimersByTimeAsync(0);
     });
 
     it("cancels every pending stream when the room closes, including a replaced wait", async () => {

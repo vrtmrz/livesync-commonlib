@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
+import { DEFAULT_SETTINGS, type P2PSyncSetting } from "@lib/common/types";
+import type { SimpleStore } from "@lib/common/utils";
+import type { Confirm } from "@lib/interfaces/Confirm";
+import type { Room } from "@trystero-p2p/nostr";
 
 const { rpcRoomOptions } = vi.hoisted(() => ({
     rpcRoomOptions: [] as unknown[],
@@ -29,6 +33,193 @@ import {
     EVENT_SERVER_STATUS,
     P2PHost,
 } from "./TrysteroReplicatorP2PServer";
+import type { Request } from "./types";
+
+const createDecisionHost = (
+    dialogueResult: "Accept" | "Ignore" | "Accept Temporarily" | "Ignore Temporarily" | false = false
+) => {
+    const storedValues = new Map<string, unknown>();
+    const simpleStore: SimpleStore<unknown> = {
+        db: undefined,
+        get: vi.fn(async (key: string) => storedValues.get(key)),
+        set: vi.fn(async (key: string, value: unknown) => {
+            storedValues.set(key, value);
+        }),
+        delete: vi.fn(async (key: string) => {
+            storedValues.delete(key);
+        }),
+        keys: vi.fn(async () => [...storedValues.keys()]),
+    };
+    const askSelectStringDialogue = vi.fn(async () => dialogueResult) as Confirm["askSelectStringDialogue"];
+    const confirm: Pick<Confirm, "askSelectStringDialogue"> = { askSelectStringDialogue };
+    const settings: P2PSyncSetting = {
+        ...DEFAULT_SETTINGS,
+        P2P_Enabled: true,
+        P2P_IsHeadless: true,
+    };
+    const events = createLiveSyncEventHub();
+    const host = new P2PHost(
+        {
+            events,
+            simpleStore,
+            settings,
+            confirm,
+        } as ConstructorParameters<typeof P2PHost>[0],
+        "server-peer"
+    );
+    const dispatchConnectionStatus = vi.spyOn(host, "dispatchConnectionStatus").mockResolvedValue(undefined);
+    return { host, simpleStore, storedValues, askSelectStringDialogue, events, dispatchConnectionStatus };
+};
+
+describe("P2PHost peer decisions and RPC admission", () => {
+    it.each([
+        ["Accept", true, false],
+        ["Ignore", false, false],
+        ["Accept Temporarily", true, true],
+        ["Ignore Temporarily", false, true],
+    ] as const)("applies the %s dialogue choice to the expected peer scope", async (choice, accepted, temporary) => {
+        const { host, simpleStore, askSelectStringDialogue, dispatchConnectionStatus } = createDecisionHost(choice);
+        host.onAdvertisement({ peerId: "peer-a", name: "Device A", platform: "test" }, "peer-a");
+        dispatchConnectionStatus.mockClear();
+
+        await expect(host.confirmUserToAccept("peer-a")).resolves.toBe(accepted);
+
+        expect(askSelectStringDialogue).toHaveBeenCalledExactlyOnceWith(
+            expect.stringContaining("Device A (peer-a)"),
+            ["Accept", "Ignore", "Accept Temporarily", "Ignore Temporarily"],
+            { title: "P2P Connection Request", defaultAction: "Ignore Temporarily", timeout: 30 }
+        );
+        expect(dispatchConnectionStatus).toHaveBeenCalledOnce();
+        if (temporary) {
+            expect(host.temporaryAcceptedPeers.get("peer-a")).toBe(accepted);
+            expect(simpleStore.set).not.toHaveBeenCalled();
+        } else {
+            expect(host.temporaryAcceptedPeers.has("peer-a")).toBe(false);
+            expect(simpleStore.set).toHaveBeenCalledExactlyOnceWith(host.acceptedPeers.addPrefix("Device A"), accepted);
+        }
+    });
+
+    it("rejects a cancelled or unknown peer confirmation without changing admission state", async () => {
+        const cancelled = createDecisionHost(false);
+        cancelled.host.onAdvertisement({ peerId: "peer-a", name: "Device A", platform: "test" }, "peer-a");
+
+        await expect(cancelled.host.confirmUserToAccept("peer-a")).rejects.toThrow(
+            "Response prevented: User Accepting failed"
+        );
+        expect(cancelled.simpleStore.set).not.toHaveBeenCalled();
+        expect(cancelled.host.temporaryAcceptedPeers.has("peer-a")).toBe(false);
+
+        const unknown = createDecisionHost("Accept");
+        await expect(unknown.host.confirmUserToAccept("unknown-peer")).rejects.toThrow("Unknown Peer");
+        expect(unknown.askSelectStringDialogue).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { decision: true, isTemporary: false },
+        { decision: false, isTemporary: false },
+        { decision: true, isTemporary: true },
+        { decision: false, isTemporary: true },
+    ])("stores and revokes the $isTemporary $decision peer decision", async ({ decision, isTemporary }) => {
+        const { host, simpleStore, storedValues, dispatchConnectionStatus } = createDecisionHost();
+        const peer = { peerId: "peer-a", name: "Device A", decision, isTemporary };
+        const storageKey = host.acceptedPeers.addPrefix(peer.name);
+
+        await host.makeDecision(peer);
+
+        expect(dispatchConnectionStatus).toHaveBeenCalledOnce();
+        if (isTemporary) {
+            expect(host.temporaryAcceptedPeers.get(peer.peerId)).toBe(decision);
+            expect(simpleStore.set).not.toHaveBeenCalled();
+        } else {
+            expect(simpleStore.set).toHaveBeenCalledExactlyOnceWith(storageKey, decision);
+            expect(storedValues.get(storageKey)).toBe(decision);
+        }
+
+        await host.revokeDecision({ peerId: peer.peerId, name: peer.name });
+
+        expect(host.temporaryAcceptedPeers.has(peer.peerId)).toBe(false);
+        expect(simpleStore.delete).toHaveBeenCalledExactlyOnceWith(storageKey);
+        await expect(host.acceptedPeers.get(peer.name)).resolves.toBeUndefined();
+        expect(dispatchConnectionStatus).toHaveBeenCalledTimes(2);
+    });
+
+    it("admits accepted requests, rejects unknown peers, and routes control responses", async () => {
+        const accepted = createDecisionHost();
+        accepted.host.onAdvertisement({ peerId: "peer-a", name: "Device A", platform: "test" }, "peer-a");
+        await accepted.host.makeDecision({
+            peerId: "peer-a",
+            name: "Device A",
+            decision: true,
+            isTemporary: true,
+        });
+        const acceptedRequest: Request = { type: "replicate", direction: "request", seq: 1, args: [] };
+        const handleRequest = vi.spyOn(accepted.host, "__onRequest").mockResolvedValue(undefined);
+
+        await accepted.host.processArrivedRPC(acceptedRequest, "peer-a");
+
+        expect(handleRequest).toHaveBeenCalledExactlyOnceWith(acceptedRequest, "peer-a");
+
+        const rejected = createDecisionHost();
+        const rejectedRequest = vi.spyOn(rejected.host, "__onRequest").mockResolvedValue(undefined);
+        await expect(rejected.host.processArrivedRPC(acceptedRequest, "unknown-peer")).rejects.toThrow(
+            "Not acceptable peer unknown-peer"
+        );
+        expect(rejectedRequest).not.toHaveBeenCalled();
+
+        const handleResponse = vi.spyOn(rejected.host, "__onResponse");
+        const controlResponse = { type: "!reqAuth", direction: "response" as const, seq: 2, data: true };
+        await rejected.host.processArrivedRPC(controlResponse, "unknown-peer");
+        expect(handleResponse).toHaveBeenCalledExactlyOnceWith(controlResponse, "unknown-peer");
+    });
+
+    it("caches peer clients until close and rejects peers without an advertisement", async () => {
+        const { host } = createDecisionHost();
+        host.onAdvertisement({ peerId: "peer-a", name: "Device A", platform: "test" }, "peer-a");
+
+        const client = host.getConnection("peer-a");
+
+        expect(host.getConnection("peer-a")).toBe(client);
+        expect(() => host.getConnection("unknown-peer")).toThrow("Unknown Peer unknown-peer");
+
+        await host.close();
+        expect(client.remoteDB).toBeUndefined();
+        expect(host.knownAdvertisements).toEqual([]);
+        expect(() => host.getConnection("peer-a")).toThrow("Unknown Peer peer-a");
+    });
+
+    it("forwards room peer departures through the registered callback", async () => {
+        const { host, events } = createDecisionHost();
+        const onPeerLeft = vi.fn();
+        const peerLeftEvent = vi.fn();
+        const advertisement = { peerId: "peer-a", name: "Device A", platform: "test" };
+        const room = {
+            makeAction: vi.fn(() => ({ send: vi.fn(async () => undefined), onMessage: null })),
+            leave: vi.fn(async () => undefined),
+            onPeerJoin: null as ((peerId: string) => void) | null,
+            onPeerLeave: null as ((peerId: string) => void) | null,
+        } as unknown as Room;
+        events.onEvent(EVENT_DEVICE_LEAVED, peerLeftEvent);
+        host.setSessionPeerHandlers({ onAdvertisement: vi.fn(), onPeerLeft });
+        host.onAdvertisement(advertisement, advertisement.peerId);
+        await host.setRoom(room);
+        host.onAfterJoinRoom();
+
+        const options = rpcRoomOptions.at(-1) as {
+            transport: { onPeerLeave: (handler: (peerId: string) => void) => () => void };
+        };
+        const unsubscribe = options.transport.onPeerLeave(vi.fn());
+        room.onPeerLeave?.(advertisement.peerId);
+        await Promise.resolve();
+
+        expect(host.knownAdvertisements).toEqual([]);
+        expect(onPeerLeft).toHaveBeenCalledExactlyOnceWith(advertisement.peerId);
+        expect(peerLeftEvent).toHaveBeenCalledExactlyOnceWith(advertisement.peerId);
+
+        unsubscribe();
+        await host.shutdown();
+        host.dispose();
+    });
+});
 
 describe("P2PHost transport configuration and ownership", () => {
     beforeEach(() => {

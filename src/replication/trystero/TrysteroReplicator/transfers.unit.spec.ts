@@ -12,6 +12,7 @@ import {
     checkPeerForReplication,
     requestSynchroniseToPeer as requestReverseTransfer,
     type PullContext,
+    type RequestSynchronisationContext,
     P2P_REPLICATION_CANCELLED,
     P2P_REPLICATION_COMPLETED,
     type TransferConnection,
@@ -189,6 +190,22 @@ describe("transfer state and orchestration", () => {
         }
     );
 
+    it("cancels an already-aborted pull before requesting peer agreement", async () => {
+        const h = harness();
+        const controller = new AbortController();
+        controller.abort();
+
+        expect(await h.transfers.replicateFrom("peer", false, false, false, controller.signal)).toBe(
+            P2P_REPLICATION_CANCELLED
+        );
+        expect(h.canStartOrdinaryReplication).toHaveBeenCalledExactlyOnceWith(false);
+        expect(h.requestAuthenticate).not.toHaveBeenCalled();
+        expect(h.checkTweakValues).not.toHaveBeenCalled();
+        expect(h.transfers.replicateFromPeers.size).toBe(0);
+        expect(h.progress).not.toHaveBeenCalled();
+        expect(h.replicate).not.toHaveBeenCalled();
+    });
+
     it("forwards engine options and waits for document processing before notifying other peers", async () => {
         const h = harness();
         const controller = new AbortController();
@@ -268,6 +285,21 @@ describe("transfer state and orchestration", () => {
         expect(h.transfers.replicateFromPeers.size).toBe(0);
     });
 
+    it("reports a missing host as a failed pull and releases active state", async () => {
+        const h = harness();
+        h.removeHost();
+
+        const result = await h.transfers.replicateFrom("peer", false, false, false);
+
+        expect(result).toMatchObject({
+            status: "failed",
+            error: expect.objectContaining({ message: "Server is not available" }),
+        });
+        expect(h.connection).not.toHaveBeenCalled();
+        expect(h.getRemoteDB).not.toHaveBeenCalled();
+        expect(h.transfers.replicateFromPeers.size).toBe(0);
+    });
+
     it("retains agreement checks before refusing a duplicate active peer", async () => {
         const h = harness();
         h.transfers.replicateFromPeers.add("peer");
@@ -297,6 +329,27 @@ describe("transfer state and orchestration", () => {
         expect(h.replicate).not.toHaveBeenCalled();
     });
 
+    it("cancels bidirectional synchronisation if the pull aborts before the reverse request", async () => {
+        const h = harness();
+        const controller = new AbortController();
+        h.replicateFrom.mockImplementation(async () => {
+            controller.abort();
+            return P2P_REPLICATION_COMPLETED;
+        });
+
+        expect(await h.transfers.sync("peer", false, controller.signal)).toBe(P2P_REPLICATION_CANCELLED);
+        expect(h.requestSynchroniseToPeer).not.toHaveBeenCalled();
+    });
+
+    it("returns a failed reverse request from bidirectional synchronisation", async () => {
+        const h = harness();
+        const failure: P2PReplicationResult = { status: "failed", error: new Error("reverse request failed") };
+        h.requestSynchroniseToPeer.mockResolvedValue(failure);
+
+        expect(await h.transfers.sync("peer", true)).toBe(failure);
+        expect(h.requestSynchroniseToPeer).toHaveBeenCalledExactlyOnceWith("peer", undefined);
+    });
+
     it("observes cancellation during the existing reverse-request scheduling delay", async () => {
         vi.useFakeTimers();
         const h = harness();
@@ -317,6 +370,122 @@ describe("transfer state and orchestration", () => {
         await vi.advanceTimersByTimeAsync(25);
         expect(await call).toBe(P2P_REPLICATION_COMPLETED);
         expect(h.requestSynchronisation).toHaveBeenCalledExactlyOnceWith(0, controller.signal);
+    });
+
+    it("cancels an already-aborted reverse request before waiting", async () => {
+        const controller = new AbortController();
+        controller.abort();
+        const canStartOrdinaryReplication = vi.fn(async (_showMessage?: boolean) => true);
+        const host = vi.fn(() => undefined);
+        const context: RequestSynchronisationContext = { deps: { canStartOrdinaryReplication, host } };
+
+        expect(await requestReverseTransfer(context, "peer", controller.signal)).toBe(P2P_REPLICATION_CANCELLED);
+        expect(canStartOrdinaryReplication).toHaveBeenCalledExactlyOnceWith(false);
+        expect(host).not.toHaveBeenCalled();
+    });
+
+    it("propagates a missing host after the reverse-request scheduling delay", async () => {
+        vi.useFakeTimers();
+        const canStartOrdinaryReplication = vi.fn(async (_showMessage?: boolean) => true);
+        const host = vi.fn(() => undefined);
+        const context: RequestSynchronisationContext = { deps: { canStartOrdinaryReplication, host } };
+        const call = requestReverseTransfer(context, "peer");
+        const rejection = expect(call).rejects.toThrow("Server is not available");
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(25);
+
+        await rejection;
+        expect(host).toHaveBeenCalledOnce();
+    });
+
+    it("returns cancellation when the reverse RPC rejects after the caller aborts", async () => {
+        vi.useFakeTimers();
+        const h = harness();
+        const controller = new AbortController();
+        const error = new Error("RPC cancelled");
+        let rejectRPC!: (reason: Error) => void;
+        const pendingRPC = new Promise<never>((_resolve, reject) => {
+            rejectRPC = reject;
+        });
+        h.requestSynchronisation.mockImplementation(async () => pendingRPC);
+        const call = h.transfers.requestSynchroniseToPeer("peer", controller.signal);
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(25);
+        controller.abort();
+        rejectRPC(error);
+
+        expect(await call).toBe(P2P_REPLICATION_CANCELLED);
+        expect(h.requestSynchronisation).toHaveBeenCalledExactlyOnceWith(0, controller.signal);
+    });
+
+    it("propagates a non-cancellation error from the reverse RPC", async () => {
+        vi.useFakeTimers();
+        const h = harness();
+        const error = new Error("RPC unavailable");
+        h.requestSynchronisation.mockRejectedValue(error);
+        const call = h.transfers.requestSynchroniseToPeer("peer");
+        const rejection = expect(call).rejects.toBe(error);
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(25);
+
+        await rejection;
+        expect(h.requestSynchronisation).toHaveBeenCalledExactlyOnceWith(0, undefined);
+    });
+
+    it("fans out to every available peer and waits for each request to settle", async () => {
+        vi.useFakeTimers();
+        const h = harness();
+        h.transfers.availableReplicationPairs.add("peer-a");
+        h.transfers.availableReplicationPairs.add("peer-b");
+        let releasePeerB!: () => void;
+        const peerB = new Promise<void>((resolve) => {
+            releasePeerB = resolve;
+        });
+        h.requestSynchroniseToPeer.mockImplementation(async (peerId) => {
+            if (peerId === "peer-b") {
+                await peerB;
+            }
+            return P2P_REPLICATION_COMPLETED;
+        });
+        const call = h.transfers.requestSynchroniseToAllAvailablePeers();
+        let settled = false;
+        void call.then(
+            () => {
+                settled = true;
+            },
+            () => {
+                settled = true;
+            }
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(25);
+
+        expect(h.requestSynchroniseToPeer.mock.calls).toEqual([["peer-a"], ["peer-b"]]);
+        expect(settled).toBe(false);
+        releasePeerB();
+        await expect(call).resolves.toBeUndefined();
+        expect(settled).toBe(true);
+    });
+
+    it("propagates a failed request from the available-peer fan-out", async () => {
+        vi.useFakeTimers();
+        const h = harness();
+        h.transfers.availableReplicationPairs.add("peer-a");
+        h.transfers.availableReplicationPairs.add("peer-b");
+        const error = new Error("peer-b request failed");
+        h.requestSynchroniseToPeer.mockImplementation(async (peerId) => {
+            if (peerId === "peer-b") {
+                throw error;
+            }
+            return P2P_REPLICATION_COMPLETED;
+        });
+        const call = h.transfers.requestSynchroniseToAllAvailablePeers();
+        const rejection = expect(call).rejects.toBe(error);
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(25);
+
+        await rejection;
+        expect(h.requestSynchroniseToPeer.mock.calls).toEqual([["peer-a"], ["peer-b"]]);
     });
 
     it("clears active sets without discarding available targets or duplicating replaced state", () => {

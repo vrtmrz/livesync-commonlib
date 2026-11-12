@@ -207,6 +207,16 @@ describe("peer agreement", () => {
         expect(h.connection).not.toHaveBeenCalled();
     });
 
+    it("does not inspect peer metadata or settings without a host", async () => {
+        const h = createHarness();
+        h.removeHost();
+
+        expect(await h.agreement.checkTweakValues("peer")).toBe(false);
+        expect(h.peerPlatform).not.toHaveBeenCalled();
+        expect(h.connection).not.toHaveBeenCalled();
+        expect(h.localTweakSettings).not.toHaveBeenCalled();
+    });
+
     it("uses the captured connection and forwards one random challenge to both peers", async () => {
         const h = createHarness();
         const controller = new AbortController();
@@ -242,6 +252,19 @@ describe("peer agreement", () => {
         h.requestTweakSettings.mockResolvedValue({ ...h.local, passphrase: "different" });
         expect(await h.agreement.checkTweakValues("peer")).toBe(true);
     });
+
+    it.each(["encryption", "path obfuscation"] as const)(
+        "rejects peer tweak values with different %s settings",
+        async (setting) => {
+            const h = createHarness();
+            h.requestTweakSettings.mockResolvedValue(
+                setting === "encryption" ? { ...h.local, encrypt: false } : { ...h.local, usePathObfuscation: true }
+            );
+
+            expect(await h.agreement.checkTweakValues("peer")).toBe(false);
+            expect(h.localTweakSettings).toHaveBeenCalledOnce();
+        }
+    );
 
     it("propagates tweak RPC failures rather than translating them into authentication refusal", async () => {
         const h = createHarness();

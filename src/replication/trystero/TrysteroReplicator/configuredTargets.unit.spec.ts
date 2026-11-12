@@ -138,6 +138,34 @@ describe("createConfiguredTargets", () => {
         });
     });
 
+    it("keeps discovery hooks until every configured advertisement is present", async () => {
+        const peerA = advertised("peer-a");
+        const peerB = advertised("peer-b");
+        const harness = createHarness({ names: "peer-a,peer-b", advertisements: [] });
+        const operation = harness.target.replicateFromCommand(false, 5000);
+
+        harness.replaceAdvertisements([peerA]);
+        harness.emitAdvertisement();
+
+        expect(harness.subscriptions[0]).not.toHaveBeenCalled();
+        expect(harness.pendingTimeouts[0]?.cancelled).toBe(false);
+        expect(harness.evaluatePeerAcceptance).not.toHaveBeenCalled();
+
+        harness.replaceAdvertisements([peerA, peerB]);
+        harness.emitAdvertisement();
+
+        await expect(operation).resolves.toEqual({
+            status: "completed",
+            targets: [
+                { name: "peer-a", peerId: "id-peer-a", status: "completed" },
+                { name: "peer-b", peerId: "id-peer-b", status: "completed" },
+            ],
+        });
+        expect(harness.subscriptions[0]).toHaveBeenCalledOnce();
+        expect(harness.pendingTimeouts[0]?.cancelled).toBe(true);
+        expect(harness.sync.mock.calls.map(([peerId]) => peerId)).toEqual(["id-peer-a", "id-peer-b"]);
+    });
+
     it("does not wait when every configured advertisement is already present or the timeout is non-positive", async () => {
         const cases = [
             {

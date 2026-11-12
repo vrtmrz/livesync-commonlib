@@ -102,6 +102,25 @@ describe("standalone change relay operations", () => {
         expect(reportDiagnostic).not.toHaveBeenCalled();
     });
 
+    it.each([
+        { name: "broadcasting is stopped", isBroadcasting: false, hostAvailable: true, hostChecks: 0 },
+        { name: "the host is unavailable", isBroadcasting: true, hostAvailable: false, hostChecks: 1 },
+    ])("does not schedule notifications when $name", ({ isBroadcasting, hostAvailable, hostChecks }) => {
+        const hasHost = vi.fn(() => hostAvailable);
+        const peerIds = vi.fn(() => ["peer"]);
+        const notifyPeer = vi.fn(async () => {});
+
+        const result = notifyProgress(
+            { deps: { hasHost, peerIds }, relay: { isBroadcasting }, notifyPeerProgress: notifyPeer },
+            "excluded-peer"
+        );
+
+        expect(result).toBeUndefined();
+        expect(hasHost).toHaveBeenCalledTimes(hostChecks);
+        expect(peerIds).not.toHaveBeenCalled();
+        expect(notifyPeer).not.toHaveBeenCalled();
+    });
+
     it("enables a feed by composing the standalone change and close operations", async () => {
         const emitter = new EventEmitter();
         const feed = Object.assign(emitter, { cancel: vi.fn() });
@@ -271,6 +290,59 @@ describe("room-local change relay", () => {
         });
     });
 
+    it("cleans up a normally completed feed without reporting an error reason", () => {
+        const h = createHarness();
+        h.relay.enableBroadcastChanges();
+
+        h.feed.emit("complete", { status: "complete" });
+
+        expect(h.relay.changes).toBeUndefined();
+        expect(h.relay.isBroadcasting).toBe(false);
+        expect(h.feed.listenerCount("change")).toBe(0);
+        expect(h.reportDiagnostic).toHaveBeenLastCalledWith({
+            category: "sync",
+            code: "broadcast-disabled",
+        });
+    });
+
+    it("replaces a retained feed when broadcasting is enabled again", () => {
+        const createFeed = () => {
+            const emitter = new EventEmitter();
+            return Object.assign(emitter, { cancel: vi.fn() });
+        };
+        const previousFeed = createFeed();
+        const replacementFeed = createFeed();
+        const feeds = [previousFeed, replacementFeed];
+        const createChangesFeed = vi.fn(() => feeds.shift() as unknown as PouchDB.Core.Changes<EntryDoc>);
+        const dispatchStatus = vi.fn();
+        const reportDiagnostic = vi.fn();
+        const announceChanges = vi.fn(async () => {});
+        const relay = {
+            changes: undefined as PouchDB.Core.Changes<EntryDoc> | undefined,
+            isBroadcasting: false,
+        };
+        const deps = { createChangesFeed, dispatchStatus, reportDiagnostic, announceChanges };
+        const enable = () =>
+            enableBroadcastChanges({
+                deps,
+                relay,
+                onChange: async () => {},
+                closeChanges: () => {},
+            });
+
+        enable();
+        disableBroadcastChanges({ deps, relay });
+        expect(relay.changes).toBe(previousFeed);
+
+        enable();
+
+        expect(createChangesFeed).toHaveBeenCalledTimes(2);
+        expect(previousFeed.cancel).toHaveBeenCalledTimes(2);
+        expect(previousFeed.listenerCount("change")).toBe(0);
+        expect(relay.changes).toBe(replacementFeed);
+        expect(replacementFeed.listenerCount("change")).toBe(1);
+    });
+
     it("does not duplicate the disable diagnostic when cancellation completes synchronously", () => {
         const h = createHarness();
         let cancelled = false;
@@ -349,6 +421,53 @@ describe("room-local change relay", () => {
             peerId: "denied",
             reason: "not-accepted",
         });
+    });
+
+    it.each(["the target is missing", "the room is disposed", "broadcasting is stopped"] as const)(
+        "does not admit a notification when %s",
+        async (condition) => {
+            const peer = target();
+            const captureNotificationTarget = vi.fn(() => (condition === "the target is missing" ? undefined : peer));
+            const isDisposed = vi.fn(() => condition === "the room is disposed");
+            const reportDiagnostic = vi.fn();
+
+            await notifyPeerProgress(
+                {
+                    deps: { captureNotificationTarget, isDisposed, reportDiagnostic },
+                    relay: { isBroadcasting: condition !== "broadcasting is stopped" },
+                },
+                "early-return"
+            );
+
+            expect(captureNotificationTarget).toHaveBeenCalledExactlyOnceWith("early-return");
+            expect(peer.isAccepted).not.toHaveBeenCalled();
+            expect(peer.send).not.toHaveBeenCalled();
+            expect(reportDiagnostic).not.toHaveBeenCalled();
+            expect(isDisposed).toHaveBeenCalledTimes(condition === "the target is missing" ? 0 : 1);
+        }
+    );
+
+    it("reports a failed send without leaking transport details", async () => {
+        const h = createHarness();
+        const peer = target();
+        const error = new Error("private transport detail");
+        vi.mocked(peer.send).mockRejectedValue(error);
+        h.targets.set("failed-send", peer);
+        h.relay.isBroadcasting = true;
+
+        await h.relay.notifyProgress();
+        await vi.waitFor(() =>
+            expect(h.reportDiagnostic).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    category: "sync",
+                    code: "change-notification-error",
+                    peerId: "failed-send",
+                })
+            )
+        );
+
+        expect(h.reportDiagnostic.mock.calls.map(([event]) => event.code)).toEqual(["change-notification-error"]);
+        expect(JSON.stringify(h.reportDiagnostic.mock.calls)).not.toContain("private transport detail");
     });
 
     it.each(["broadcast", "target", "disposed"] as const)(

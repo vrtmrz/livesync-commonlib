@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { TrysteroReplicator } from "./TrysteroReplicator";
+import type { Confirm } from "@lib/interfaces/Confirm";
 import { P2PLogCollector } from "./P2PLogCollector";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { defaultLogger, LOG_LEVEL_NOTICE, setGlobalLogFunction } from "@lib/common/logger";
@@ -57,6 +58,12 @@ function createReplicator(settings: Record<string, unknown> = {}) {
         ...settings,
     };
     const currentSettings = { ...sessionSettings };
+    const askYesNoDialog = vi.fn<Confirm["askYesNoDialog"]>(async () => "no");
+    const server = {
+        _knownAdvertisements: new Map(),
+        evaluatePeerAcceptance: vi.fn(async () => "accepted"),
+        isServing: false,
+    };
     const replicator = new TrysteroReplicator(
         {
             events,
@@ -67,16 +74,13 @@ function createReplicator(settings: Record<string, unknown> = {}) {
             simpleStore: {},
             deviceName: "device-a",
             platform: "test",
-            confirm: {},
+            confirm: { askYesNoDialog },
             processReplicatedDocs: vi.fn(),
             runFiniteReplicationActivity,
         } as any,
-        {
-            _knownAdvertisements: new Map(),
-            evaluatePeerAcceptance: vi.fn(async () => "accepted"),
-        } as any
+        server as any
     );
-    return { currentSettings, events, replicator, runFiniteReplicationActivity };
+    return { currentSettings, events, replicator, runFiniteReplicationActivity, askYesNoDialog, server };
 }
 
 function installControlOnlyPathIdentityDatabase(replicator: TrysteroReplicator, initialVersion?: number) {
@@ -138,6 +142,49 @@ function captureGlobalLogs() {
 function hasNotice(entries: Array<{ level?: number }>): boolean {
     return entries.some((entry) => entry.level === LOG_LEVEL_NOTICE);
 }
+
+describe("TrysteroReplicator host commands", () => {
+    it.each([true, false])("opens only when the host is not serving: %s", async (isServing) => {
+        const { replicator, server } = createReplicator();
+        server.isServing = isServing;
+        const open = vi.spyOn(replicator, "open").mockResolvedValue(undefined);
+        try {
+            await replicator.makeSureOpened();
+            expect(open).toHaveBeenCalledTimes(isServing ? 0 : 1);
+        } finally {
+            open.mockRestore();
+        }
+    });
+
+    it("delegates opening without a bound host and propagates opening failures", async () => {
+        const { replicator } = createReplicator();
+        replicator.server = undefined;
+        const failure = new Error("The room could not be opened");
+        const open = vi.spyOn(replicator, "open").mockRejectedValue(failure);
+        try {
+            await expect(replicator.makeSureOpened()).rejects.toBe(failure);
+            expect(open).toHaveBeenCalledOnce();
+        } finally {
+            open.mockRestore();
+        }
+    });
+
+    it.each(["yes", "no"] as const)("requests broadcast only after approval: %s", async (answer) => {
+        const { replicator, askYesNoDialog } = createReplicator();
+        askYesNoDialog.mockResolvedValue(answer);
+        const enable = vi.spyOn(replicator, "enableBroadcastChanges").mockImplementation(() => undefined);
+        try {
+            expect(await replicator.getCommands().requestBroadcasting("requesting-peer")).toBeUndefined();
+            expect(askYesNoDialog).toHaveBeenCalledExactlyOnceWith(
+                "The remote peer requested to broadcast the changes. Do you want to allow it?",
+                { defaultOption: "No" }
+            );
+            expect(enable).toHaveBeenCalledTimes(answer === "yes" ? 1 : 0);
+        } finally {
+            enable.mockRestore();
+        }
+    });
+});
 
 describe("TrysteroReplicator configuration import", () => {
     async function importConfiguration(configuration: Record<string, unknown>) {

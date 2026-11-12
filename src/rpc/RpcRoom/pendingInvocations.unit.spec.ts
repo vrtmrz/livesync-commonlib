@@ -94,6 +94,29 @@ function createPendingRecord(overrides: Partial<PendingInvocation> = {}): Pendin
 }
 
 describe("pending invocation operations", () => {
+    it("ignores a stale request ID without changing another live wait", () => {
+        const releaseWait = vi.fn();
+        const reject = vi.fn();
+        const record = createPendingRecord({ releaseWait, reject });
+        const pending = new Map([["still-live", record]]);
+        const removeOperation = vi.fn((requestId: string) => removePending({ pending }, requestId));
+        const notifyOperation = vi.fn();
+
+        rejectPending(
+            { pending, removePending: removeOperation, notifyRemoteCancellation: notifyOperation },
+            "already-settled",
+            new RpcError("TIMEOUT", "A late timeout"),
+            true
+        );
+
+        expect(pending.get("still-live")).toBe(record);
+        expect(record.cancelRequested).toBe(false);
+        expect(removeOperation).not.toHaveBeenCalled();
+        expect(releaseWait).not.toHaveBeenCalled();
+        expect(reject).not.toHaveBeenCalled();
+        expect(notifyOperation).not.toHaveBeenCalled();
+    });
+
     it("removes and releases one wait when called directly with only pending state", () => {
         const releaseWait = vi.fn();
         const record = createPendingRecord({ releaseWait });

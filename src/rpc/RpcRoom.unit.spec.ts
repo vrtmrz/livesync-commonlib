@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { RpcRoom, type RpcWireMessage, type TransportAdapter } from "./index";
 import { RpcSession } from "./RpcSession";
 import { RpcError } from "./errors";
@@ -98,6 +98,63 @@ describe("RpcRoom", () => {
         roomA.close();
         roomB.close();
     });
+
+    it("rejects a call after close without sending a request", async () => {
+        const transport = new MockTransport("peer-a");
+        const send = vi.spyOn(transport, "send");
+        const room = new RpcRoom({ transport });
+        room.close();
+
+        await expect(room.invoke("peer-b", "job.run", [])).rejects.toMatchObject({ code: "NOT_CONNECTED" });
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    it.each([true, false])(
+        "keeps cancellation failure local with a warning handler present: %s",
+        async (reportWarning) => {
+            const transport = new MockTransport("peer-a");
+            let cancelSends = 0;
+            transport.send = async (message) => {
+                if (readRawEnvelope(message)?.kind === "cancel") {
+                    cancelSends++;
+                    throw new Error("cancel transport failed");
+                }
+            };
+            const warnings: Array<{ message: string; peerId: string }> = [];
+            const room = new RpcRoom({
+                transport,
+                ...(reportWarning
+                    ? {
+                          onProtocolWarning: (message: string, peerId: string) => {
+                              warnings.push({ message, peerId });
+                          },
+                      }
+                    : {}),
+            });
+            const controller = new AbortController();
+            try {
+                const pending = room.session("peer-b").call("job.wait", [], { signal: controller.signal });
+                const rejected = expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+                controller.abort();
+                await rejected;
+                await flushUnhandledRejectionEvents();
+
+                expect(cancelSends).toBe(1);
+                expect(warnings).toEqual(
+                    reportWarning
+                        ? [
+                              {
+                                  message: "Failed to send RPC cancellation: Error: cancel transport failed",
+                                  peerId: "peer-b",
+                              },
+                          ]
+                        : []
+                );
+            } finally {
+                room.close();
+            }
+        }
+    );
 
     it("settles the invocation through its pending promise when the request transport fails", async () => {
         const transport = new MockTransport("peer-a");
@@ -866,6 +923,7 @@ describe("RpcRoom", () => {
         roomB.register("math.mul", (_peerId, a, b) => ((a as number) * (b as number)) as any);
         const proxy = roomA.session("peer-b").createProxy<{ mul(a: number, b: number): Promise<number> }>("math");
         expect(await proxy.mul(3, 4)).toBe(12);
+        expect(Reflect.get(proxy, Symbol.iterator)).toBeUndefined();
 
         const session = new RpcSession(roomA, "");
         await expect(session.call("math.mul", [1 as any, 2 as any], 10)).rejects.toMatchObject({

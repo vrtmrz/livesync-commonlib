@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { RPC_VERSION_MAJOR, RPC_VERSION_MINOR } from "./types";
 import {
     RpcError,
     RpcRoom,
@@ -147,9 +148,12 @@ it("settles only after transport send and creates no response wait", async () =>
     const room = makeRoom({ transport });
     let settled = false;
 
-    const notification = room.session("peer-b").notify("events.changed").then(() => {
-        settled = true;
-    });
+    const notification = room
+        .session("peer-b")
+        .notify("events.changed")
+        .then(() => {
+            settled = true;
+        });
     const request = parseRawEnvelope(transport.sent[0].message);
     expect(request).toMatchObject({ kind: "request", method: "events.changed", args: [], expectsResponse: false });
     expect(request?.requestId).toEqual(expect.any(String));
@@ -276,6 +280,46 @@ it.each(["admission exception", "protocol version mismatch", "missing method", "
     }
 );
 
+it("warns on a minor-version mismatch while processing a notification without replying", async () => {
+    const transport = new TestTransport("peer-b");
+    const warnings: string[] = [];
+    const room = makeRoom({ transport, onProtocolWarning: (message) => warnings.push(message) });
+    const handler = vi.fn((_peerId: string, _value: string) => "processed");
+    room.register("events.changed", handler);
+    transport.receive(
+        {
+            wire: "raw",
+            payload: JSON.stringify({
+                kind: "handshake",
+                versionMajor: RPC_VERSION_MAJOR,
+                versionMinor: RPC_VERSION_MINOR + 1,
+            }),
+        },
+        "peer-a"
+    );
+    transport.receive(
+        {
+            wire: "raw",
+            payload: JSON.stringify({
+                kind: "request",
+                requestId: "minor-notify",
+                method: "events.changed",
+                args: ["private argument"],
+                expectsResponse: false,
+            }),
+        },
+        "peer-a"
+    );
+    await flushMessages();
+
+    expect(handler).toHaveBeenCalledExactlyOnceWith("peer-a", "private argument");
+    expect(responses(transport)).toEqual([]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("protocol minor version mismatch");
+    expect(warnings[0]).toContain("events.changed");
+    expect(warnings[0]).not.toContain("private argument");
+});
+
 it("keeps request cleanup intact when the notification warning callback throws", async () => {
     const transport = new TestTransport("peer-b");
     const room = makeRoom({
@@ -351,44 +395,47 @@ it("retains chunk acknowledgements and handler processing for large notification
 
     expect(received).toBe(payload);
     expect(transportA.sent.some(({ message }) => message.wire === "chunk")).toBe(true);
-    expect(
-        transportB.sent.some(({ message }) => message.wire === "chunk-ack" && message.missing.length === 0)
-    ).toBe(true);
+    expect(transportB.sent.some(({ message }) => message.wire === "chunk-ack" && message.missing.length === 0)).toBe(
+        true
+    );
     expect(responses(transportB)).toEqual([]);
     expect(roomState(roomA).outgoingChunkMap.size).toBe(0);
 });
 
-it.each(["peer leaves", "room closes"] as const)("retains notification context and abort cleanup when the %s", async (lifecycle) => {
-    const { transportB, roomA, roomB } = createPair();
-    let receivedSignal: AbortSignal | undefined;
-    let handlerStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-        handlerStarted = resolve;
-    });
-    roomB.registerCancellable("events.wait", async (context) => {
-        receivedSignal = context.signal;
-        handlerStarted();
-        await new Promise<void>((resolve) => {
-            context.signal.addEventListener("abort", () => resolve(), { once: true });
+it.each(["peer leaves", "room closes"] as const)(
+    "retains notification context and abort cleanup when the %s",
+    async (lifecycle) => {
+        const { transportB, roomA, roomB } = createPair();
+        let receivedSignal: AbortSignal | undefined;
+        let handlerStarted!: () => void;
+        const started = new Promise<void>((resolve) => {
+            handlerStarted = resolve;
         });
-        return null;
-    });
+        roomB.registerCancellable("events.wait", async (context) => {
+            receivedSignal = context.signal;
+            handlerStarted();
+            await new Promise<void>((resolve) => {
+                context.signal.addEventListener("abort", () => resolve(), { once: true });
+            });
+            return null;
+        });
 
-    await roomA.session("peer-b").notify("events.wait");
-    await started;
-    expect(roomState(roomB).inboundCalls.size).toBe(1);
-    expect(receivedSignal?.aborted).toBe(false);
+        await roomA.session("peer-b").notify("events.wait");
+        await started;
+        expect(roomState(roomB).inboundCalls.size).toBe(1);
+        expect(receivedSignal?.aborted).toBe(false);
 
-    if (lifecycle === "peer leaves") {
-        transportB.detach();
-    } else {
-        roomB.close();
+        if (lifecycle === "peer leaves") {
+            transportB.detach();
+        } else {
+            roomB.close();
+        }
+        await flushMessages();
+
+        expect(receivedSignal?.aborted).toBe(true);
+        expect(roomState(roomB).inboundCalls.size).toBe(0);
     }
-    await flushMessages();
-
-    expect(receivedSignal?.aborted).toBe(true);
-    expect(roomState(roomB).inboundCalls.size).toBe(0);
-});
+);
 
 it("validates method, room, and session peer before sending", async () => {
     const transport = new TestTransport("peer-a");
