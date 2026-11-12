@@ -11,6 +11,8 @@ import type {
 } from "./adapters";
 import type { FilePath, UXDataWriteOptions, UXFileInfoStub, UXFolderInfo, UXStat } from "@lib/common/types";
 import { compareFileFreshnessGeneric } from "@lib/services/implements/injectable/InjectablePathService";
+import type { FileNameLookup } from "@lib/platform/FilePathIndex.ts";
+import type { PathComparisonSettings } from "@lib/platform/pathTypes.ts";
 
 // Mock file types
 interface MockFile {
@@ -261,6 +263,7 @@ class MockFileSystemAdapter implements IFileSystemAdapter<MockAbstractFile, Mock
     readonly conversion: IConversionAdapter<MockFile, MockFolder>;
     readonly storage: MockStorageAdapter;
     readonly vault: MockVaultAdapter;
+    fileNameLookup?: FileNameLookup;
 
     private files = new Map<string, MockAbstractFile>();
 
@@ -581,6 +584,44 @@ describe("FileAccessBase", () => {
             expect(files).toHaveLength(2);
             expect(files).toContain(file1);
             expect(files).toContain(file2);
+        });
+
+        it("forwards file-name and candidate queries through the optional adapter capability", async () => {
+            const policy: PathComparisonSettings = {
+                pathNormalizationVersion: 1,
+                handleFilenameCaseSensitive: false,
+            };
+            const lookup: FileNameLookup = {
+                getFileNames: vi.fn(async (options) => {
+                    expect(options).toEqual({ fresh: true });
+                    return ["listed.md"] as FilePath[];
+                }),
+                findPathIdentityCandidates: vi.fn(async () => ["listed.md"] as FilePath[]),
+            };
+            adapter.fileNameLookup = lookup;
+
+            await expect(fileAccess.getFileNames({ fresh: true })).resolves.toEqual(["listed.md"]);
+            await expect(fileAccess.findPathIdentityCandidates("listed.md" as FilePath, policy)).resolves.toEqual([
+                "listed.md",
+            ]);
+            expect(lookup.getFileNames).toHaveBeenCalledWith({ fresh: true });
+            expect(lookup.findPathIdentityCandidates).toHaveBeenCalledWith("listed.md", policy);
+        });
+
+        it("derives file names from the existing listing when the adapter has no name capability", async () => {
+            const file: MockFile = {
+                path: "fallback.md",
+                name: "fallback.md",
+                stat: { ctime: 0, mtime: 0, size: 1, type: "file" },
+                content: "",
+            };
+            adapter.setMockFile(file.path, file);
+
+            await expect(fileAccess.getFileNames()).resolves.toEqual(["fallback.md"]);
+            expect(fileAccess.findPathIdentityCandidates("fallback.md" as FilePath, {
+                pathNormalizationVersion: 0,
+                handleFilenameCaseSensitive: true,
+            })).toBeUndefined();
         });
 
         it("should use case-insensitive search when storage is insensitive", async () => {

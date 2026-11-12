@@ -89,21 +89,42 @@ invocation. The format is implementation-defined; the reference implementation
 uses `"req-<timestamp36>-<random>"`.
 
 **[P-5]** A caller MUST register the `requestId` in its pending-invocation map
-before sending the request envelope, and remove it on settlement (resolve or
-reject).
+before sending a response-bearing request envelope, and remove it on settlement
+(resolve or reject).
 
-**[P-6]** Unless the request is cancelled or deliberately rejected by the
-admission policy, the callee MUST send exactly one response envelope for each
-received request, either `{ ok: true, data }` or `{ ok: false, error }`.
+A request MAY include `expectsResponse: false` to indicate a notification.
+Omitting this field retains the response-bearing call behaviour.
 
-**[P-7]** If the callee's handler throws, the Room MUST catch the error, convert
-it to `RpcErrorShape` via `asRpcErrorShape`, and send it as `{ ok: false,
-error }`. The handler's exception MUST NOT propagate unhandled.
+**[P-6]** Unless the request is cancelled, deliberately rejected by the
+admission policy, or marked with `expectsResponse: false`, the callee MUST send
+exactly one response envelope for each received request, either `{ ok: true,
+data }` or `{ ok: false, error }`.
 
-**[P-8]** If the caller does not receive a response within `timeoutMs`
-milliseconds, it MUST reject the pending invocation with `RpcError("TIMEOUT")`,
-remove the `requestId` from its pending map, and notify the callee that the
-request is cancelled when the request envelope has been sent.
+**[P-6a]** For a request marked with `expectsResponse: false`, the callee MUST
+preserve the normal admission, protocol-version, handler, cancellation-context,
+and lifecycle processing, but MUST NOT send an RPC response for success or
+failure. If admission throws, the method is unavailable, the protocol major
+version is incompatible, or the handler throws, the callee SHOULD report the
+local failure through its `onProtocolWarning` callback without recording
+request arguments or credentials.
+
+**[P-6b]** A notification caller MUST generate a `requestId` but MUST NOT add it
+to the pending-invocation map, create an RPC response timeout, or send an RPC
+cancellation because no response arrived. Its notification promise MUST settle
+when the transport send of the envelope (including all chunks, where needed)
+settles, and MUST reject if that send fails. A successful settlement does not
+prove that the peer received or processed the notification.
+
+**[P-7]** If a response-bearing request's handler throws, the Room MUST catch
+the error, convert it to `RpcErrorShape` via `asRpcErrorShape`, and send it as
+`{ ok: false, error }`. For a notification, the handler's exception MUST NOT
+propagate unhandled, and the Room MUST NOT send an RPC response.
+
+**[P-8]** If a response-bearing caller does not receive a response within
+`timeoutMs` milliseconds, it MUST reject the pending invocation with
+`RpcError("TIMEOUT")`, remove the `requestId` from its pending map, and notify
+the callee that the request is cancelled when the request envelope has been
+sent. This requirement does not apply to notifications.
 
 ### 4.3 Cancellation
 
@@ -150,7 +171,9 @@ missing indices.
 `missing`, MUST retransmit only the listed chunk indices.
 
 **[P-17]** On stream completion, the receiver SHOULD send a `"chunk-ack"` with an
-empty `missing` array to signal the sender that the stream is done.
+empty `missing` array to signal the sender that the stream is done. This
+transport acknowledgement remains in use for chunked notifications; it is
+separate from the optional RPC response.
 
 ---
 

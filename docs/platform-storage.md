@@ -122,6 +122,28 @@ version. Its ordinary case-mismatch check remains separate from path-version
 admission. See [Unicode path identity](unicode-path-identity.md#supported-hosts)
 for the current publication and host-adoption boundaries.
 
+## File-name candidate lookup
+
+These file-name APIs are an unreleased Commonlib change. `FilePathIndex`,
+exported from `/storage`, keeps original file names and groups
+all candidates under an explicit Unicode and case policy. It performs no I/O
+and owns no watcher or readiness state. The host owns the index lifetime,
+initial listing, supported-path rules, and membership updates; use
+`replaceAll()` for an initial snapshot and `apply({ removed, added })` for a
+membership change. Content-only events do not require an index update.
+
+Hosts can expose an asynchronous `FileNameLookup` through the optional
+`fileNameLookup` property of `IFileSystemAdapter`. When `{ fresh: true }` is
+supplied, `getFileNames()` must ask the host's supported listing authority
+again. `findPathIdentityCandidates(path, policy)` returns every matching original
+path whose comparison key matches the requested identity. Multiple results are
+candidates for the caller's collision decision. Keep fresh listing guarantees
+host-specific. A host without this
+capability continues to list through `getFiles()` and uses the storage-access
+fallback.
+Direct `StorageAccess` implementations must also implement the required
+`findPathIdentityCandidates()` method when adopting this pre-1.0 interface.
+
 ## Bundling boundary
 
 Browser consumers import only `@vrtmrz/livesync-commonlib/browser`. Packed-package tests build that entry with browser conditions and verify that the Node implementation is absent. Node consumers import `@vrtmrz/livesync-commonlib/node`; the root and context entries do not load Node built-ins.

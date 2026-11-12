@@ -180,6 +180,15 @@ const result = await room.invoke(peerId, "ns.method", [arg1, arg2], timeoutMs);
 ```
 
 ```ts
+// Send a notification to a specific peer without waiting for its handler.
+await room.notify(peerId, "events.changed", [path]);
+```
+
+`notify()` resolves when the local transport has sent the envelope and any
+payload chunks. It does not report whether the peer accepted or completed the
+handler. Chunk acknowledgements remain part of the transport for large payloads.
+
+```ts
 // Close the room: unsubscribes transport, rejects all pending calls.
 room.close();
 ```
@@ -193,13 +202,17 @@ const session = room.session(peerId);
 
 ### `RpcSession`
 
-A thin wrapper around `RpcRoom.invoke()` bound to a specific `peerId`.
+A thin wrapper around `RpcRoom.invoke()` and `RpcRoom.notify()` bound to a
+specific `peerId`.
 
 ```ts
 const session = room.session("peer-b");
 
 // Typed call — T is the expected return type.
 const info = await session.call<{ db_name: string }>("pdb.info");
+
+// Send without creating an RPC response wait.
+await session.notify("events.changed", [path]);
 
 // Namespace proxy — generates a method for each property access.
 const db = session.createProxy<MyDbApi>("db");

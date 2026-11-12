@@ -1,6 +1,6 @@
 import { RpcError, type JsonLike, type RpcErrorCode, type RpcErrorShape } from "@lib/rpc";
 import { asRpcErrorShape } from "@lib/rpc/errors";
-import type { P2PReplicationResult } from "./TrysteroReplicator";
+import type { P2PReplicationResult } from "./replicationTypes";
 
 /** JSON-safe representation used only while a replication result crosses RPC. */
 export type P2PReplicationWireResult =

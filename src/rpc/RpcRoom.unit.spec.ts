@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { RpcRoom, type RpcWireMessage, type TransportAdapter } from "./index";
 import { RpcSession } from "./RpcSession";
 import { RpcError } from "./errors";
+import { RPC_VERSION_MAJOR, RPC_VERSION_MINOR, type RpcRequestEnvelope } from "./types";
 
 class MockTransport implements TransportAdapter {
     readonly peerId: string;
@@ -98,6 +99,63 @@ describe("RpcRoom", () => {
         roomA.close();
         roomB.close();
     });
+
+    it("rejects a call after close without sending a request", async () => {
+        const transport = new MockTransport("peer-a");
+        const send = vi.spyOn(transport, "send");
+        const room = new RpcRoom({ transport });
+        room.close();
+
+        await expect(room.invoke("peer-b", "job.run", [])).rejects.toMatchObject({ code: "NOT_CONNECTED" });
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    it.each([true, false])(
+        "keeps cancellation failure local with a warning handler present: %s",
+        async (reportWarning) => {
+            const transport = new MockTransport("peer-a");
+            let cancelSends = 0;
+            transport.send = async (message) => {
+                if (readRawEnvelope(message)?.kind === "cancel") {
+                    cancelSends++;
+                    throw new Error("cancel transport failed");
+                }
+            };
+            const warnings: Array<{ message: string; peerId: string }> = [];
+            const room = new RpcRoom({
+                transport,
+                ...(reportWarning
+                    ? {
+                          onProtocolWarning: (message: string, peerId: string) => {
+                              warnings.push({ message, peerId });
+                          },
+                      }
+                    : {}),
+            });
+            const controller = new AbortController();
+            try {
+                const pending = room.session("peer-b").call("job.wait", [], { signal: controller.signal });
+                const rejected = expect(pending).rejects.toMatchObject({ code: "CANCELLED" });
+                controller.abort();
+                await rejected;
+                await flushUnhandledRejectionEvents();
+
+                expect(cancelSends).toBe(1);
+                expect(warnings).toEqual(
+                    reportWarning
+                        ? [
+                              {
+                                  message: "Failed to send RPC cancellation: Error: cancel transport failed",
+                                  peerId: "peer-b",
+                              },
+                          ]
+                        : []
+                );
+            } finally {
+                room.close();
+            }
+        }
+    );
 
     it("settles the invocation through its pending promise when the request transport fails", async () => {
         const transport = new MockTransport("peer-a");
@@ -826,6 +884,68 @@ describe("RpcRoom", () => {
         roomB.close();
     });
 
+    it.each([
+        { interruption: "close", registered: true },
+        { interruption: "close", registered: false },
+        { interruption: "cancel", registered: true },
+        { interruption: "cancel", registered: false },
+    ] as const)(
+        "suppresses dispatch and replies after warning-time $interruption with a registered method: $registered",
+        async ({ interruption, registered }) => {
+            const sender = new MockTransport("peer-a");
+            const receiver = new MockTransport("peer-b");
+            sender.attach(receiver);
+            receiver.attach(sender);
+            const send = vi.spyOn(receiver, "send");
+            const request: RpcRequestEnvelope = {
+                kind: "request",
+                requestId: "warning-time-interruption",
+                method: "job.run",
+                args: [],
+            };
+            const warning = vi.fn(() => {
+                if (interruption === "close") {
+                    room.close();
+                } else {
+                    sender.send(
+                        { wire: "raw", payload: JSON.stringify({ kind: "cancel", requestId: request.requestId }) },
+                        receiver.peerId
+                    );
+                }
+            });
+            const room = new RpcRoom({ transport: receiver, onProtocolWarning: warning });
+            const handler = vi.fn(() => "completed");
+            try {
+                if (registered) {
+                    room.register(request.method, handler);
+                }
+                sender.send(
+                    {
+                        wire: "raw",
+                        payload: JSON.stringify({
+                            kind: "handshake",
+                            versionMajor: RPC_VERSION_MAJOR,
+                            versionMinor: RPC_VERSION_MINOR + 1,
+                        }),
+                    },
+                    receiver.peerId
+                );
+                sender.send({ wire: "raw", payload: JSON.stringify(request) }, receiver.peerId);
+                await flushUnhandledRejectionEvents();
+
+                expect(warning).toHaveBeenCalledExactlyOnceWith(
+                    expect.stringContaining("RPC minor mismatch"),
+                    sender.peerId
+                );
+                expect(handler).not.toHaveBeenCalled();
+                expect(send).not.toHaveBeenCalled();
+            } finally {
+                room.close();
+                send.mockRestore();
+            }
+        }
+    );
+
     it("blocks on major mismatch", async () => {
         const tA = new MockTransport("peer-a");
         const tB = new MockTransport("peer-b");
@@ -866,6 +986,7 @@ describe("RpcRoom", () => {
         roomB.register("math.mul", (_peerId, a, b) => ((a as number) * (b as number)) as any);
         const proxy = roomA.session("peer-b").createProxy<{ mul(a: number, b: number): Promise<number> }>("math");
         expect(await proxy.mul(3, 4)).toBe(12);
+        expect(Reflect.get(proxy, Symbol.iterator)).toBeUndefined();
 
         const session = new RpcSession(roomA, "");
         await expect(session.call("math.mul", [1 as any, 2 as any], 10)).rejects.toMatchObject({

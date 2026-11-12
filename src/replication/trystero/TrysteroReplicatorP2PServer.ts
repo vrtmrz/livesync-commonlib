@@ -1,7 +1,7 @@
 import { reportP2PDiagnostic } from "@lib/p2p/p2pDiagnostics";
 import { parsePeerPatterns } from "./peerPatterns";
 import { type Room, selfId, joinRoom } from "@trystero-p2p/nostr";
-import { AutoAccepting, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "@lib/common/types";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "@lib/common/types";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
 import {
     DIRECTION_RESPONSE,
@@ -21,7 +21,6 @@ import { StoredMapLike } from "@lib/dataobject/StoredMap";
 import { TrysteroReplicatorP2PClient } from "./TrysteroReplicatorP2PClient";
 import { createHostingDB } from "./ProxiedDB";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
-import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
 import { RpcRoom, type JsonLike, type RpcRequestContext, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
 import { resolveTrysteroRpcOptions } from "@lib/rpc/transports/TrysteroTransport";
@@ -32,23 +31,24 @@ import { subscribeConnectionStatus, subscribeFailureDiagnosis } from "@lib/rpc/t
 import { type DiagRTCStats } from "@lib/rpc/transports/DiagRTCPeerConnections.types";
 import type { SimpleStore } from "@lib/common/utils";
 import { asRpcErrorShape } from "@lib/rpc/errors";
+import type { P2PPeerAcceptance } from "./replicationTypes";
+export type { P2PPeerAcceptance } from "./replicationTypes";
+import {
+    createPeerAdmission,
+    type AcceptanceDecision,
+    type RevokeAcceptanceDecision,
+} from "./TrysteroReplicatorP2PServer/peerAdmission";
+export type { AcceptanceDecision, RevokeAcceptanceDecision } from "./TrysteroReplicatorP2PServer/peerAdmission";
+
+/** Room creation is borrowed; the Server still owns each joined room and its RPC bindings. */
+export interface P2PServerOptions {
+    createRoom?: typeof joinRoom;
+}
 
 export type PeerInfo = Advertisement & {
     isAccepted: boolean | undefined;
     isTemporaryAccepted: boolean | undefined;
 };
-export type AcceptanceDecision = {
-    peerId: string;
-    name: string;
-    decision: boolean;
-    isTemporary: boolean;
-};
-export type RevokeAcceptanceDecision = {
-    peerId: string;
-    name: string;
-};
-/** Non-interactive result of evaluating the persisted and automatic peer policy. */
-export type P2PPeerAcceptance = "accepted" | "rejected" | "undecided" | "unknown";
 export type P2PServerInfo = {
     isConnected: boolean;
     knownAdvertisements: PeerInfo[];
@@ -94,7 +94,7 @@ export class TrysteroReplicatorP2PServer {
     _activeRoomId: string = "";
     ___send?: (data: Payload, peerId?: string) => Promise<void>;
     assignedFunctions = new Map<string, BindableFunction>();
-    clients: Map<string, TrysteroReplicatorP2PClient> = new Map();
+    clients: Map<string, TrysteroReplicatorP2PClient<this>> = new Map();
     _bindingObjects: BindableObject[] = [];
     _rpcRoom?: RpcRoom;
 
@@ -103,6 +103,21 @@ export class TrysteroReplicatorP2PServer {
     private _platformUnloadCleanup: (() => void) | undefined;
     private _sessionPeerHandlers: P2PSessionPeerHandlers | undefined;
     private _hostLifetimeEnded = false;
+    private readonly createRoom: typeof joinRoom;
+    private readonly peerAdmission: ReturnType<typeof createPeerAdmission> = createPeerAdmission({
+        isEnabled: () => this.isEnabled,
+        advertisement: (peerId) => this._knownAdvertisements.get(peerId),
+        currentSettings: () => this.currentSettings,
+        acceptedPeers: () => this.acceptedPeers,
+        temporaryAcceptedPeers: () => this.temporaryAcceptedPeers,
+        confirm: () => this.confirm,
+        dispatchConnectionStatus: () => this.dispatchConnectionStatus(),
+        acceptablePatterns: () => this._acceptablePeers,
+        deniedPatterns: () => this._shouldDenyPeers,
+        promptPeerAcceptance: (peerId) => this._confirmUserToAccept(peerId),
+        evaluatePeerAcceptance: (peerId) => this.evaluatePeerAcceptance(peerId),
+        confirmUserToAccept: (peerId) => this.confirmUserToAccept(peerId),
+    });
 
     protected _peerConnectionEventCleanup() {
         if (this._peerStatusEventCleanup) {
@@ -192,13 +207,14 @@ export class TrysteroReplicatorP2PServer {
         });
     }
 
-    constructor(env: ReplicatorHostEnv, _serverPeerId = selfId) {
+    constructor(env: ReplicatorHostEnv, _serverPeerId = selfId, options: P2PServerOptions = {}) {
         this._env = env;
         this._serverPeerId = _serverPeerId;
+        this.createRoom = options.createRoom ?? joinRoom;
         this._platformUnloadCleanup = this._env.events.onEvent(EVENT_PLATFORM_UNLOADED, () => {
             void this.shutdown();
         });
-        // SimpleStore has no type support now.
+        // The existing namespace contains boolean peer decisions; the host store also serves other data.
         this.acceptedPeers = new StoredMapLike<boolean>(
             this._env.simpleStore as SimpleStore<boolean>,
             "p2p-device-decisions"
@@ -214,26 +230,14 @@ export class TrysteroReplicatorP2PServer {
             }
         };
     }
+    /** Persist or retain a session decision, then await the existing status notification. */
     async makeDecision(decision: AcceptanceDecision) {
-        if (decision.decision) {
-            if (decision.isTemporary) {
-                this.temporaryAcceptedPeers.set(decision.peerId, true);
-            } else {
-                await this.acceptedPeers.set(decision.name, true);
-            }
-        } else {
-            if (decision.isTemporary) {
-                this.temporaryAcceptedPeers.set(decision.peerId, false);
-            } else {
-                await this.acceptedPeers.set(decision.name, false);
-            }
-        }
-        await this.dispatchConnectionStatus();
+        await this.peerAdmission.makeDecision(decision);
     }
+
+    /** Revoke both decision scopes before awaiting the existing status notification. */
     async revokeDecision(decision: RevokeAcceptanceDecision) {
-        this.temporaryAcceptedPeers.delete(decision.peerId);
-        await this.acceptedPeers.delete(decision.name);
-        await this.dispatchConnectionStatus();
+        await this.peerAdmission.revokeDecision(decision);
     }
 
     get room() {
@@ -313,56 +317,14 @@ export class TrysteroReplicatorP2PServer {
 
     temporaryAcceptedPeers = new Map<string, boolean>();
 
+    /** Share a peer's in-flight prompt while preserving the overridable prompt entry point. */
     confirmUserToAccept(peerId: string) {
-        return shareRunningResult(`confirmUserToAccept-${peerId}`, () => this._confirmUserToAccept(peerId));
+        return this.peerAdmission.confirmUserToAccept(peerId);
     }
+
+    /** Apply one dialogue result without awaiting the original background writes or status work. */
     _confirmUserToAccept(peerId: string) {
-        const peerInfo = this._knownAdvertisements.get(peerId);
-        if (!peerInfo) throw new Error("Unknown Peer");
-        const peerName = peerInfo.name;
-        const message = `Are you sure to establish connection to ${peerName} (${peerId})?
-You can chose as follows:
-- Accept: Accept all connections from this peer.
-- Ignore: Reject all connections from this peer.
-- Accept Temporarily: Accept the connection for this session only.
-- Ignore Temporarily: Reject the connection for this session only.
-
->[!INFO] You can revoke your decision from the Peer-to-Peer Replicator Pane.`;
-
-        const OPTION_ACCEPT = "Accept";
-        const OPTION_IGNORE = "Ignore";
-        const OPTION_ACCEPT_TEMPORARILY = "Accept Temporarily";
-        const OPTION_IGNORE_TEMPORARILY = "Ignore Temporarily";
-        const OPTIONS = [OPTION_ACCEPT, OPTION_IGNORE, OPTION_ACCEPT_TEMPORARILY, OPTION_IGNORE_TEMPORARILY];
-        return this.confirm
-            .askSelectStringDialogue(message, OPTIONS, {
-                title: "P2P Connection Request",
-                defaultAction: "Ignore Temporarily",
-                timeout: 30,
-            })
-            .then((decision) => {
-                if (decision === OPTION_ACCEPT_TEMPORARILY) {
-                    this.temporaryAcceptedPeers.set(peerId, true);
-                    void this.dispatchConnectionStatus();
-                    return true;
-                } else if (decision === OPTION_IGNORE_TEMPORARILY) {
-                    this.temporaryAcceptedPeers.set(peerId, false);
-                    void this.dispatchConnectionStatus();
-                    return false;
-                } else if (decision === OPTION_ACCEPT) {
-                    this.temporaryAcceptedPeers.delete(peerId);
-                    void this.acceptedPeers.set(peerName, true);
-                    void this.dispatchConnectionStatus();
-                    return true;
-                } else if (decision === OPTION_IGNORE) {
-                    this.temporaryAcceptedPeers.delete(peerId);
-                    void this.acceptedPeers.set(peerName, false);
-                    void this.dispatchConnectionStatus();
-                    return false;
-                } else {
-                    throw new ResponsePreventedError("User Accepting failed");
-                }
-            });
+        return this.peerAdmission.promptPeerAcceptance(peerId);
     }
     _acceptablePeers = new Computed({
         evaluation: (settings: P2PSyncSetting) => {
@@ -380,37 +342,12 @@ You can chose as follows:
      * decision. Unattended automation uses this boundary before starting RPC.
      */
     async evaluatePeerAcceptance(peerId: string): Promise<P2PPeerAcceptance> {
-        if (!this.isEnabled) return "unknown";
-        const peerInfo = this._knownAdvertisements.get(peerId);
-        if (!peerInfo) return "unknown";
-        const peerName = peerInfo.name;
-        if (this.temporaryAcceptedPeers.has(peerId)) {
-            return this.temporaryAcceptedPeers.get(peerId) ? "accepted" : "rejected";
-        }
-        const accepted = await this.acceptedPeers.get(peerName);
-        if (accepted !== undefined && accepted !== null) return accepted ? "accepted" : "rejected";
-        const currentSettings = { ...this.currentSettings };
-        const isAcceptable = (await this._acceptablePeers.update(currentSettings)).value.some((e) => e.test(peerName));
-        const isDeny = (await this._shouldDenyPeers.update(currentSettings)).value.some((e) => e.test(peerName));
-        if (isDeny) return "rejected";
-        if (isAcceptable || currentSettings.P2P_AutoAccepting === AutoAccepting.ALL) return "accepted";
-        return "undecided";
+        return await this.peerAdmission.evaluatePeerAcceptance(peerId);
     }
 
+    /** Keep automatic-decision caching and interactive admission at their existing public boundary. */
     async isAcceptablePeer(peerId: string) {
-        const acceptance = await this.evaluatePeerAcceptance(peerId);
-        if (acceptance === "accepted") {
-            const peerName = this._knownAdvertisements.get(peerId)?.name;
-            const persisted = peerName ? await this.acceptedPeers.get(peerName) : undefined;
-            if (!this.temporaryAcceptedPeers.has(peerId) && persisted == null) {
-                this.temporaryAcceptedPeers.set(peerId, true);
-                void this.dispatchConnectionStatus();
-            }
-            return true;
-        }
-        if (acceptance === "rejected" || acceptance === "unknown") return false;
-        if (this.currentSettings.P2P_IsHeadless) return false;
-        return await this.confirmUserToAccept(peerId);
+        return await this.peerAdmission.isAcceptablePeer(peerId);
     }
 
     async __send(data: Payload, peerId: string) {
@@ -560,7 +497,7 @@ You can chose as follows:
         this._peerFailureAnalysisCleanup = subscribeFailureDiagnosis((status) => {
             Logger(`[P2P] Connection failure detected: ${status.userMessage}`, LOG_LEVEL_NOTICE);
         });
-        const room = joinRoom(options, roomId, {
+        const room = this.createRoom(options, roomId, {
             handshakeTimeoutMs: 30000,
             onJoinError: (error) => {
                 if (!this._hostLifetimeEnded)
@@ -669,7 +606,7 @@ You can chose as follows:
         this.clients.clear();
         this._rpcRoom?.close();
         this._rpcRoom = undefined;
-        // Trystero 0.25 owns the underlying WebRTC peer and may share it across rooms.
+        // Trystero owns the underlying WebRTC peer and may share it across rooms.
         // Leaving the room detaches this room's RPC and advertisement bindings safely.
         await this.ensureLeaved();
         this._activeRoomId = "";

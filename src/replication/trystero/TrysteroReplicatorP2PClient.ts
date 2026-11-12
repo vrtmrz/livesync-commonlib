@@ -1,5 +1,5 @@
 import type { PouchDBShim, SomeDocument } from "@lib/pouchdb/ReplicatorShim";
-import type { TrysteroReplicatorP2PServer } from "./TrysteroReplicatorP2PServer";
+import type { RpcSessionProvider } from "./rpcSessionProvider";
 import {
     BULK_GET_RPC_TIMEOUT,
     DEFAULT_RPC_TIMEOUT,
@@ -10,22 +10,32 @@ import {
 import { toRpcMethodName } from "./rpcCompat";
 import type { JsonLike, RpcCallOptions } from "@lib/rpc";
 
-export class TrysteroReplicatorP2PClient {
-    _server: TrysteroReplicatorP2PServer;
+export class TrysteroReplicatorP2PClient<TProvider extends RpcSessionProvider = RpcSessionProvider> {
+    _server: TProvider | undefined;
 
     _connectedPeerId: string;
-    _remoteDB: PouchDBShim<SomeDocument<object>>;
+    _remoteDB: PouchDBShim<SomeDocument<object>> | undefined;
 
+    /** The cached remote database facade, or undefined after this client closes. */
     get remoteDB() {
         return this._remoteDB;
     }
 
-    /** Bind the reverse database RPC calls to one finite-operation signal. */
-    getRemoteDB(signal?: AbortSignal) {
-        return signal ? this._bindRemoteDB(signal) : this._remoteDB;
+    /**
+     * Return the cached database facade or bind its calls to a finite-operation signal.
+     * Each facade resolves the provider's current room when an operation runs.
+     *
+     * @throws {Error} when this client has closed.
+     */
+    getRemoteDB(signal?: AbortSignal): PouchDBShim<SomeDocument<object>> {
+        const remoteDB = this._remoteDB;
+        if (remoteDB === undefined) {
+            throw new Error("Not connected to any room");
+        }
+        return signal ? this._bindRemoteDB(signal) : remoteDB;
     }
 
-    constructor(server: TrysteroReplicatorP2PServer, connectedPeerId: string) {
+    constructor(server: TProvider, connectedPeerId: string) {
         this._server = server;
         this._connectedPeerId = connectedPeerId;
         this._remoteDB = this._bindRemoteDB();
@@ -47,13 +57,16 @@ export class TrysteroReplicatorP2PClient {
         return { timeoutMs: timeout, signal };
     }
 
-    _sendRPC(type: string, args: JsonLike[], timeout = DEFAULT_RPC_TIMEOUT) {
+    private getRpcRoom() {
         const room = this._server?.rpcRoom;
         if (!room) {
             throw new Error("Not connected to any room");
         }
-        const session = room.session(this._connectedPeerId);
-        return session.call(toRpcMethodName(type), args, timeout);
+        return room;
+    }
+
+    _sendRPC(type: string, args: JsonLike[], timeout = DEFAULT_RPC_TIMEOUT): Promise<JsonLike> {
+        return this.getRpcRoom().session(this._connectedPeerId).call(toRpcMethodName(type), args, timeout);
     }
 
     __onResponse(_data: Response) {
@@ -62,11 +75,7 @@ export class TrysteroReplicatorP2PClient {
 
     bindRemoteFunction<T extends unknown[], U>(type: string, timeout = DEFAULT_RPC_TIMEOUT, signal?: AbortSignal) {
         return async (...args: T) => {
-            const room = this._server?.rpcRoom;
-            if (!room) {
-                throw new Error("Not connected to any room");
-            }
-            return (await room
+            return (await this.getRpcRoom()
                 .session(this._connectedPeerId)
                 .call(toRpcMethodName(type), args as JsonLike[], this.getCallOptions(timeout, signal))) as U;
         };
@@ -77,13 +86,16 @@ export class TrysteroReplicatorP2PClient {
         timeout = DEFAULT_RPC_TIMEOUT,
         signal?: AbortSignal
     ) {
-        const room = this._server?.rpcRoom;
-        if (!room) {
-            throw new Error("Not connected to any room");
-        }
-        return (await room
+        return (await this.getRpcRoom()
             .session(this._connectedPeerId)
             .call(toRpcMethodName(type), args as JsonLike[], this.getCallOptions(timeout, signal))) as U;
+    }
+    /**
+     * Send a notification without requesting an RPC response.
+     * Resolves when the transport send completes.
+     */
+    async notifyRemoteFunction(type: string, args: JsonLike[]): Promise<void> {
+        await this.getRpcRoom().session(this._connectedPeerId).notify(toRpcMethodName(type), args);
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a generic function binder, so we can't be more specific about the types here.
     bindRemoteObjectFunctions<T extends BindableObject<any>, U extends keyof T>(key: U, timeout = DEFAULT_RPC_TIMEOUT) {
@@ -91,13 +103,9 @@ export class TrysteroReplicatorP2PClient {
         type P = Parameters<T[U]>;
         type R = ReturnType<F>;
         return async (...args: P): Promise<Awaited<R>> => {
-            const room = this._server?.rpcRoom;
-            if (!room) {
-                throw new Error("Not connected to any room");
-            }
-            return await room
+            return (await this.getRpcRoom()
                 .session(this._connectedPeerId)
-                .call(toRpcMethodName(key.toString()), args as JsonLike[], timeout);
+                .call(toRpcMethodName(key.toString()), args as JsonLike[], timeout)) as Awaited<R>;
         };
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a generic function binder, so we can't be more specific about the types here.
@@ -107,17 +115,16 @@ export class TrysteroReplicatorP2PClient {
         timeout = DEFAULT_RPC_TIMEOUT,
         signal?: AbortSignal
     ): Promise<Awaited<ReturnType<T[U]>>> {
-        const room = this._server?.rpcRoom;
-        if (!room) {
-            throw new Error("Not connected to any room");
-        }
-        return await room
+        return (await this.getRpcRoom()
             .session(this._connectedPeerId)
-            .call(toRpcMethodName(key.toString()), args as JsonLike[], this.getCallOptions(timeout, signal));
+            .call(toRpcMethodName(key.toString()), args as JsonLike[], this.getCallOptions(timeout, signal))) as Awaited<
+            ReturnType<T[U]>
+        >;
     }
 
+    /** Release the cached facade and provider reference; captured operations then reject without sending. */
     close() {
-        this._remoteDB = undefined!;
-        this._server = undefined!;
+        this._remoteDB = undefined;
+        this._server = undefined;
     }
 }

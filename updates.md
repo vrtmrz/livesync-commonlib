@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## 0.5.0
+
+12th November, 2026
+
+### Improved
+
+- Hosts can maintain file names incrementally and reuse path-identity candidates
+  without enumerating every file and its metadata after content-only changes.
+    - The optional file-system adapter lookup preserves original spellings and
+      all collision candidates. Hosts without it retain the listing fallback.
+      Fresh reads use each host's existing listing authority.
+
+### Fixed
+
+- An unanswered P2P change notification no longer prevents later notifications
+  from reaching following peers.
+    - Notifications wait for transport sending without creating response waits.
+      Ordinary RPC calls and Chunk acknowledgements retain their existing
+      completion rules. A lost final notification still needs another change or
+      explicit synchronisation.
+
+### Compatibility
+
+- Direct implementations of `StorageAccess` must provide
+  `findPathIdentityCandidates()`. Implementations based on
+  `ServiceFileAccessBase` inherit the new method and its fallback.
+- P2P client access represents a closed session explicitly: `remoteDB` is
+  `undefined`, and `getRemoteDB()` throws `Error('Not connected to any room')`.
+  Integrations which inspect the client's `_server` directly must handle its
+  optional state.
+
 ## 0.4.3
 
 11th November, 2026

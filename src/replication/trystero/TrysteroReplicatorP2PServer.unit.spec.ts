@@ -2,6 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
+import { DEFAULT_SETTINGS, type P2PSyncSetting } from "@lib/common/types";
+import type { SimpleStore } from "@lib/common/utils";
+import type { Confirm } from "@lib/interfaces/Confirm";
+import type { Room } from "@trystero-p2p/nostr";
 
 const { rpcRoomOptions } = vi.hoisted(() => ({
     rpcRoomOptions: [] as unknown[],
@@ -29,6 +33,441 @@ import {
     EVENT_SERVER_STATUS,
     P2PHost,
 } from "./TrysteroReplicatorP2PServer";
+import { ResponsePreventedError, type Payload, type Request, type Response } from "./types";
+
+const createDecisionHost = (
+    dialogueResult: "Accept" | "Ignore" | "Accept Temporarily" | "Ignore Temporarily" | false = false,
+    settingsOverrides: Partial<P2PSyncSetting> = {}
+) => {
+    const storedValues = new Map<string, unknown>();
+    const simpleStore: SimpleStore<unknown> = {
+        db: undefined,
+        get: vi.fn(async (key: string) => storedValues.get(key)),
+        set: vi.fn(async (key: string, value: unknown) => {
+            storedValues.set(key, value);
+        }),
+        delete: vi.fn(async (key: string) => {
+            storedValues.delete(key);
+        }),
+        keys: vi.fn(async () => [...storedValues.keys()]),
+    };
+    const askSelectStringDialogue = vi.fn(async () => dialogueResult) as Confirm["askSelectStringDialogue"];
+    const confirm: Pick<Confirm, "askSelectStringDialogue"> = { askSelectStringDialogue };
+    const settings: P2PSyncSetting = {
+        ...DEFAULT_SETTINGS,
+        P2P_Enabled: true,
+        P2P_IsHeadless: true,
+        ...settingsOverrides,
+    };
+    const events = createLiveSyncEventHub();
+    const host = new P2PHost(
+        {
+            events,
+            simpleStore,
+            settings,
+            confirm,
+        } as ConstructorParameters<typeof P2PHost>[0],
+        "server-peer"
+    );
+    const dispatchConnectionStatus = vi.spyOn(host, "dispatchConnectionStatus").mockResolvedValue(undefined);
+    return { host, simpleStore, storedValues, askSelectStringDialogue, events, dispatchConnectionStatus };
+};
+
+const decidePeer = async (host: P2PHost, decision: boolean, peerId = "peer-a", name = "Device A") => {
+    host.onAdvertisement({ peerId, name, platform: "test" }, peerId);
+    await host.makeDecision({ peerId, name, decision, isTemporary: true });
+};
+
+const disposeTestHost = async (host: P2PHost) => {
+    await host.close();
+    host.dispose();
+    vi.restoreAllMocks();
+};
+
+describe("P2PHost peer decisions and RPC admission", () => {
+    it.each([
+        ["Accept", true, false],
+        ["Ignore", false, false],
+        ["Accept Temporarily", true, true],
+        ["Ignore Temporarily", false, true],
+    ] as const)("applies the %s dialogue choice to the expected peer scope", async (choice, accepted, temporary) => {
+        const { host, simpleStore, askSelectStringDialogue, dispatchConnectionStatus } = createDecisionHost(choice);
+        host.onAdvertisement({ peerId: "peer-a", name: "Device A", platform: "test" }, "peer-a");
+        dispatchConnectionStatus.mockClear();
+
+        await expect(host.confirmUserToAccept("peer-a")).resolves.toBe(accepted);
+
+        expect(askSelectStringDialogue).toHaveBeenCalledExactlyOnceWith(
+            expect.stringContaining("Device A (peer-a)"),
+            ["Accept", "Ignore", "Accept Temporarily", "Ignore Temporarily"],
+            { title: "P2P Connection Request", defaultAction: "Ignore Temporarily", timeout: 30 }
+        );
+        expect(dispatchConnectionStatus).toHaveBeenCalledOnce();
+        if (temporary) {
+            expect(host.temporaryAcceptedPeers.get("peer-a")).toBe(accepted);
+            expect(simpleStore.set).not.toHaveBeenCalled();
+        } else {
+            expect(host.temporaryAcceptedPeers.has("peer-a")).toBe(false);
+            expect(simpleStore.set).toHaveBeenCalledExactlyOnceWith(host.acceptedPeers.addPrefix("Device A"), accepted);
+        }
+    });
+
+    it("rejects a cancelled or unknown peer confirmation without changing admission state", async () => {
+        const cancelled = createDecisionHost(false);
+        cancelled.host.onAdvertisement({ peerId: "peer-a", name: "Device A", platform: "test" }, "peer-a");
+
+        await expect(cancelled.host.confirmUserToAccept("peer-a")).rejects.toThrow(
+            "Response prevented: User Accepting failed"
+        );
+        expect(cancelled.simpleStore.set).not.toHaveBeenCalled();
+        expect(cancelled.host.temporaryAcceptedPeers.has("peer-a")).toBe(false);
+
+        const unknown = createDecisionHost("Accept");
+        await expect(unknown.host.confirmUserToAccept("unknown-peer")).rejects.toThrow("Unknown Peer");
+        expect(unknown.askSelectStringDialogue).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { decision: true, isTemporary: false },
+        { decision: false, isTemporary: false },
+        { decision: true, isTemporary: true },
+        { decision: false, isTemporary: true },
+    ])("stores and revokes the $isTemporary $decision peer decision", async ({ decision, isTemporary }) => {
+        const { host, simpleStore, storedValues, dispatchConnectionStatus } = createDecisionHost();
+        const peer = { peerId: "peer-a", name: "Device A", decision, isTemporary };
+        const storageKey = host.acceptedPeers.addPrefix(peer.name);
+
+        await host.makeDecision(peer);
+
+        expect(dispatchConnectionStatus).toHaveBeenCalledOnce();
+        if (isTemporary) {
+            expect(host.temporaryAcceptedPeers.get(peer.peerId)).toBe(decision);
+            expect(simpleStore.set).not.toHaveBeenCalled();
+        } else {
+            expect(simpleStore.set).toHaveBeenCalledExactlyOnceWith(storageKey, decision);
+            expect(storedValues.get(storageKey)).toBe(decision);
+        }
+
+        await host.revokeDecision({ peerId: peer.peerId, name: peer.name });
+
+        expect(host.temporaryAcceptedPeers.has(peer.peerId)).toBe(false);
+        expect(simpleStore.delete).toHaveBeenCalledExactlyOnceWith(storageKey);
+        await expect(host.acceptedPeers.get(peer.name)).resolves.toBeUndefined();
+        expect(dispatchConnectionStatus).toHaveBeenCalledTimes(2);
+    });
+
+    it("admits accepted requests, rejects unknown peers, and routes control responses", async () => {
+        const accepted = createDecisionHost();
+        accepted.host.onAdvertisement({ peerId: "peer-a", name: "Device A", platform: "test" }, "peer-a");
+        await accepted.host.makeDecision({
+            peerId: "peer-a",
+            name: "Device A",
+            decision: true,
+            isTemporary: true,
+        });
+        const acceptedRequest: Request = { type: "replicate", direction: "request", seq: 1, args: [] };
+        const handleRequest = vi.spyOn(accepted.host, "__onRequest").mockResolvedValue(undefined);
+
+        await accepted.host.processArrivedRPC(acceptedRequest, "peer-a");
+
+        expect(handleRequest).toHaveBeenCalledExactlyOnceWith(acceptedRequest, "peer-a");
+
+        const rejected = createDecisionHost();
+        const rejectedRequest = vi.spyOn(rejected.host, "__onRequest").mockResolvedValue(undefined);
+        await expect(rejected.host.processArrivedRPC(acceptedRequest, "unknown-peer")).rejects.toThrow(
+            "Not acceptable peer unknown-peer"
+        );
+        expect(rejectedRequest).not.toHaveBeenCalled();
+
+        const handleResponse = vi.spyOn(rejected.host, "__onResponse");
+        const controlResponse = { type: "!reqAuth", direction: "response" as const, seq: 2, data: true };
+        await rejected.host.processArrivedRPC(controlResponse, "unknown-peer");
+        expect(handleResponse).toHaveBeenCalledExactlyOnceWith(controlResponse, "unknown-peer");
+    });
+
+    it("caches peer clients until close and rejects peers without an advertisement", async () => {
+        const { host } = createDecisionHost();
+        host.onAdvertisement({ peerId: "peer-a", name: "Device A", platform: "test" }, "peer-a");
+
+        const client = host.getConnection("peer-a");
+
+        expect(host.getConnection("peer-a")).toBe(client);
+        expect(() => host.getConnection("unknown-peer")).toThrow("Unknown Peer unknown-peer");
+
+        await host.close();
+        expect(client.remoteDB).toBeUndefined();
+        expect(host.knownAdvertisements).toEqual([]);
+        expect(() => host.getConnection("peer-a")).toThrow("Unknown Peer peer-a");
+    });
+
+    it("forwards room peer departures through the registered callback", async () => {
+        const { host, events } = createDecisionHost();
+        const onPeerLeft = vi.fn();
+        const peerLeftEvent = vi.fn();
+        const advertisement = { peerId: "peer-a", name: "Device A", platform: "test" };
+        const room = {
+            makeAction: vi.fn(() => ({ send: vi.fn(async () => undefined), onMessage: null })),
+            leave: vi.fn(async () => undefined),
+            onPeerJoin: null as ((peerId: string) => void) | null,
+            onPeerLeave: null as ((peerId: string) => void) | null,
+        } as unknown as Room;
+        events.onEvent(EVENT_DEVICE_LEAVED, peerLeftEvent);
+        host.setSessionPeerHandlers({ onAdvertisement: vi.fn(), onPeerLeft });
+        host.onAdvertisement(advertisement, advertisement.peerId);
+        await host.setRoom(room);
+        host.onAfterJoinRoom();
+
+        const options = rpcRoomOptions.at(-1) as {
+            transport: { onPeerLeave: (handler: (peerId: string) => void) => () => void };
+        };
+        const unsubscribe = options.transport.onPeerLeave(vi.fn());
+        room.onPeerLeave?.(advertisement.peerId);
+        await Promise.resolve();
+
+        expect(host.knownAdvertisements).toEqual([]);
+        expect(onPeerLeft).toHaveBeenCalledExactlyOnceWith(advertisement.peerId);
+        expect(peerLeftEvent).toHaveBeenCalledExactlyOnceWith(advertisement.peerId);
+
+        unsubscribe();
+        await host.shutdown();
+        host.dispose();
+    });
+});
+
+describe("P2PHost deprecated Payload RPC compatibility", () => {
+    it("forwards an enabled legacy send to its configured sender for an accepted peer", async () => {
+        const { host } = createDecisionHost();
+        const payload: Response = { type: "legacy", direction: "response", seq: 3, data: "result" };
+        const sender = vi.fn<NonNullable<P2PHost["___send"]>>(async () => undefined);
+        host.___send = sender;
+
+        try {
+            await decidePeer(host, true);
+            await host.__send(payload, "peer-a");
+
+            expect(sender).toHaveBeenCalledExactlyOnceWith(payload, "peer-a");
+        } finally {
+            await disposeTestHost(host);
+        }
+    });
+
+    it("skips legacy send and peer admission when P2P is disabled", async () => {
+        const { host } = createDecisionHost(undefined, { P2P_Enabled: false });
+        const sender = vi.fn<NonNullable<P2PHost["___send"]>>(async () => undefined);
+        const checkAdmission = vi.spyOn(host, "isAcceptablePeer");
+        host.___send = sender;
+        const payload: Response = { type: "legacy", direction: "response", seq: 4, data: "result" };
+
+        try {
+            await host.__send(payload, "peer-a");
+
+            expect(checkAdmission).not.toHaveBeenCalled();
+            expect(sender).not.toHaveBeenCalled();
+        } finally {
+            await disposeTestHost(host);
+        }
+    });
+
+    it("does not send a legacy payload to a peer whose decision is denied", async () => {
+        const { host } = createDecisionHost();
+        const sender = vi.fn<NonNullable<P2PHost["___send"]>>(async () => undefined);
+        host.___send = sender;
+        const payload: Response = { type: "legacy", direction: "response", seq: 5, data: "result" };
+
+        try {
+            await decidePeer(host, false);
+            await host.__send(payload, "peer-a");
+
+            expect(sender).not.toHaveBeenCalled();
+        } finally {
+            await disposeTestHost(host);
+        }
+    });
+
+    it("completes without a transport sender when sending a legacy payload", async () => {
+        const { host } = createDecisionHost();
+        const payload: Response = { type: "legacy", direction: "response", seq: 6, data: "result" };
+
+        try {
+            await decidePeer(host, true);
+
+            expect(host.___send).toBeUndefined();
+            await expect(host.__send(payload, "peer-a")).resolves.toBeUndefined();
+        } finally {
+            await disposeTestHost(host);
+        }
+    });
+
+    it("ignores an arrived legacy RPC when P2P is disabled", async () => {
+        const { host } = createDecisionHost(undefined, { P2P_Enabled: false });
+        const request: Request = { type: "legacy", direction: "request", seq: 7, args: [] };
+        const checkAdmission = vi.spyOn(host, "isAcceptablePeer");
+        const handleRequest = vi.spyOn(host, "__onRequest");
+
+        try {
+            await host.processArrivedRPC(request, "peer-a");
+
+            expect(checkAdmission).not.toHaveBeenCalled();
+            expect(handleRequest).not.toHaveBeenCalled();
+        } finally {
+            await disposeTestHost(host);
+        }
+    });
+
+    it("rejects an arrived legacy payload with an invalid direction", async () => {
+        const { host } = createDecisionHost();
+        const invalidPayload = {
+            type: "legacy",
+            direction: "notification",
+            seq: 8,
+            args: [],
+        } as unknown as Payload; // Deliberately malformed wire input for the protocol rejection branch.
+        const handleRequest = vi.spyOn(host, "__onRequest");
+        const handleResponse = vi.spyOn(host, "__onResponse");
+
+        try {
+            await decidePeer(host, true);
+            await expect(host.processArrivedRPC(invalidPayload, "peer-a")).rejects.toThrow(
+                "Invalid Message from peer-a"
+            );
+
+            expect(handleRequest).not.toHaveBeenCalled();
+            expect(handleResponse).not.toHaveBeenCalled();
+        } finally {
+            await disposeTestHost(host);
+        }
+    });
+
+    it("routes a legacy response to the cached client for its peer", async () => {
+        const { host } = createDecisionHost();
+        const response: Response = { type: "legacy", direction: "response", seq: 9, data: "result" };
+
+        try {
+            await decidePeer(host, true);
+            await decidePeer(host, true, "peer-b", "Device B");
+            const client = host.getConnection("peer-a");
+            const otherClient = host.getConnection("peer-b");
+            const handleClientResponse = vi.spyOn(client, "__onResponse");
+            const handleOtherResponse = vi.spyOn(otherClient, "__onResponse");
+
+            await host.processArrivedRPC(response, "peer-a");
+
+            expect(handleClientResponse).toHaveBeenCalledExactlyOnceWith(response);
+            expect(handleOtherResponse).not.toHaveBeenCalled();
+        } finally {
+            await disposeTestHost(host);
+        }
+    });
+
+    it("sends a legacy error response when the requested function is missing", async () => {
+        const { host } = createDecisionHost();
+        const sender = vi.fn<NonNullable<P2PHost["___send"]>>(async () => undefined);
+        host.___send = sender;
+        const request: Request = { type: "missing", direction: "request", seq: 10, args: [] };
+
+        try {
+            await decidePeer(host, true);
+            await host.__onRequest(request, "peer-a");
+
+            expect(sender).toHaveBeenCalledExactlyOnceWith(
+                {
+                    type: "missing",
+                    seq: 10,
+                    direction: "response",
+                    data: undefined,
+                    error: {
+                        code: "REMOTE_ERROR",
+                        message: "Cannot serve function missing, no function provided or I am only a client",
+                    },
+                },
+                "peer-a"
+            );
+        } finally {
+            await disposeTestHost(host);
+        }
+    });
+
+    it("does not send a legacy response when its handler prevents the response", async () => {
+        const { host } = createDecisionHost();
+        const sender = vi.fn<NonNullable<P2PHost["___send"]>>(async () => undefined);
+        host.___send = sender;
+        const preventResponse = vi.fn(() => {
+            throw new ResponsePreventedError("request cancelled");
+        });
+        host.assignedFunctions.set("cancelled", preventResponse);
+        const request: Request = { type: "cancelled", direction: "request", seq: 11, args: [] };
+
+        try {
+            await decidePeer(host, true);
+            await host.__onRequest(request, "peer-a");
+
+            expect(preventResponse).toHaveBeenCalledExactlyOnceWith();
+            expect(sender).not.toHaveBeenCalled();
+        } finally {
+            await disposeTestHost(host);
+        }
+    });
+
+    it("serialises a non-Error legacy handler throw before sending its response", async () => {
+        const { host } = createDecisionHost();
+        const sender = vi.fn<NonNullable<P2PHost["___send"]>>(async () => undefined);
+        host.___send = sender;
+        host.assignedFunctions.set("legacyThrow", () => {
+            // eslint-disable-next-line no-throw-literal -- Legacy handlers may throw arbitrary values.
+            throw "legacy failure";
+        });
+        const request: Request = { type: "legacyThrow", direction: "request", seq: 12, args: [] };
+
+        try {
+            await decidePeer(host, true);
+            await host.__onRequest(request, "peer-a");
+
+            expect(sender).toHaveBeenCalledExactlyOnceWith(
+                {
+                    type: "legacyThrow",
+                    seq: 12,
+                    direction: "response",
+                    data: undefined,
+                    error: { code: "REMOTE_ERROR", message: "Unknown remote error" },
+                },
+                "peer-a"
+            );
+            expect(JSON.parse(JSON.stringify(sender.mock.calls[0][0]))).toEqual({
+                type: "legacyThrow",
+                seq: 12,
+                direction: "response",
+                error: { code: "REMOTE_ERROR", message: "Unknown remote error" },
+            });
+        } finally {
+            await disposeTestHost(host);
+        }
+    });
+
+    it("sends a successful legacy request result through the configured sender", async () => {
+        const { host } = createDecisionHost();
+        const sender = vi.fn<NonNullable<P2PHost["___send"]>>(async () => undefined);
+        host.___send = sender;
+        host.assignedFunctions.set("legacyEcho", (value: string) => `echo:${value}`);
+        const request: Request = { type: "legacyEcho", direction: "request", seq: 13, args: ["value"] };
+
+        try {
+            await decidePeer(host, true);
+            await host.processArrivedRPC(request, "peer-a");
+
+            expect(sender).toHaveBeenCalledExactlyOnceWith(
+                {
+                    type: "legacyEcho",
+                    seq: 13,
+                    direction: "response",
+                    data: "echo:value",
+                },
+                "peer-a"
+            );
+        } finally {
+            await disposeTestHost(host);
+        }
+    });
+});
 
 describe("P2PHost transport configuration and ownership", () => {
     beforeEach(() => {
@@ -84,23 +523,36 @@ describe("P2PHost transport configuration and ownership", () => {
     });
 
     it("decomposes a deprecated RPC handler error before sending it", async () => {
-        const host = new P2PHost({
-            events: createLiveSyncEventHub(),
-            simpleStore: {},
-            settings: { P2P_Enabled: true },
-        } as any);
+        const { host } = createDecisionHost();
         host.assignedFunctions.set("fail", () => {
             throw new Error("legacy failure");
         });
-        const send = vi.spyOn(host, "__send").mockResolvedValue(undefined);
+        const sender = vi.fn<NonNullable<P2PHost["___send"]>>(async () => undefined);
+        host.___send = sender;
 
-        await host.__onRequest({ type: "fail", direction: "request", seq: 1, args: [] }, "peer-a");
+        try {
+            await decidePeer(host, true);
+            await host.__onRequest({ type: "fail", direction: "request", seq: 1, args: [] }, "peer-a");
 
-        const payload = send.mock.calls[0][0];
-        expect(JSON.parse(JSON.stringify(payload.error))).toEqual({
-            code: "REMOTE_ERROR",
-            message: "legacy failure",
-        });
+            expect(sender).toHaveBeenCalledExactlyOnceWith(
+                {
+                    type: "fail",
+                    seq: 1,
+                    direction: "response",
+                    data: undefined,
+                    error: { code: "REMOTE_ERROR", message: "legacy failure" },
+                },
+                "peer-a"
+            );
+            expect(JSON.parse(JSON.stringify(sender.mock.calls[0][0]))).toEqual({
+                type: "fail",
+                seq: 1,
+                direction: "response",
+                error: { code: "REMOTE_ERROR", message: "legacy failure" },
+            });
+        } finally {
+            await disposeTestHost(host);
+        }
     });
 
     it("keeps its platform-unload subscription across a transport shutdown", async () => {

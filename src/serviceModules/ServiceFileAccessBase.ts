@@ -9,6 +9,8 @@ import type {
     UXFolderInfo,
     UXStat,
 } from "@lib/common/types";
+import type { FileNameReadOptions } from "@lib/platform/FilePathIndex.ts";
+import type { PathComparisonSettings } from "@lib/platform/pathTypes.ts";
 
 import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
 import type { APIService } from "@lib/services/base/APIService";
@@ -21,6 +23,7 @@ import type { VaultService } from "@lib/services/base/VaultService";
 import type { SettingService } from "@lib/services/base/SettingService";
 import type { FileAccessBase, ExtractFile, ExtractFolder } from "@lib/serviceModules/FileAccessBase";
 import type { IFileSystemAdapter } from "@lib/serviceModules/adapters";
+import { createFallbackFileNameLookup, type FallbackFileNameLookup } from "./ServiceFileAccessBase/fileNames.ts";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- For type extraction.
 export interface StorageAccessBaseDependencies<TAdapter extends IFileSystemAdapter<any, any, any, any>> {
     API: APIService;
@@ -32,6 +35,7 @@ export interface StorageAccessBaseDependencies<TAdapter extends IFileSystemAdapt
     storageAccessManager: IStorageAccessManager;
     vaultAccess: FileAccessBase<TAdapter>;
 }
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- For type extraction.
 export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, any>>
     extends ServiceModuleBase<StorageAccessBaseDependencies<TAdapter>>
@@ -41,6 +45,7 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
     private vaultManager: StorageEventManager;
     private vault: VaultService;
     private setting: SettingService;
+    private readonly fallbackFileNames: FallbackFileNameLookup;
 
     constructor(services: StorageAccessBaseDependencies<TAdapter>) {
         super(services);
@@ -49,6 +54,10 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         this.setting = services.setting;
         this.vaultManager = services.storageEventManager;
         this.vaultAccess = services.vaultAccess;
+        this.fallbackFileNames = createFallbackFileNameLookup({
+            getFileNames: () => this.getFileNames(),
+            getStorageFileEventCount: () => services.fileProcessing.totalStorageFileEventCount,
+        });
         services.appLifecycle.onFirstInitialise.addHandler(this._everyOnFirstInitialize.bind(this));
         services.fileProcessing.commitPendingFileEvents.addHandler(this._everyCommitPendingFileEvent.bind(this));
         services.appLifecycle.onBeforeUnload.addHandler(async () => {
@@ -279,9 +288,20 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         const files = await this.vaultAccess.getFiles();
         return files.map((f) => this.vaultAccess.nativeFileToUXFileInfoStub(f));
     }
-    async getFileNames(): Promise<FilePath[]> {
-        const files = await this.vaultAccess.getFiles();
-        return files.map((f) => f.path as FilePath);
+    async getFileNames(options?: FileNameReadOptions): Promise<FilePath[]> {
+        if (options?.fresh) {
+            this.fallbackFileNames.invalidate();
+        }
+        return await this.vaultAccess.getFileNames(options);
+    }
+
+    async findPathIdentityCandidates(path: FilePath, policy: PathComparisonSettings): Promise<readonly FilePath[]> {
+        const indexedCandidates = this.vaultAccess.findPathIdentityCandidates(path, policy);
+        if (indexedCandidates) {
+            return await indexedCandidates;
+        }
+
+        return await this.fallbackFileNames.findPathIdentityCandidates(path, policy);
     }
 
     async getFilesIncludeHidden(

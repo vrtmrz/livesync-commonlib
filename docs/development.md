@@ -76,6 +76,109 @@ class. Its extracted functions and their focused tests live in
 `src/managers/StorageEventManager/`. These organise the event lifecycle separately
 from the file handler's database and storage effects.
 
+## P2P and RPC implementation
+
+`src/replication/trystero/TrysteroReplicator.ts` retains the existing replicator
+interface, wire command assembly, peer-arrival policy, and host lifecycle. Its
+internal modules use narrow capabilities rather than the complete replicator:
+
+| Module under `TrysteroReplicator/` | Responsibility |
+| --- | --- |
+| `changeRelay.ts` | Own the changes feed, broadcast state, followed peers, and last sequence; schedule notifications and request pulls. |
+| `peerAgreement.ts` | Request authentication and compare tweak, path-identity, and ID-derivation agreement without exposing the ID key. |
+| `configurationExchange.ts` | Prepare shared settings, obtain passphrases, encrypt or decrypt configuration, and validate imported ID settings. |
+| `progress.ts` | Own acknowledged-attempt state and module-realm attempt numbering, project progress events, and report progress to the peer. |
+| `configuredTargets.ts` | Resolve configured peer names, wait for discovery with listener cleanup, and aggregate sequential baseline synchronisation results. |
+| `transfers.ts` | Own available and active peer sets, apply transfer gates, run the shared replication engine, and finalise progress. |
+| `relayControl.ts` | Adapt shared Trystero relay controls and disconnect a captured socket set without changing host-stop ordering. |
+
+The facade's existing relay accessors refer to the relay's single state object.
+Agreement and configuration operations obtain snapshot settings and current
+policy at their documented stages. The host retains peer acceptance, database
+validation, transport binding, and finite-transfer ownership. Public method
+dispatch remains dynamic so host overrides continue to apply. The operations
+use `octagonal-wheels/context` to bind named, standalone functions. Each function
+declares only the dependencies and state it uses, or accepts a composed operation
+instead of that operation's dependencies. Factories allocate state and connect
+these functions; construction starts no database or RPC work. State-bearing
+bindings retain the owner object so existing facade setters remain effective.
+
+Shared result, progress, acknowledgement, and peer-admission data contracts live
+in `src/replication/trystero/replicationTypes.ts`, independently of their operation
+owners. The facade, projection, diagnostic, and wire adapters import that leaf
+rather than importing types back from the implementations they support. Local
+failures retain their original error values; the separate wire result uses
+JSON-safe RPC error data. Existing type export paths remain available as
+re-exports. Transfer methods borrow the session owner's
+signal and retain dynamic public dispatch for pull and reverse-sync requests.
+Progress attempts remain ordered across room replacement within one module
+realm; peer departure removes one acknowledgement history, and close clears all
+histories and active transfer sets. Configured-target discovery releases event,
+abort, and timeout hooks before continuing into per-target processing.
+
+`TrysteroReplicatorP2PClient` accepts the neutral `rpcSessionProvider.ts`
+capabilities and retains the supplied provider type through its generic parameter.
+Each operation resolves the provider's current room, including calls made through
+a cached database facade. Closing clears the provider and cached facade; `remoteDB`
+then returns `undefined`, while `getRemoteDB()` throws
+`Error('Not connected to any room')`. Calls through an earlier facade also reject.
+Existing call timeouts, notification semantics, and method namespaces remain unchanged.
+
+`TrysteroReplicatorP2PServer/peerAdmission.ts` contains the named decision,
+prompt, policy, and admission functions. The Server retains its persisted store,
+temporary decisions, advertisements, and pattern caches; getter capabilities
+keep replacements and public method overrides visible. Policy tests require no
+database, room, or complete host environment. Decision types remain available
+through their previous Server exports.
+
+The Server's optional third constructor argument accepts `createRoom`, defaulting
+to Trystero's `joinRoom`. It is called at the original point after diagnostic
+subscriptions, and real `RpcRoom` instances still own message and peer-event
+subscriptions. Registration and the synchronous `beforeAdvertisement` hook
+precede advertisement sending. A separate boundary spec uses real RPC rooms and
+paired fake Trystero rooms to verify calls, notifications, cancellation, and close.
+The replicator facade's optional fourth constructor argument supplies relay
+controls, preserving its third finite-operation-owner argument. Disconnection
+reads sockets, pauses reconnection, closes the captured set, and starts the public
+host-stop operation in the original order. Default controls use the shared
+Trystero registry.
+
+`src/rpc/RpcRoom.ts` retains registrations, inbound request routing, transport,
+and chunk state. `RpcRoom/pendingInvocations.ts` owns outbound response waits,
+deadlines, abort subscriptions, settlement, and request-before-cancel ordering.
+The room supplies transport, request IDs, timing, and warning callbacks, and
+forwards peer departure and close events. Notifications bypass this coordinator.
+
+The internal modules have focused unit tests beside their implementations.
+Direct function tests supply only the capabilities used by that operation;
+factory tests retain coverage of state sharing and lifetime integration.
+Configured-target discovery returns a Promise to adapt advertisement, abort,
+and timeout callbacks. Registration and the initial predicate run inside its
+executor so setup exceptions remain rejections, while cleanup remains synchronous.
+Their lifetime boundaries retain the existing feed stop boundaries and synchronous
+invocation-wait cleanup. They add no consumer entry points, persistent state,
+retry policy, or new queue policy. Function comments record settings provenance,
+secret exclusions, completion meaning, error boundaries, and cancellation order.
+
+## File-name lookup implementation
+
+`ServiceFileAccessBase.ts` forwards name queries to the host adapter or its
+package-private `ServiceFileAccessBase/fileNames.ts` fallback. The fallback
+retains one typed request for the active storage-event count and comparison
+policy, shares its pending listing, and uses `FilePathIndex` to select candidates.
+A fresh read retires that request before listing again. Older completions remain
+visible to their original callers without replacing a newer retained request.
+`StorageAccess` inherits the name-query methods from the shared `FileNameLookup`
+contract. The host adapter's indexed capability remains optional; the facade's
+fallback keeps both methods available without redeclaring their signatures.
+
+The fallback factory owns only its active-request state. Index creation, request
+reuse, candidate selection, and rejection retirement are named module-level
+operations with explicit state and dependency parameters. Listing-only operations
+accept just `getFileNames`; observation counting is required only by candidate
+selection. Direct operation tests cover promise sharing, re-entrant invalidation,
+older request rejection, and policy snapshots alongside the factory contract tests.
+
 ## Service composition and state ownership
 
 Commonlib uses four related forms of composition. Choose between them by ownership and dependency direction, not merely by whether an implementation has mutable state.

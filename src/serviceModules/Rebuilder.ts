@@ -272,7 +272,7 @@ Please enable them from the settings screen after setup is complete.`,
             await assertDatabasePathIdentity(this.database.localDatabase.localDatabase, settings);
         }
         if (getPathNormalizationVersion(settings) === 0) return;
-        const paths = await this.storageAccess.getFileNames();
+        const paths = await this.storageAccess.getFileNames({ fresh: true });
         const selected = [];
         const databaseReady = this.database.isDatabaseReady();
         for (const path of paths) {

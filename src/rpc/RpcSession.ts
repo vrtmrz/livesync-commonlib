@@ -29,6 +29,18 @@ export class RpcSession {
         return (await this.room.invoke(this.peerId, method, args, timeoutOrOptions)) as T;
     }
 
+    /**
+     * Send a notification to the bound peer without creating an RPC response
+     * wait. Resolves when the local transport send completes, not when remote
+     * processing finishes.
+     */
+    async notify(method: string, args: JsonLike[] = []): Promise<void> {
+        if (!this.peerId) {
+            throw new RpcError("NOT_CONNECTED", "Peer is not connected");
+        }
+        await this.room.notify(this.peerId, method, args);
+    }
+
     createProxy<T extends object>(namespace: string): T {
         // Proxy handler needs access to `this` session instance, so we capture it in a closure here.
         // eslint-disable-next-line @typescript-eslint/no-this-alias

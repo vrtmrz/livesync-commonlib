@@ -13,6 +13,8 @@ export type {
     StoragePathResolver,
     StoragePathResolverOptions,
 } from "./platform/pathTypes.ts";
+export { FilePathIndex } from "./platform/FilePathIndex.ts";
+export type { FileNameLookup, FileNameReadOptions, FilePathDelta } from "./platform/FilePathIndex.ts";
 export {
     parseFilePath,
     parseDocumentPath,

@@ -41,6 +41,8 @@ export type RpcRequestEnvelope = {
     requestId: string;
     method: string;
     args: JsonLike[];
+    /** Omit for a response-bearing call; set false for a send-only notification. */
+    expectsResponse?: false;
 };
 
 export type RpcResponseEnvelope = {

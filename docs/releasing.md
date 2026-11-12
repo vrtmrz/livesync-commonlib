@@ -73,6 +73,12 @@ implementations must also provide `registerCleanup(callback: () => void): void`;
 subclasses of `APIService` inherit its default terminal-unload implementation.
 These changes use the next minor version under the compatibility policy.
 
+Version 0.5.0 adds the required `findPathIdentityCandidates()` method to
+`StorageAccess`. Direct implementations must supply it; implementations based
+on `ServiceFileAccessBase` inherit the adapter or listing fallback. The P2P
+client also exposes its closed provider state explicitly in its types. These
+source compatibility changes use the next minor version under the policy.
+
 ## Preparing a release
 
 Choose the version explicitly. For the 0.2 line, start at 0.2.0. A stable candidate can use its final version on the `next` dist-tag, then be checked by exact source revision and tarball SHA-256 before the same version is promoted to `latest`. No `-next.N` or `-rc.N` version is required; use a separate prerelease version only when it is useful for a distinct candidate. Package-proof versions are local artefacts and cannot be staged.
