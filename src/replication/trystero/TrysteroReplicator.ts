@@ -34,7 +34,7 @@ import {
     EVENT_P2P_REPLICATOR_STATUS,
     P2PHost,
 } from "./TrysteroReplicatorP2PServer";
-import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from "@trystero-p2p/nostr";
+import { defaultRelayControl, disconnectRelay, type RelayControl } from "./TrysteroReplicator/relayControl";
 import type { P2PFiniteOperationOwner } from "./P2PRoomSession";
 import { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
@@ -63,6 +63,11 @@ export type AllReplicationClientStatus = {
     };
 };
 
+/** Optional transport controls preserve the existing finite-operation owner argument. */
+export interface TrysteroReplicatorOptions {
+    relayControl?: RelayControl;
+}
+
 /**
  * Connect room-facing commands and replication policy to the existing host.
  *
@@ -73,6 +78,7 @@ export type AllReplicationClientStatus = {
 export class TrysteroReplicator {
     _env: ReplicatorHostEnv;
     private readonly finiteOperationOwner?: P2PFiniteOperationOwner;
+    private readonly relayControl: RelayControl;
     private disposed = false;
     private readonly fallbackAutomationCoordinator = new P2PAutomationCoordinator();
 
@@ -278,9 +284,15 @@ export class TrysteroReplicator {
         return this._env.canStartOrdinaryReplication ? await this._env.canStartOrdinaryReplication(showMessage) : true;
     }
 
-    constructor(env: ReplicatorHostEnv, server?: P2PHost, finiteOperationOwner?: P2PFiniteOperationOwner) {
+    constructor(
+        env: ReplicatorHostEnv,
+        server?: P2PHost,
+        finiteOperationOwner?: P2PFiniteOperationOwner,
+        options: TrysteroReplicatorOptions = {}
+    ) {
         this._env = env;
         this.finiteOperationOwner = finiteOperationOwner;
+        this.relayControl = options.relayControl ?? defaultRelayControl;
         if (server) {
             this.server = server;
             return;
@@ -699,22 +711,15 @@ export class TrysteroReplicator {
         return await this.configuredTargets.replicateFromCommand(showResult, discoveryTimeoutMs, callerSignal);
     }
 
+    /** Stop the current relay snapshot and retain the public asynchronous host-stop dispatch. */
     disconnectFromServer() {
-        // Trystero does not provide typings for getRelaySockets.
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-        const connections = getRelaySockets() as Record<string, { close: () => void }>;
-        const sockets = Object.entries(connections);
-        pauseRelayReconnection();
-        sockets.forEach(([, s]) => {
-            s.close();
-        });
-        void this.pauseServe();
+        disconnectRelay({ relay: this.relayControl, pauseServe: () => this.pauseServe() });
     }
     async pauseServe() {
         await this.server?.close();
         await this.server?.dispatchConnectionStatus();
     }
     allowReconnection() {
-        resumeRelayReconnection();
+        this.relayControl.resumeReconnection();
     }
 }

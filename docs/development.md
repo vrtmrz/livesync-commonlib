@@ -90,6 +90,7 @@ internal modules use narrow capabilities rather than the complete replicator:
 | `progress.ts` | Own acknowledged-attempt state and module-realm attempt numbering, project progress events, and report progress to the peer. |
 | `configuredTargets.ts` | Resolve configured peer names, wait for discovery with listener cleanup, and aggregate sequential baseline synchronisation results. |
 | `transfers.ts` | Own available and active peer sets, apply transfer gates, run the shared replication engine, and finalise progress. |
+| `relayControl.ts` | Adapt shared Trystero relay controls and disconnect a captured socket set without changing host-stop ordering. |
 
 The facade's existing relay accessors refer to the relay's single state object.
 Agreement and configuration operations obtain snapshot settings and current
@@ -114,6 +115,33 @@ Progress attempts remain ordered across room replacement within one module
 realm; peer departure removes one acknowledgement history, and close clears all
 histories and active transfer sets. Configured-target discovery releases event,
 abort, and timeout hooks before continuing into per-target processing.
+
+`TrysteroReplicatorP2PClient` accepts the neutral `rpcSessionProvider.ts`
+capabilities and retains the supplied provider type through its generic parameter.
+Each operation resolves the provider's current room, including calls made through
+a cached database facade. Closing clears the provider and cached facade; `remoteDB`
+then returns `undefined`, while `getRemoteDB()` throws
+`Error('Not connected to any room')`. Calls through an earlier facade also reject.
+Existing call timeouts, notification semantics, and method namespaces remain unchanged.
+
+`TrysteroReplicatorP2PServer/peerAdmission.ts` contains the named decision,
+prompt, policy, and admission functions. The Server retains its persisted store,
+temporary decisions, advertisements, and pattern caches; getter capabilities
+keep replacements and public method overrides visible. Policy tests require no
+database, room, or complete host environment. Decision types remain available
+through their previous Server exports.
+
+The Server's optional third constructor argument accepts `createRoom`, defaulting
+to Trystero's `joinRoom`. It is called at the original point after diagnostic
+subscriptions, and real `RpcRoom` instances still own message and peer-event
+subscriptions. Registration and the synchronous `beforeAdvertisement` hook
+precede advertisement sending. A separate boundary spec uses real RPC rooms and
+paired fake Trystero rooms to verify calls, notifications, cancellation, and close.
+The replicator facade's optional fourth constructor argument supplies relay
+controls, preserving its third finite-operation-owner argument. Disconnection
+reads sockets, pauses reconnection, closes the captured set, and starts the public
+host-stop operation in the original order. Default controls use the shared
+Trystero registry.
 
 `src/rpc/RpcRoom.ts` retains registrations, inbound request routing, transport,
 and chunk state. `RpcRoom/pendingInvocations.ts` owns outbound response waits,

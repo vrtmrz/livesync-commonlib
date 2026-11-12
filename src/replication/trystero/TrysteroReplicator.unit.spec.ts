@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { TrysteroReplicator } from "./TrysteroReplicator";
+import { TrysteroReplicator, type TrysteroReplicatorOptions } from "./TrysteroReplicator";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import { P2PLogCollector } from "./P2PLogCollector";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
@@ -47,7 +47,7 @@ function createRpcRoomPair() {
     };
 }
 
-function createReplicator(settings: Record<string, unknown> = {}) {
+function createReplicator(settings: Record<string, unknown> = {}, options: TrysteroReplicatorOptions = {}) {
     const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
     const events = createLiveSyncEventHub();
     const sessionSettings = {
@@ -78,7 +78,9 @@ function createReplicator(settings: Record<string, unknown> = {}) {
             processReplicatedDocs: vi.fn(),
             runFiniteReplicationActivity,
         } as any,
-        server as any
+        server as any,
+        undefined,
+        options
     );
     return { currentSettings, events, replicator, runFiniteReplicationActivity, askYesNoDialog, server };
 }
@@ -144,6 +146,38 @@ function hasNotice(entries: Array<{ level?: number }>): boolean {
 }
 
 describe("TrysteroReplicator host commands", () => {
+    it("uses injected relay controls and retains the public stop operation", () => {
+        const order: string[] = [];
+        const relayControl = {
+            getSockets: vi.fn(() => ({
+                relay: {
+                    close: () => {
+                        order.push("close");
+                    },
+                },
+            })),
+            pauseReconnection: vi.fn(() => {
+                order.push("pause");
+            }),
+            resumeReconnection: vi.fn(() => {
+                order.push("resume");
+            }),
+        };
+        const { replicator } = createReplicator({}, { relayControl });
+        const stop = vi.spyOn(replicator, "pauseServe").mockImplementation(async () => {
+            order.push("stop");
+        });
+        try {
+            replicator.disconnectFromServer();
+            replicator.allowReconnection();
+            expect(order).toEqual(["pause", "close", "stop", "resume"]);
+            expect(relayControl.getSockets).toHaveBeenCalledOnce();
+            expect(stop).toHaveBeenCalledOnce();
+        } finally {
+            stop.mockRestore();
+        }
+    });
+
     it.each([true, false])("opens only when the host is not serving: %s", async (isServing) => {
         const { replicator, server } = createReplicator();
         server.isServing = isServing;
