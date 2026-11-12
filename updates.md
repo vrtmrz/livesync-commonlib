@@ -33,6 +33,14 @@
   Integrations which inspect the client's `_server` directly must handle its
   optional state.
 
+### Personal note
+
+'Drastic'… That is quite a nice way of putting it. Simply the artificial intelligence is painstakingly reconstructing the software that one used to write on a whim, isn’t it? There are a great many line changes, but essentially they have been just allocated according to their responsibility. Essentially.
+
+One of the benefits is that several potential issues have also been resolved, apart from the main fixes.
+
+Please rest assured. I spent quite a long time guiding the work, keeping it on track, and reviewing the changes. We had no choice but to update the minor version, though.
+
 ## 0.4.3
 
 11th November, 2026
