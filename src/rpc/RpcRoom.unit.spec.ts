@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { RpcRoom, type RpcWireMessage, type TransportAdapter } from "./index";
 import { RpcSession } from "./RpcSession";
 import { RpcError } from "./errors";
+import { RPC_VERSION_MAJOR, RPC_VERSION_MINOR, type RpcRequestEnvelope } from "./types";
 
 class MockTransport implements TransportAdapter {
     readonly peerId: string;
@@ -882,6 +883,68 @@ describe("RpcRoom", () => {
         roomA.close();
         roomB.close();
     });
+
+    it.each([
+        { interruption: "close", registered: true },
+        { interruption: "close", registered: false },
+        { interruption: "cancel", registered: true },
+        { interruption: "cancel", registered: false },
+    ] as const)(
+        "suppresses dispatch and replies after warning-time $interruption with a registered method: $registered",
+        async ({ interruption, registered }) => {
+            const sender = new MockTransport("peer-a");
+            const receiver = new MockTransport("peer-b");
+            sender.attach(receiver);
+            receiver.attach(sender);
+            const send = vi.spyOn(receiver, "send");
+            const request: RpcRequestEnvelope = {
+                kind: "request",
+                requestId: "warning-time-interruption",
+                method: "job.run",
+                args: [],
+            };
+            const warning = vi.fn(() => {
+                if (interruption === "close") {
+                    room.close();
+                } else {
+                    sender.send(
+                        { wire: "raw", payload: JSON.stringify({ kind: "cancel", requestId: request.requestId }) },
+                        receiver.peerId
+                    );
+                }
+            });
+            const room = new RpcRoom({ transport: receiver, onProtocolWarning: warning });
+            const handler = vi.fn(() => "completed");
+            try {
+                if (registered) {
+                    room.register(request.method, handler);
+                }
+                sender.send(
+                    {
+                        wire: "raw",
+                        payload: JSON.stringify({
+                            kind: "handshake",
+                            versionMajor: RPC_VERSION_MAJOR,
+                            versionMinor: RPC_VERSION_MINOR + 1,
+                        }),
+                    },
+                    receiver.peerId
+                );
+                sender.send({ wire: "raw", payload: JSON.stringify(request) }, receiver.peerId);
+                await flushUnhandledRejectionEvents();
+
+                expect(warning).toHaveBeenCalledExactlyOnceWith(
+                    expect.stringContaining("RPC minor mismatch"),
+                    sender.peerId
+                );
+                expect(handler).not.toHaveBeenCalled();
+                expect(send).not.toHaveBeenCalled();
+            } finally {
+                room.close();
+                send.mockRestore();
+            }
+        }
+    );
 
     it("blocks on major mismatch", async () => {
         const tA = new MockTransport("peer-a");

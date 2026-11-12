@@ -1,14 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AutoAccepting, DEFAULT_SETTINGS, type P2PSyncSetting } from "@lib/common/types";
+import { defaultLogger, setGlobalLogFunction } from "@lib/common/logger";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import type { SimpleStore } from "@lib/common/utils";
-import type { Room, joinRoom } from "@trystero-p2p/nostr";
+import type { JoinError, Room, joinRoom } from "@trystero-p2p/nostr";
 import { passthroughMessageTranslator } from "@lib/services/base/MessageTranslator";
 import type { RpcEnvelope, RpcWireMessage } from "@lib/rpc";
+import type { P2PDiagnosticEvent } from "@lib/p2p/p2pDiagnostics";
 
-import { TrysteroReplicatorP2PServer } from "./TrysteroReplicatorP2PServer";
+import {
+    EVENT_ADVERTISEMENT_RECEIVED,
+    EVENT_DEVICE_LEAVED,
+    EVENT_SERVER_STATUS,
+    TrysteroReplicatorP2PServer,
+} from "./TrysteroReplicatorP2PServer";
 import type { BindableObject, ReplicatorHostEnv } from "./types";
 
 type FakeActionHandler = (data: unknown, context: { peerId: string }) => void | Promise<void>;
@@ -57,6 +64,10 @@ class FakeTrysteroRoom {
         this.onPeerLeave?.(peerId);
     }
 
+    triggerPeerJoin(peerId: string) {
+        this.onPeerJoin?.(peerId);
+    }
+
     action(name: string) {
         return this.actionHandlers.get(name);
     }
@@ -85,7 +96,11 @@ function createRoomFactory(room: FakeTrysteroRoom) {
     return vi.fn<typeof joinRoom>(() => asTrysteroRoom(room));
 }
 
-function makeEnvironment(deviceName: string, overrides: Partial<P2PSyncSetting> = {}): ReplicatorHostEnv {
+function makeEnvironment(
+    deviceName: string,
+    overrides: Partial<P2PSyncSetting> = {},
+    reportDiagnostic?: ReplicatorHostEnv["reportDiagnostic"]
+): ReplicatorHostEnv {
     const values = new Map<string, unknown>();
     const simpleStore: SimpleStore<unknown> = {
         db: undefined,
@@ -130,6 +145,7 @@ function makeEnvironment(deviceName: string, overrides: Partial<P2PSyncSetting> 
         events: createLiveSyncEventHub(),
         translate: passthroughMessageTranslator,
         settings,
+        ...(reportDiagnostic !== undefined ? { reportDiagnostic } : {}),
         // createHostingDB only wraps these bindings in this boundary test; no database operation is invoked.
         db: {} as unknown as ReplicatorHostEnv["db"],
         simpleStore,
@@ -145,7 +161,8 @@ function createHost(env: ReplicatorHostEnv, peerId: string, createRoom: typeof j
 
 async function createConnectedPair(
     registerTargetService: (target: TrysteroReplicatorP2PServer) => void,
-    targetBindings: BindableObject[] = []
+    targetBindings: BindableObject[] = [],
+    advertiseCaller = true
 ) {
     const callerRoom = new FakeTrysteroRoom("caller-peer");
     const targetRoom = new FakeTrysteroRoom("target-peer");
@@ -157,7 +174,9 @@ async function createConnectedPair(
 
     await caller.start();
     await target.start(targetBindings, () => registerTargetService(target));
-    caller.sendAdvertisement(target.serverPeerId);
+    if (advertiseCaller) {
+        caller.sendAdvertisement(target.serverPeerId);
+    }
 
     return { caller, target, callerRoom, targetRoom };
 }
@@ -264,6 +283,275 @@ describe("TrysteroReplicatorP2PServer RPC boundaries", () => {
         await expect(client.invokeRemoteFunction("echo", ["value"])).resolves.toBe("object:value");
         await expect(client.invokeRemoteFunction("ready", ["value"])).resolves.toBe("ready:value");
         expect(objectMethod).toHaveBeenCalledExactlyOnceWith("value");
+    });
+
+    it("does not emit status after disposal while persisted peer decisions are still loading", async () => {
+        const env = makeEnvironment("Target");
+        const room = new FakeTrysteroRoom("target-peer");
+        const host = createHost(env, room.id, createRoomFactory(room));
+        const status = vi.fn();
+        const pendingDecision = deferred<boolean | undefined>();
+        const getPersistedDecision = vi.spyOn(env.simpleStore, "get").mockReturnValue(pendingDecision.promise);
+        env.events.onEvent(EVENT_SERVER_STATUS, status);
+
+        host.onAdvertisement({ peerId: "caller-peer", name: "Caller", platform: "test" }, "caller-peer");
+        const pendingStatus = host.dispatchConnectionStatus();
+
+        expect(getPersistedDecision).toHaveBeenCalled();
+        expect(status).not.toHaveBeenCalled();
+        host.dispose();
+        pendingDecision.resolve(undefined);
+        await pendingStatus;
+        await flushQueuedCallbacks();
+
+        expect(status).not.toHaveBeenCalled();
+    });
+
+    it("keeps replacement session handlers when an older disposer runs", async () => {
+        const room = new FakeTrysteroRoom("target-peer");
+        const host = createHost(makeEnvironment("Target"), room.id, createRoomFactory(room));
+        const firstHandlers = { onAdvertisement: vi.fn(), onPeerLeft: vi.fn() };
+        const replacementHandlers = { onAdvertisement: vi.fn(), onPeerLeft: vi.fn() };
+        const disposeFirstHandlers = host.setSessionPeerHandlers(firstHandlers);
+        host.setSessionPeerHandlers(replacementHandlers);
+
+        disposeFirstHandlers();
+        host.onAdvertisement({ peerId: "caller-peer", name: "Caller", platform: "test" }, "caller-peer");
+        await flushQueuedCallbacks();
+
+        expect(firstHandlers.onAdvertisement).not.toHaveBeenCalled();
+        expect(replacementHandlers.onAdvertisement).toHaveBeenCalledExactlyOnceWith({
+            peerId: "caller-peer",
+            name: "Caller",
+            platform: "test",
+        });
+    });
+
+    it("allows an unknown peer to request authentication while rejecting its ordinary RPC calls", async () => {
+        const requestAuthentication = vi.fn(() => "authentication allowed");
+        const ordinaryMethod = vi.fn(() => "ordinary result");
+        const { caller, target } = await createConnectedPair(
+            () => undefined,
+            [{ "!reqAuth": requestAuthentication, ordinary: ordinaryMethod }],
+            false
+        );
+
+        expect(target.knownAdvertisements).not.toContainEqual(expect.objectContaining({ peerId: caller.serverPeerId }));
+        const client = caller.getConnection(target.serverPeerId);
+        await expect(client.invokeRemoteFunction("!reqAuth", [], 1000)).resolves.toBe("authentication allowed");
+        await expect(client.invokeRemoteFunction("ordinary", [], 25)).rejects.toMatchObject({ code: "TIMEOUT" });
+
+        expect(requestAuthentication).toHaveBeenCalledOnce();
+        expect(ordinaryMethod).not.toHaveBeenCalled();
+    });
+
+    it("keeps disabled startup and service calls from joining or advertising", async () => {
+        const room = new FakeTrysteroRoom("disabled-peer");
+        const createRoom = createRoomFactory(room);
+        const env = makeEnvironment("Disabled", { P2P_Enabled: false });
+        const host = createHost(env, room.id, createRoom);
+        const sendAdvertisement = vi.fn(async () => undefined);
+        const beforeAdvertisement = vi.fn();
+        const advertisementReceived = vi.fn();
+        const binding = { run: vi.fn() };
+        host._sendAdvertisement = sendAdvertisement;
+        env.events.onEvent(EVENT_ADVERTISEMENT_RECEIVED, advertisementReceived);
+
+        await host.start([binding], beforeAdvertisement);
+        await host.startService([binding], beforeAdvertisement);
+        host.sendAdvertisement();
+        host.onAdvertisement({ peerId: "caller-peer", name: "Caller", platform: "test" }, "caller-peer");
+
+        expect(createRoom).not.toHaveBeenCalled();
+        expect(sendAdvertisement).not.toHaveBeenCalled();
+        expect(beforeAdvertisement).not.toHaveBeenCalled();
+        expect(room.sent).toEqual([]);
+        expect(host.knownAdvertisements).toEqual([]);
+        expect(advertisementReceived).not.toHaveBeenCalled();
+    });
+
+    it("broadcasts without a target and ignores self and self-claimed advertisements", async () => {
+        const room = new FakeTrysteroRoom("target-peer");
+        const env = makeEnvironment("Target");
+        const host = createHost(env, room.id, createRoomFactory(room));
+        const advertisementReceived = vi.fn();
+        env.events.onEvent(EVENT_ADVERTISEMENT_RECEIVED, advertisementReceived);
+
+        host.sendAdvertisement();
+        expect(room.sent).toEqual([]);
+        await host.start();
+        room.sent.length = 0;
+        host.sendAdvertisement();
+        host.onAdvertisement({ peerId: "other-peer", name: "Other", platform: "test" }, host.serverPeerId);
+        host.onAdvertisement({ peerId: host.serverPeerId, name: "Claimed self", platform: "test" }, "other-peer");
+        host.onAdvertisement({ peerId: "claimed-peer", name: "Mismatch", platform: "test" }, "other-peer");
+
+        expect(room.sent).toHaveLength(1);
+        expect(room.sent[0]).toMatchObject({
+            action: "ad",
+            target: undefined,
+            message: { peerId: host.serverPeerId, name: "Target", platform: "test" },
+        });
+        expect(host.knownAdvertisements).toEqual([]);
+        expect(advertisementReceived).not.toHaveBeenCalled();
+    });
+
+    it("advertises to a peer on room join and ignores a delayed join callback after disposal", async () => {
+        const { caller, target, targetRoom } = await createConnectedPair(() => undefined);
+        targetRoom.sent.length = 0;
+
+        targetRoom.triggerPeerJoin(caller.serverPeerId);
+
+        expect(targetRoom.sent).toContainEqual(expect.objectContaining({ action: "ad", target: caller.serverPeerId }));
+        targetRoom.sent.length = 0;
+        target.dispose();
+        targetRoom.triggerPeerJoin(caller.serverPeerId);
+
+        expect(targetRoom.sent.some(({ action }) => action === "ad")).toBe(false);
+    });
+
+    it.each([true, false])(
+        "reports join failures and fences late diagnostics with managed ICE: %s",
+        async (managedIce) => {
+            const logs: unknown[] = [];
+            const diagnostics: P2PDiagnosticEvent[] = [];
+            const reportDiagnostic: NonNullable<ReplicatorHostEnv["reportDiagnostic"]> = (event) => {
+                diagnostics.push(event);
+            };
+            const room = new FakeTrysteroRoom("target-peer");
+            const createRoom = createRoomFactory(room);
+            const env = makeEnvironment(
+                "Target",
+                managedIce
+                    ? { P2P_iceServers: [{ urls: "turn:relay.example.test", credential: "private-credential" }] }
+                    : { P2P_iceServers: undefined },
+                reportDiagnostic
+            );
+            const host = createHost(env, room.id, createRoom);
+            const transportError: JoinError = {
+                error: "private transport diagnostic",
+                appId: "rpc-boundary-test",
+                roomId: "rpc-boundary-room",
+                peerId: "unknown-peer",
+            };
+            setGlobalLogFunction((message) => logs.push(message));
+
+            try {
+                await host.start();
+                const onJoinError = createRoom.mock.calls[0][2].onJoinError;
+                onJoinError(transportError);
+
+                expect(diagnostics).toHaveLength(1);
+                expect(diagnostics[0]).toMatchObject({
+                    category: "relay",
+                    code: "room-join-error",
+                    reason: "transport-error",
+                });
+                if (managedIce) {
+                    expect(logs).toContain("Managed P2P transport error details were omitted.");
+                    expect(logs).not.toContain(transportError);
+                    expect(
+                        logs.some((message) => typeof message === "string" && message.includes(transportError.error))
+                    ).toBe(false);
+                } else {
+                    expect(logs).toContain(transportError);
+                    expect(logs).not.toContain("Managed P2P transport error details were omitted.");
+                }
+
+                host.dispose();
+                onJoinError(transportError);
+
+                expect(diagnostics).toHaveLength(1);
+            } finally {
+                setGlobalLogFunction(defaultLogger);
+            }
+        }
+    );
+
+    it.each(["advertisement", "departure"] as const)(
+        "preserves the peer event when its session %s callback rejects",
+        async (event) => {
+            const room = new FakeTrysteroRoom("target-peer");
+            const env = makeEnvironment("Target");
+            const host = createHost(env, room.id, createRoomFactory(room));
+            await host.start();
+            const advertisement = { peerId: "caller-peer", name: "Caller", platform: "test" };
+            host.onAdvertisement(advertisement, advertisement.peerId);
+            await flushQueuedCallbacks();
+            const failure = new Error("session callback failed");
+            const callback = vi.fn(async () => {
+                throw failure;
+            });
+            host.setSessionPeerHandlers({ onAdvertisement: callback, onPeerLeft: callback });
+            const observed = vi.fn();
+            env.events.onEvent(
+                event === "advertisement" ? EVENT_ADVERTISEMENT_RECEIVED : EVENT_DEVICE_LEAVED,
+                observed
+            );
+            const logs: unknown[] = [];
+            setGlobalLogFunction((message) => logs.push(message));
+            try {
+                if (event === "advertisement") {
+                    host.onAdvertisement(advertisement, advertisement.peerId);
+                } else {
+                    room.triggerPeerLeave(advertisement.peerId);
+                }
+                await flushQueuedCallbacks();
+
+                expect(callback).toHaveBeenCalledOnce();
+                expect(logs).toContain(failure);
+                if (event === "advertisement") {
+                    expect(observed).toHaveBeenCalledExactlyOnceWith(advertisement);
+                    expect(host.knownAdvertisements).toContainEqual(advertisement);
+                } else {
+                    expect(observed).toHaveBeenCalledExactlyOnceWith(advertisement.peerId);
+                    expect(host.knownAdvertisements).toEqual([]);
+                }
+            } finally {
+                setGlobalLogFunction(defaultLogger);
+            }
+        }
+    );
+
+    it("reports malformed RPC input without preventing the next authentication request", async () => {
+        const room = new FakeTrysteroRoom("target-peer");
+        const host = createHost(makeEnvironment("Target"), room.id, createRoomFactory(room));
+        const authenticate = vi.fn(() => "authentication ready");
+        const logs: unknown[] = [];
+        setGlobalLogFunction((message) => logs.push(message));
+        try {
+            await host.start([{ "!reqAuth": authenticate }]);
+            const receive = room.action("rpc2")?.onMessage;
+            if (!receive) {
+                throw new Error("Expected the started room to register its RPC action");
+            }
+            await receive({ wire: "raw", payload: "{" }, { peerId: "caller-peer" });
+            await flushQueuedCallbacks();
+            expect(logs).toContain("RPC Protocol warning from caller-peer: Invalid payload");
+
+            await receive(
+                {
+                    wire: "raw",
+                    payload: JSON.stringify({
+                        kind: "request",
+                        requestId: "after-invalid",
+                        method: "legacy/!reqAuth",
+                        args: [],
+                    }),
+                },
+                { peerId: "caller-peer" }
+            );
+            await flushQueuedCallbacks();
+            expect(authenticate).toHaveBeenCalledOnce();
+            expect(rpcEnvelopes(room)).toContainEqual({
+                kind: "response",
+                requestId: "after-invalid",
+                ok: true,
+                data: "authentication ready",
+            });
+        } finally {
+            setGlobalLogFunction(defaultLogger);
+        }
     });
 
     it("sends accepted notifications without a response while ordinary calls still receive one", async () => {

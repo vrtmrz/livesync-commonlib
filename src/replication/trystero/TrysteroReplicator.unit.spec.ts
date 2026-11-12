@@ -1,17 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import { TrysteroReplicator, type TrysteroReplicatorOptions } from "./TrysteroReplicator";
 import type { Confirm } from "@lib/interfaces/Confirm";
+import { DEFAULT_SETTINGS, type P2PSyncSetting } from "@lib/common/types";
+import type { SimpleStore } from "@lib/common/utils";
 import { P2PLogCollector } from "./P2PLogCollector";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { defaultLogger, LOG_LEVEL_NOTICE, setGlobalLogFunction } from "@lib/common/logger";
 import {
     EVENT_ADVERTISEMENT_RECEIVED,
+    EVENT_P2P_CONNECTED,
     EVENT_P2P_REPLICATOR_STATUS,
     EVENT_P2P_REPLICATOR_PROGRESS,
     type P2PPeerAcceptance,
-    type P2PHost,
+    P2PHost,
 } from "./TrysteroReplicatorP2PServer";
-import type { Advertisement } from "./types";
+import type { Advertisement, ReplicatorHostEnv } from "./types";
+import type { P2PFiniteOperationOwner } from "./P2PRoomSession";
+import { passthroughMessageTranslator } from "@lib/services/base/MessageTranslator";
 import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
 import { toRpcMethodName } from "./rpcCompat";
 import { fromP2PReplicationWireResult } from "./P2PReplicationWire";
@@ -141,9 +146,387 @@ function captureGlobalLogs() {
     };
 }
 
+function createFacadeLifecycleEnvironment(overrides: Partial<P2PSyncSetting> = {}): ReplicatorHostEnv {
+    const settings: P2PSyncSetting = {
+        ...DEFAULT_SETTINGS,
+        P2P_Enabled: true,
+        P2P_roomID: "facade-lifecycle-room",
+        P2P_passphrase: "facade-lifecycle-passphrase",
+        P2P_relays: "wss://relay.example.test",
+        P2P_AppID: "facade-lifecycle-test",
+        ...overrides,
+    };
+    const values = new Map<string, unknown>();
+    const simpleStore: SimpleStore<unknown> = {
+        db: undefined,
+        get: async (key) => values.get(key),
+        set: async (key, value) => {
+            values.set(key, value);
+        },
+        delete: async (key) => {
+            values.delete(key);
+        },
+        keys: async () => [...values.keys()],
+    };
+    const confirm: Confirm = {
+        askYesNo: async () => "no",
+        askString: async () => false,
+        askYesNoDialog: async () => "no",
+        askSelectString: async (_message, items) => items[0] ?? "",
+        askSelectStringDialogue: async <T extends readonly string[]>(
+            _message: string,
+            _buttons: T,
+            options: { title?: string; defaultAction: T[number]; timeout?: number }
+        ) => options.defaultAction,
+        askInPopup: () => undefined,
+        confirmWithMessage: async (_title, _content, _buttons, defaultAction) => defaultAction,
+    };
+
+    return {
+        deviceName: "facade-test-device",
+        platform: "test",
+        confirm,
+        events: createLiveSyncEventHub(),
+        translate: passthroughMessageTranslator,
+        settings,
+        currentSettings: () => settings,
+        // Lifecycle cases do not exercise database operations, so only the external DB boundary is stubbed.
+        db: {} as unknown as ReplicatorHostEnv["db"],
+        simpleStore,
+        processReplicatedDocs: async () => undefined,
+    } satisfies ReplicatorHostEnv;
+}
+
+function createTestRelayControl() {
+    return {
+        getSockets: vi.fn(() => ({})),
+        pauseReconnection: vi.fn(),
+        resumeReconnection: vi.fn(),
+    };
+}
+
 function hasNotice(entries: Array<{ level?: number }>): boolean {
     return entries.some((entry) => entry.level === LOG_LEVEL_NOTICE);
 }
+
+describe("TrysteroReplicator facade lifecycle", () => {
+    it("does not create a host when P2P is disabled", async () => {
+        const env = createFacadeLifecycleEnvironment({ P2P_Enabled: false });
+        const relayControl = createTestRelayControl();
+        const logs = captureGlobalLogs();
+        const replicator = new TrysteroReplicator(env, undefined, undefined, { relayControl });
+        try {
+            expect(replicator.server).toBeUndefined();
+            expect(logs.entries.some(({ message }) => message === "P2P is not enabled")).toBe(true);
+        } finally {
+            logs.restore();
+            await replicator.dispose();
+        }
+    });
+
+    it("creates an idle host for valid enabled settings without opening a room", async () => {
+        const env = createFacadeLifecycleEnvironment();
+        const relayControl = createTestRelayControl();
+        const connected = vi.fn();
+        env.events.onEvent(EVENT_P2P_CONNECTED, connected);
+        const replicator = new TrysteroReplicator(env, undefined, undefined, { relayControl });
+        const server = replicator.server;
+        if (!server) {
+            throw new Error("Expected the enabled facade to create a P2P host");
+        }
+        const disposeHost = vi.spyOn(server, "dispose");
+        try {
+            expect(server).toBeInstanceOf(P2PHost);
+            expect(server.isServing).toBe(false);
+            expect(server.room).toBeUndefined();
+            expect(server.rpcRoom).toBeUndefined();
+            expect(connected).not.toHaveBeenCalled();
+
+            await replicator.dispose();
+
+            expect(disposeHost).toHaveBeenCalledOnce();
+        } finally {
+            disposeHost.mockRestore();
+            await replicator.dispose();
+        }
+    });
+
+    it.each([
+        ["app ID", { P2P_AppID: "" }, "P2P App ID is not provided"],
+        ["room ID", { P2P_roomID: "" }, "Room ID and/or P2P Passphrase have not provided"],
+        ["passphrase", { P2P_passphrase: "" }, "Room ID and/or P2P Passphrase have not provided"],
+        ["relays", { P2P_relays: "" }, "No relay URIs provided"],
+    ] as const)("rejects enabled construction when the %s is missing", (_field, settings, message) => {
+        const logs = captureGlobalLogs();
+        try {
+            expect(
+                () =>
+                    new TrysteroReplicator(createFacadeLifecycleEnvironment(settings), undefined, undefined, {
+                        relayControl: createTestRelayControl(),
+                    })
+            ).toThrow(message);
+        } finally {
+            logs.restore();
+        }
+    });
+
+    it("keeps commands behind no-host gates and dispatches ordinary progress to the facade", async () => {
+        const env = createFacadeLifecycleEnvironment({ P2P_Enabled: false });
+        const replicator = new TrysteroReplicator(env, undefined, undefined, {
+            relayControl: createTestRelayControl(),
+        });
+        const updateDatabase = vi.spyOn(replicator, "onUpdateDatabase").mockResolvedValue(false);
+        try {
+            const commands = replicator.getCommands();
+            expect(replicator.server).toBeUndefined();
+            await expect(commands["!reqAuth"]("peer-a")).resolves.toBeUndefined();
+            await expect(commands.getIsBroadcasting()).resolves.toBe(false);
+            await expect(commands.reqSync("peer-a")).resolves.toMatchObject({
+                status: "failed",
+                error: { message: "Peer rejected the connection" },
+            });
+            expect(replicator._replicateFromPeers.size).toBe(0);
+
+            await expect(commands.onProgress("peer-a")).resolves.toBeUndefined();
+            expect(updateDatabase).toHaveBeenCalledExactlyOnceWith("peer-a");
+
+            replicator._isBroadcasting = true;
+            expect(replicator.notifyProgress()).toBeUndefined();
+        } finally {
+            updateDatabase.mockRestore();
+            await replicator.dispose();
+        }
+    });
+
+    it("delegates finite facade operations through the session owner and forwards its signal", async () => {
+        const env = createFacadeLifecycleEnvironment({ P2P_Enabled: false });
+        const callerSignal = new AbortController().signal;
+        const ownerSignal = new AbortController().signal;
+        const owner: P2PFiniteOperationOwner = {
+            runFiniteOperation: async <T>(task: (signal: AbortSignal) => T | PromiseLike<T>) => await task(ownerSignal),
+        };
+        const runFiniteOperation = vi.spyOn(owner, "runFiniteOperation");
+        const replicator = new TrysteroReplicator(env, undefined, owner, {
+            relayControl: createTestRelayControl(),
+        });
+        const authenticate = vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+        const checkTweaks = vi.spyOn(replicator, "checkTweakValues").mockImplementation(async (_peerId, signal) => {
+            expect(signal).toBe(ownerSignal);
+            return false;
+        });
+        try {
+            await expect(replicator.replicateFrom("peer-a", false, false, false, callerSignal)).resolves.toMatchObject({
+                status: "failed",
+                error: expect.any(Error),
+            });
+
+            expect(runFiniteOperation).toHaveBeenCalledExactlyOnceWith(expect.any(Function), callerSignal);
+            expect(authenticate).toHaveBeenCalledExactlyOnceWith("peer-a", ownerSignal);
+            expect(checkTweaks).toHaveBeenCalledOnce();
+        } finally {
+            authenticate.mockRestore();
+            checkTweaks.mockRestore();
+            runFiniteOperation.mockRestore();
+            await replicator.dispose();
+        }
+    });
+
+    it("returns without asking when broadcasting is already enabled", async () => {
+        const env = createFacadeLifecycleEnvironment({ P2P_Enabled: false });
+        const replicator = new TrysteroReplicator(env, undefined, undefined, {
+            relayControl: createTestRelayControl(),
+        });
+        const askYesNoDialog = vi.spyOn(env.confirm, "askYesNoDialog");
+        const enableBroadcast = vi.spyOn(replicator, "enableBroadcastChanges");
+        replicator._isBroadcasting = true;
+        try {
+            await expect(replicator.getCommands().requestBroadcasting("peer-a")).resolves.toBe(true);
+            expect(askYesNoDialog).not.toHaveBeenCalled();
+            expect(enableBroadcast).not.toHaveBeenCalled();
+        } finally {
+            askYesNoDialog.mockRestore();
+            enableBroadcast.mockRestore();
+            await replicator.dispose();
+        }
+    });
+
+    it.each([
+        { label: "no configured automation", syncPeers: "", watchPeers: "", checksAcceptance: false },
+        { label: "rejected automatic sync", syncPeers: "peer-a", watchPeers: "", checksAcceptance: true },
+        { label: "rejected automatic watch", syncPeers: "peer-a", watchPeers: "peer-a", checksAcceptance: true },
+    ])("keeps newly advertised peers behind the $label gate", async ({ syncPeers, watchPeers, checksAcceptance }) => {
+        const env = createFacadeLifecycleEnvironment({ P2P_AutoSyncPeers: syncPeers, P2P_AutoWatchPeers: watchPeers });
+        const diagnostic = vi.fn<NonNullable<ReplicatorHostEnv["reportDiagnostic"]>>();
+        env.reportDiagnostic = diagnostic;
+        const replicator = new TrysteroReplicator(env, undefined, undefined, {
+            relayControl: createTestRelayControl(),
+        });
+        const server = replicator.server;
+        if (!server) {
+            throw new Error("Expected the enabled facade to create a P2P host");
+        }
+        const acceptance = vi.spyOn(server, "evaluatePeerAcceptance").mockResolvedValue("rejected");
+        const sync = vi.spyOn(replicator, "sync");
+        const broadcasting = vi.spyOn(replicator, "getRemoteIsBroadcasting");
+        const watch = vi.spyOn(replicator, "watchPeer");
+        try {
+            await replicator.onNewPeer({ peerId: "peer-id", name: "peer-a", platform: "test" });
+
+            if (checksAcceptance) {
+                expect(acceptance).toHaveBeenCalledExactlyOnceWith("peer-id");
+            } else {
+                expect(acceptance).not.toHaveBeenCalled();
+            }
+            expect(sync).not.toHaveBeenCalled();
+            expect(broadcasting).not.toHaveBeenCalled();
+            expect(watch).not.toHaveBeenCalled();
+            expect(replicator._watchingPeers.size).toBe(0);
+            if (watchPeers) {
+                expect(diagnostic).toHaveBeenCalledExactlyOnceWith(
+                    expect.objectContaining({
+                        category: "sync",
+                        code: "watch-skipped",
+                        peerId: "peer-id",
+                        reason: "not-accepted",
+                    })
+                );
+            } else {
+                expect(diagnostic).not.toHaveBeenCalled();
+            }
+        } finally {
+            acceptance.mockRestore();
+            sync.mockRestore();
+            broadcasting.mockRestore();
+            watch.mockRestore();
+            await replicator.dispose();
+        }
+    });
+
+    it("does not publish a late watch refusal after the facade is disposed", async () => {
+        const env = createFacadeLifecycleEnvironment({ P2P_AutoWatchPeers: "peer-a" });
+        const diagnostic = vi.fn<NonNullable<ReplicatorHostEnv["reportDiagnostic"]>>();
+        env.reportDiagnostic = diagnostic;
+        const replicator = new TrysteroReplicator(env, undefined, undefined, {
+            relayControl: createTestRelayControl(),
+        });
+        const server = replicator.server;
+        if (!server) {
+            throw new Error("Expected the enabled facade to create a P2P host");
+        }
+        let releaseAcceptance!: (acceptance: P2PPeerAcceptance) => void;
+        const pendingAcceptance = new Promise<P2PPeerAcceptance>((resolve) => {
+            releaseAcceptance = resolve;
+        });
+        const acceptance = vi.spyOn(server, "evaluatePeerAcceptance").mockReturnValue(pendingAcceptance);
+        try {
+            const arrival = replicator.onNewPeer({ peerId: "peer-id", name: "peer-a", platform: "test" });
+            await replicator.dispose();
+            releaseAcceptance("rejected");
+            await arrival;
+
+            expect(diagnostic).not.toHaveBeenCalled();
+            expect(replicator._watchingPeers.size).toBe(0);
+        } finally {
+            releaseAcceptance("rejected");
+            acceptance.mockRestore();
+            await replicator.dispose();
+        }
+    });
+
+    it("orders host shutdown and relay stopping, clears status, and disposes only once", async () => {
+        const env = createFacadeLifecycleEnvironment();
+        const order: string[] = [];
+        const relayControl = {
+            getSockets: vi.fn(() => {
+                order.push("read-relays");
+                return {
+                    relay: {
+                        close: () => {
+                            order.push("close-relay");
+                        },
+                    },
+                };
+            }),
+            pauseReconnection: vi.fn(() => {
+                order.push("pause-reconnection");
+            }),
+            resumeReconnection: vi.fn(),
+        };
+        const replicator = new TrysteroReplicator(env, undefined, undefined, { relayControl });
+        const server = replicator.server;
+        if (!server) {
+            throw new Error("Expected the enabled facade to create a P2P host");
+        }
+        const shutdown = vi.spyOn(server, "shutdown").mockImplementation(async () => {
+            order.push("host-shutdown");
+        });
+        const close = vi.spyOn(server, "close").mockImplementation(async () => {
+            order.push("host-close");
+        });
+        const dispatchConnectionStatus = vi.spyOn(server, "dispatchConnectionStatus").mockImplementation(async () => {
+            order.push("host-status");
+        });
+        const disposeHost = vi.spyOn(server, "dispose");
+        const statuses: Array<{ replicatingFrom: string[]; replicatingTo: string[]; watchingPeers: string[] }> = [];
+        env.events.onEvent(EVENT_P2P_REPLICATOR_STATUS, (status) => {
+            statuses.push(status);
+            order.push(status.watchingPeers.length > 0 ? "replicator-active" : "replicator-cleared");
+        });
+        replicator._replicateFromPeers.add("pull-peer");
+        replicator._replicateToPeers.add("push-peer");
+        replicator._watchingPeers.add("watched-peer");
+
+        try {
+            await replicator.close();
+            await vi.waitFor(() => expect(dispatchConnectionStatus).toHaveBeenCalledTimes(3));
+
+            expect(statuses).toEqual([
+                {
+                    isBroadcasting: false,
+                    replicatingTo: ["push-peer"],
+                    replicatingFrom: ["pull-peer"],
+                    watchingPeers: ["watched-peer"],
+                },
+                {
+                    isBroadcasting: false,
+                    replicatingTo: [],
+                    replicatingFrom: [],
+                    watchingPeers: [],
+                },
+            ]);
+            expect(order.slice(0, 9)).toEqual([
+                "replicator-active",
+                "host-status",
+                "host-shutdown",
+                "replicator-cleared",
+                "host-status",
+                "read-relays",
+                "pause-reconnection",
+                "close-relay",
+                "host-close",
+            ]);
+
+            await replicator.dispose();
+            await vi.waitFor(() => expect(dispatchConnectionStatus).toHaveBeenCalledTimes(6));
+            expect(disposeHost).toHaveBeenCalledOnce();
+            expect(shutdown).toHaveBeenCalledTimes(2);
+            expect(close).toHaveBeenCalledTimes(2);
+            expect(relayControl.getSockets).toHaveBeenCalledTimes(2);
+            const settledOrder = [...order];
+
+            await replicator.dispose();
+
+            expect(order).toEqual(settledOrder);
+            expect(disposeHost).toHaveBeenCalledOnce();
+        } finally {
+            disposeHost.mockRestore();
+            dispatchConnectionStatus.mockRestore();
+            close.mockRestore();
+            shutdown.mockRestore();
+            await replicator.dispose();
+        }
+    });
+});
 
 describe("TrysteroReplicator host commands", () => {
     it("uses injected relay controls and retains the public stop operation", () => {
