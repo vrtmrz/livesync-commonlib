@@ -1,5 +1,5 @@
 import type { ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
-import type { P2PReplicationDirectionProgress } from "./TrysteroReplicator";
+import type { P2PReplicationDirectionProgress } from "./TrysteroReplicator/progress";
 
 /** Transient attempt correlation; no replication checkpoint is stored here. */
 export type ProgressAcknowledgement = { attempt: number; finalProgress?: ProgressInfo };

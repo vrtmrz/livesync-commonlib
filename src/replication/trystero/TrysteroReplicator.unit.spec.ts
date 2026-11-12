@@ -1646,16 +1646,39 @@ describe("P2P diagnostic observations preserve control flow", () => {
             const { replicator } = createReplicator();
             const report = vi.fn();
             (replicator._env as any).reportDiagnostic = report;
-            vi.spyOn(replicator as any, "checkPeerForReplication").mockResolvedValue(undefined);
-            const outcome =
-                status === "completed"
-                    ? { status, ok: true }
-                    : status === "failed"
-                      ? { status, error: new Error("private details") }
-                      : { status };
-            const transfer = vi.spyOn(replicator as any, "transferFromPeer").mockResolvedValue(outcome);
-            await expect(replicator.replicateFrom("remote-peer")).resolves.toBe(outcome);
-            expect(transfer).toHaveBeenCalledOnce();
+            vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+            vi.spyOn(replicator, "checkTweakValues").mockResolvedValue(true);
+            const local = installControlOnlyPathIdentityDatabase(replicator);
+            const remote = {
+                ...local,
+                info: vi.fn(async () => ({ ...(await local.info()), db_name: "remote-control-only-db" })),
+            };
+            const controller = new AbortController();
+            const failure = new Error("private details");
+            const getRemoteDB = vi.fn(() => {
+                if (status !== "completed") {
+                    if (status === "cancelled") {
+                        controller.abort();
+                    }
+                    throw failure;
+                }
+                return remote;
+            });
+            replicator.server!.getConnection = vi.fn(() => ({
+                getRemoteDB,
+                invokeRemoteFunction: vi.fn(async () => undefined),
+            })) as never;
+
+            const result = await replicator.replicateFrom("remote-peer", false, false, false, controller.signal);
+            expect(getRemoteDB).toHaveBeenCalledOnce();
+            if (status === "failed") {
+                expect(result).toEqual({ status, error: failure });
+                if (result.status === "failed") {
+                    expect(result.error).toBe(failure);
+                }
+            } else {
+                expect(result).toEqual(status === "completed" ? { status, ok: true } : { status });
+            }
             expect(report.mock.calls.map(([event]) => event.code)).toEqual(["pull-started", `pull-${status}`]);
             expect(JSON.stringify(report.mock.calls)).not.toContain("private details");
         }

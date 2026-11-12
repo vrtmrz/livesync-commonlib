@@ -79,7 +79,7 @@ from the file handler's database and storage effects.
 ## P2P and RPC implementation
 
 `src/replication/trystero/TrysteroReplicator.ts` retains the existing replicator
-interface, wire command assembly, and transfer/progress coordination. Its
+interface, wire command assembly, peer-arrival policy, and host lifecycle. Its
 internal modules use narrow capabilities rather than the complete replicator:
 
 | Module under `TrysteroReplicator/` | Responsibility |
@@ -87,6 +87,9 @@ internal modules use narrow capabilities rather than the complete replicator:
 | `changeRelay.ts` | Own the changes feed, broadcast state, followed peers, and last sequence; schedule notifications and request pulls. |
 | `peerAgreement.ts` | Request authentication and compare tweak, path-identity, and ID-derivation agreement without exposing the ID key. |
 | `configurationExchange.ts` | Prepare shared settings, obtain passphrases, encrypt or decrypt configuration, and validate imported ID settings. |
+| `progress.ts` | Own acknowledged-attempt state and module-realm attempt numbering, project progress events, and report progress to the peer. |
+| `configuredTargets.ts` | Resolve configured peer names, wait for discovery with listener cleanup, and aggregate sequential baseline synchronisation results. |
+| `transfers.ts` | Own available and active peer sets, apply transfer gates, run the shared replication engine, and finalise progress. |
 
 The facade's existing relay accessors refer to the relay's single state object.
 Agreement and configuration operations obtain snapshot settings and current
@@ -95,6 +98,14 @@ validation, transport binding, and finite-transfer ownership. Public method
 dispatch remains dynamic so host overrides continue to apply. The operations
 use `octagonal-wheels/context` to bind their narrow capabilities; construction
 starts no database or RPC work.
+
+The public replication and progress result types remain available through their
+existing root module as re-exports. Transfer methods borrow the session owner's
+signal and retain dynamic public dispatch for pull and reverse-sync requests.
+Progress attempts remain ordered across room replacement within one module
+realm; peer departure removes one acknowledgement history, and close clears all
+histories and active transfer sets. Configured-target discovery releases event,
+abort, and timeout hooks before continuing into per-target processing.
 
 `src/rpc/RpcRoom.ts` retains registrations, inbound request routing, transport,
 and chunk state. `RpcRoom/pendingInvocations.ts` owns outbound response waits,
