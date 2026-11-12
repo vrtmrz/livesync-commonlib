@@ -22,3 +22,16 @@ describe("TrysteroReplicatorP2PClient finite-operation calls", () => {
         });
     });
 });
+
+describe("TrysteroReplicatorP2PClient notifications", () => {
+    it("uses the notification API with the existing method namespace", async () => {
+        const notify = vi.fn(async () => {});
+        const call = vi.fn();
+        const session = vi.fn(() => ({ notify, call }));
+        const client = new TrysteroReplicatorP2PClient({ rpcRoom: { session } } as any, "peer-a");
+        await client.notifyRemoteFunction("onProgress", ["source"]);
+        expect(session).toHaveBeenCalledWith("peer-a");
+        expect(notify).toHaveBeenCalledExactlyOnceWith("legacy/onProgress", ["source"]);
+        expect(call).not.toHaveBeenCalled();
+    });
+});

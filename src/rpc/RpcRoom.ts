@@ -291,6 +291,27 @@ export class RpcRoom {
         return await p;
     }
 
+    /**
+     * Send a notification to a peer without creating an RPC response wait.
+     * Resolves when the local transport send completes; it does not report
+     * whether the peer accepted or completed the handler.
+     */
+    async notify(peerId: string, method: string, args: JsonLike[]): Promise<void> {
+        if (!validNamespacedMethod(method)) {
+            throw new RpcError("PROTOCOL_ERROR", `Method must be namespaced: ${method}`);
+        }
+        if (this.closed) {
+            throw new RpcError("NOT_CONNECTED", "Room is closed");
+        }
+        await this.sendEnvelope(peerId, {
+            kind: "request",
+            requestId: newId("req"),
+            method,
+            args,
+            expectsResponse: false,
+        });
+    }
+
     async cancel(peerId: string, requestId: string) {
         const pending = this.pending.get(requestId);
         if (pending?.peerId === peerId) {
@@ -358,6 +379,27 @@ export class RpcRoom {
 
     private sendErrorResponse(peerId: string, requestId: string, error: RpcErrorShape) {
         return this.sendEnvelope(peerId, { kind: "response", requestId, ok: false, error });
+    }
+
+    private async reportRequestFailure(
+        envelope: RpcRequestEnvelope,
+        peerId: string,
+        error: RpcErrorShape,
+        notificationReason: string
+    ) {
+        if (envelope.expectsResponse === false) {
+            this.warnNotificationIssue(envelope, notificationReason, peerId);
+            return;
+        }
+        await this.sendErrorResponse(peerId, envelope.requestId, error);
+    }
+
+    private warnNotificationIssue(envelope: RpcRequestEnvelope, reason: string, peerId: string) {
+        try {
+            this.options.onProtocolWarning?.(`RPC notification ${envelope.method}: ${reason}`, peerId);
+        } catch {
+            // Diagnostic callbacks must not interrupt request cleanup or handler processing.
+        }
     }
 
     private scheduleMissingAck(streamId: string, peerId: string) {
@@ -463,7 +505,7 @@ export class RpcRoom {
         } catch (ex) {
             this.inboundCalls.delete(envelope.requestId);
             if (!ctx.signal.aborted && !this.closed) {
-                await this.sendErrorResponse(peerId, envelope.requestId, asRpcErrorShape(ex));
+                await this.reportRequestFailure(envelope, peerId, asRpcErrorShape(ex), "admission check failed");
             }
             return;
         }
@@ -480,28 +522,42 @@ export class RpcRoom {
         const version = this.peerVersion.get(peerId);
         if (version && version.major !== RPC_VERSION_MAJOR) {
             if (!ctx.signal.aborted && !this.closed) {
-                await this.sendErrorResponse(peerId, envelope.requestId, {
-                    code: "REMOTE_ERROR",
-                    message: `RPC major mismatch: local=${RPC_VERSION_MAJOR}, remote=${version.major}`,
-                });
+                await this.reportRequestFailure(
+                    envelope,
+                    peerId,
+                    {
+                        code: "REMOTE_ERROR",
+                        message: `RPC major mismatch: local=${RPC_VERSION_MAJOR}, remote=${version.major}`,
+                    },
+                    "protocol major version mismatch"
+                );
             }
             this.inboundCalls.delete(envelope.requestId);
             return;
         }
         if (version && version.minor !== RPC_VERSION_MINOR) {
-            this.options.onProtocolWarning?.(
-                `RPC minor mismatch: local=${RPC_VERSION_MINOR}, remote=${version.minor}`,
-                peerId
-            );
+            if (envelope.expectsResponse === false) {
+                this.warnNotificationIssue(envelope, "protocol minor version mismatch", peerId);
+            } else {
+                this.options.onProtocolWarning?.(
+                    `RPC minor mismatch: local=${RPC_VERSION_MINOR}, remote=${version.minor}`,
+                    peerId
+                );
+            }
         }
 
         const method = this.methods.get(envelope.method);
         if (!method) {
             if (!ctx.signal.aborted && !this.closed) {
-                await this.sendErrorResponse(peerId, envelope.requestId, {
-                    code: "REMOTE_ERROR",
-                    message: `Method not found: ${envelope.method}`,
-                });
+                await this.reportRequestFailure(
+                    envelope,
+                    peerId,
+                    {
+                        code: "REMOTE_ERROR",
+                        message: `Method not found: ${envelope.method}`,
+                    },
+                    "method not found"
+                );
             }
             this.inboundCalls.delete(envelope.requestId);
             return;
@@ -534,7 +590,9 @@ export class RpcRoom {
                       ...envelope.args
                   )
                 : await (method.handler as RpcMethodHandler<JsonLike[], JsonLike>)(peerId, ...envelope.args);
-            if (ctx.signal.aborted || this.closed) return;
+            if (ctx.signal.aborted || this.closed || envelope.expectsResponse === false) {
+                return;
+            }
             await this.sendEnvelope(peerId, {
                 kind: "response",
                 requestId: envelope.requestId,
@@ -546,7 +604,7 @@ export class RpcRoom {
             // signal. The caller already has the cancellation outcome, so
             // never send a stale response in that case.
             if (ctx.signal.aborted || this.closed) return;
-            await this.sendErrorResponse(peerId, envelope.requestId, asRpcErrorShape(ex));
+            await this.reportRequestFailure(envelope, peerId, asRpcErrorShape(ex), "handler failed");
         } finally {
             if (this.inboundCalls.get(envelope.requestId) === ctx) {
                 this.inboundCalls.delete(envelope.requestId);

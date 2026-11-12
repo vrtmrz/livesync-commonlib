@@ -978,7 +978,12 @@ export class TrysteroReplicator {
     }
 
     private async notifyPeerProgress(peerId: string) {
-        const isAcceptable = await this.server?.isAcceptablePeer(peerId);
+        const server = this.server;
+        const room = server?.rpcRoom;
+        if (!room || this.disposed || !this._isBroadcasting) {
+            return;
+        }
+        const isAcceptable = await server.isAcceptablePeer(peerId);
         if (!isAcceptable) {
             this.reportDiagnostic({
                 category: "sync",
@@ -990,11 +995,12 @@ export class TrysteroReplicator {
             return;
         }
         try {
-            const result = await this.server
-                ?.getConnection(peerId)
-                .invokeRemoteFunction("onProgress", [this.server?.serverPeerId], 0);
+            // Admission may settle after this room or broadcast has stopped.
+            if (this.disposed || !this._isBroadcasting || this.server !== server || server.rpcRoom !== room) {
+                return;
+            }
+            await server.getConnection(peerId).notifyRemoteFunction("onProgress", [server.serverPeerId]);
             this.reportDiagnostic({ category: "sync", code: "change-notification-sent", peerId });
-            return result;
         } catch (error) {
             this.reportDiagnostic(notificationFailureDiagnostic(peerId, error));
             Logger(`Error while notifying progress to ${peerId}`, LOG_LEVEL_VERBOSE);

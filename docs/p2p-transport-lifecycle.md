@@ -126,6 +126,30 @@ batch still supplies final sequences and counts. Older peers can ignore the extr
 argument and continue using sequence progress. No handshake, retry, heartbeat, or
 persistent replication state is added.
 
+## Best-effort change notifications
+
+Implementation note: this notification path is unreleased, reviewed against
+Commonlib 0.4.3 and Self-hosted LiveSync 1.0.49. It does not change the published
+status of the lifecycle and diagnostics described elsewhere in this document.
+
+P2P change notifications ask a following peer to fetch database changes; they do
+not carry Vault data or confirm that a transfer has succeeded. The sender uses
+`RpcSession.notify()` through the peer client, so it waits only for transport
+sending and does not register a pending RPC invocation or a response timeout.
+A notification rejected before admission therefore cannot block later change
+notifications, and a long-running pull does not delay the sender's next notification.
+
+The `change-notification-sent` observation records transport sending, not peer
+admission, completed replication, or Vault reflection. Pull outcomes remain
+separate observations. A missed final notification is not retried automatically;
+a later notification or explicit synchronisation can initiate a fresh comparison.
+
+The optional request field `expectsResponse: false` suppresses both successful
+and failed RPC responses on updated receivers. An older receiver may still reply;
+the sender ignores that response because it has no pending invocation. Existing
+request admission, handler execution, cancellation, and room ownership remain in
+force. This change does not make not-ready or busy replication succeed.
+
 ## Latest diagnostic observations
 
 The optional `P2PDiagnostics.getDiagnosticSnapshot()` and

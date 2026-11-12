@@ -85,6 +85,17 @@ export class TrysteroReplicatorP2PClient {
             .session(this._connectedPeerId)
             .call(toRpcMethodName(type), args as JsonLike[], this.getCallOptions(timeout, signal))) as U;
     }
+    /**
+     * Send a notification without requesting an RPC response.
+     * Resolves when the transport send completes.
+     */
+    async notifyRemoteFunction(type: string, args: JsonLike[]): Promise<void> {
+        const room = this._server?.rpcRoom;
+        if (!room) {
+            throw new Error("Not connected to any room");
+        }
+        await room.session(this._connectedPeerId).notify(toRpcMethodName(type), args);
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a generic function binder, so we can't be more specific about the types here.
     bindRemoteObjectFunctions<T extends BindableObject<any>, U extends keyof T>(key: U, timeout = DEFAULT_RPC_TIMEOUT) {
         type F = T[U];
