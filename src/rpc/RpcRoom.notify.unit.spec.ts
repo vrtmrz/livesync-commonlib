@@ -168,7 +168,7 @@ it("settles only after transport send and creates no response wait", async () =>
 });
 
 it("does not wait for a long remote handler or block a later notification", async () => {
-    const { transportA, roomA, roomB } = createPair();
+    const { transportB, roomA, roomB } = createPair();
     let firstStarted!: () => void;
     let secondStarted!: () => void;
     let releaseFirst!: () => void;
@@ -181,7 +181,7 @@ it("does not wait for a long remote handler or block a later notification", asyn
     const firstHandlerGate = new Promise<void>((resolve) => {
         releaseFirst = resolve;
     });
-    roomB.register("events.changed", async (_peerId, sequence) => {
+    roomB.register("events.changed", async (_peerId, sequence): Promise<null> => {
         if (sequence === 1) {
             firstStarted();
             await firstHandlerGate;
@@ -197,17 +197,19 @@ it("does not wait for a long remote handler or block a later notification", asyn
 
     await roomA.session("peer-b").notify("events.changed", [2]);
     await secondHandlerStarted;
-    expect(responses(transportA)).toEqual([]);
+    await flushMessages();
+    expect(responses(transportB)).toEqual([]);
 
     releaseFirst();
     await flushMessages();
+    expect(responses(transportB)).toEqual([]);
     expect(roomState(roomB).inboundCalls.size).toBe(0);
 });
 
 it("settles when the receiver denies admission without waiting for a response", async () => {
-    const { transportA, roomA, roomB } = createPair({}, { canAcceptRequest: () => false });
+    const { transportB, roomA, roomB } = createPair({}, { canAcceptRequest: () => false });
     let handlerCalled = false;
-    roomB.register("events.changed", () => {
+    roomB.register("events.changed", (): null => {
         handlerCalled = true;
         return null;
     });
@@ -216,7 +218,7 @@ it("settles when the receiver denies admission without waiting for a response", 
     await flushMessages();
 
     expect(handlerCalled).toBe(false);
-    expect(responses(transportA)).toEqual([]);
+    expect(responses(transportB)).toEqual([]);
 });
 
 it("rejects when the transport send fails", async () => {
@@ -244,7 +246,7 @@ it.each(["admission exception", "protocol version mismatch", "missing method", "
         }
         const room = makeRoom(roomOptions);
         if (failure !== "missing method") {
-            room.register("events.changed", () => {
+            room.register("events.changed", (): null => {
                 if (failure === "handler exception") {
                     throw new Error("credential-bearing diagnostic");
                 }
@@ -411,7 +413,7 @@ it.each(["peer leaves", "room closes"] as const)(
         const started = new Promise<void>((resolve) => {
             handlerStarted = resolve;
         });
-        roomB.registerCancellable("events.wait", async (context) => {
+        roomB.registerCancellable("events.wait", async (context): Promise<null> => {
             receivedSignal = context.signal;
             handlerStarted();
             await new Promise<void>((resolve) => {
