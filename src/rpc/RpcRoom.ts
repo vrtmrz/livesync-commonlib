@@ -119,6 +119,7 @@ export class RpcRoom {
         if (this.closed) return;
         this.closed = true;
         this.disposers.splice(0).forEach((dispose) => dispose());
+        // Request cancellation before Room cleanup; the coordinator's send callback remains available here.
         this.pendingInvocations.close();
         this.inboundCalls.forEach((context, requestId) => {
             this.abortInboundCall(requestId, context);

@@ -79,12 +79,22 @@ from the file handler's database and storage effects.
 ## P2P and RPC implementation
 
 `src/replication/trystero/TrysteroReplicator.ts` retains the existing replicator
-interface and composes `TrysteroReplicator/changeRelay.ts`. The relay owns its
-changes feed, broadcast state, followed peers, and last sequence. It receives
-narrow database, notification, pull, status, and diagnostic callbacks. The
-replicator supplies the current room and transfer operations; its existing
-state accessors refer to the relay's state. Relay operations use
-`octagonal-wheels/context` to bind that state and those callbacks.
+interface, wire command assembly, and transfer/progress coordination. Its
+internal modules use narrow capabilities rather than the complete replicator:
+
+| Module under `TrysteroReplicator/` | Responsibility |
+| --- | --- |
+| `changeRelay.ts` | Own the changes feed, broadcast state, followed peers, and last sequence; schedule notifications and request pulls. |
+| `peerAgreement.ts` | Request authentication and compare tweak, path-identity, and ID-derivation agreement without exposing the ID key. |
+| `configurationExchange.ts` | Prepare shared settings, obtain passphrases, encrypt or decrypt configuration, and validate imported ID settings. |
+
+The facade's existing relay accessors refer to the relay's single state object.
+Agreement and configuration operations obtain snapshot settings and current
+policy at their documented stages. The host retains peer acceptance, database
+validation, transport binding, and finite-transfer ownership. Public method
+dispatch remains dynamic so host overrides continue to apply. The operations
+use `octagonal-wheels/context` to bind their narrow capabilities; construction
+starts no database or RPC work.
 
 `src/rpc/RpcRoom.ts` retains registrations, inbound request routing, transport,
 and chunk state. `RpcRoom/pendingInvocations.ts` owns outbound response waits,
@@ -92,10 +102,11 @@ deadlines, abort subscriptions, settlement, and request-before-cancel ordering.
 The room supplies transport, request IDs, timing, and warning callbacks, and
 forwards peer departure and close events. Notifications bypass this coordinator.
 
-Both internal modules have focused unit tests beside their implementations.
+The internal modules have focused unit tests beside their implementations.
 Their lifetime boundaries retain the existing feed stop boundaries and synchronous
-invocation-wait cleanup; neither module adds a consumer entry point, persistent
-state, retry policy, or new queue policy.
+invocation-wait cleanup. They add no consumer entry points, persistent state,
+retry policy, or new queue policy. Function comments record settings provenance,
+secret exclusions, completion meaning, error boundaries, and cancellation order.
 
 ## Service composition and state ownership
 

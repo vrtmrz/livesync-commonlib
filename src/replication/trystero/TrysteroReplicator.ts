@@ -1,11 +1,8 @@
+import { createConfigurationExchange } from "./TrysteroReplicator/configurationExchange";
+import { createPeerAgreement, type PeerAgreement, type PeerTweakSettings } from "./TrysteroReplicator/peerAgreement";
 import { createChangeRelay, type ChangeRelay } from "./TrysteroReplicator/changeRelay";
 import { reportP2PDiagnostic, type P2PDiagnosticInput } from "@lib/p2p/p2pDiagnostics";
-import {
-    authenticationResultDiagnostic,
-    authenticationFailureDiagnostic,
-    pullResultDiagnostic,
-    pullFailureDiagnostic,
-} from "./p2pReplicationDiagnostics";
+import { pullResultDiagnostic, pullFailureDiagnostic } from "./p2pReplicationDiagnostics";
 import {
     projectDirectionProgress,
     projectAcknowledgedAttempt,
@@ -14,15 +11,7 @@ import {
 } from "./p2pReplicationProgress";
 import { parsePeerPatterns } from "./peerPatterns";
 import type PouchDB from "pouchdb-core";
-import {
-    TweakValuesShouldMatchedTemplate,
-    omitP2PRuntimeSettings,
-    type EntryDoc,
-    type EncryptionSettings,
-    type ObsidianLiveSyncSettings,
-    type P2PSyncSetting,
-} from "@lib/common/types";
-import { assessTweakCompatibility } from "@lib/common/models/tweak.compatibility.ts";
+import { type EntryDoc, type ObsidianLiveSyncSettings } from "@lib/common/types";
 import {
     LOG_LEVEL_INFO,
     LOG_LEVEL_NOTICE,
@@ -42,15 +31,10 @@ import {
     P2PHost,
     type P2PPeerAcceptance,
 } from "./TrysteroReplicatorP2PServer";
-import { encryptWithEphemeralSalt, decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
-import { sha1 } from "octagonal-wheels/hash/purejs";
 import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from "@trystero-p2p/nostr";
 import type { P2PFiniteOperationOwner } from "./P2PRoomSession";
 import { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
 import { compatGlobal, type CompatTimeoutHandle } from "@lib/common/coreEnvFunctions";
-import { computeKeyedId, configuredIdKey } from "@lib/common/idDerivation.ts";
-import { getWebCrypto } from "@lib/mods.ts";
-import { uint8ArrayToHexString } from "@lib/string_and_binary/convert.ts";
 import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 import { readLocalP2PPathIdentity, readRemoteP2PPathIdentity } from "./TrysteroReplicator.pathIdentity.ts";
 import { assertDatabasePathIdentity } from "@lib/pouchdb/pathIdentityCompatibility.ts";
@@ -60,13 +44,6 @@ import {
     toP2PWireError,
     type P2PReplicationWireResult,
 } from "./P2PReplicationWire";
-
-async function encrypt(data: string, passphrase: string) {
-    return await encryptWithEphemeralSalt(data, passphrase, true);
-}
-async function decrypt(encryptedData: string, passphrase: string) {
-    return await decryptWithEphemeralSalt(encryptedData, passphrase);
-}
 
 export type P2PReplicatorStatus = {
     isBroadcasting: boolean;
@@ -155,12 +132,13 @@ export type AllReplicationClientStatus = {
     };
 };
 
-async function getHashedStringWithCurrentTime(source: string) {
-    const salt = (~~(new Date().getTime() / 1000 / 180)).toString(36);
-    const salt2 = await sha1(salt);
-    return await sha1(salt2 + source);
-}
-
+/**
+ * Connect room-facing commands and replication policy to the existing host.
+ *
+ * Change relay, peer agreement, and configuration exchange provide narrower
+ * operations. This facade retains public dispatch, session integration, and
+ * transfer/progress coordination so those owners are not duplicated.
+ */
 export class TrysteroReplicator {
     _env: ReplicatorHostEnv;
     private readonly finiteOperationOwner?: P2PFiniteOperationOwner;
@@ -169,6 +147,64 @@ export class TrysteroReplicator {
     private readonly fallbackAutomationCoordinator = new P2PAutomationCoordinator();
 
     server?: P2PHost;
+    // Assembly keeps room identity in the host while agreement operations receive
+    // only the connection, settings, and validation capabilities they use.
+    private readonly peerAgreement: PeerAgreement = createPeerAgreement({
+        host: () => {
+            const server = this.server;
+            if (!server) {
+                return undefined;
+            }
+            return {
+                peerPlatform: (peerId) => server.knownAdvertisements.find((peer) => peer.peerId == peerId)?.platform,
+                connection: (peerId) => {
+                    const connection = server.getConnection(peerId);
+                    return {
+                        requestAuthentication: (timeoutMs, signal) =>
+                            connection.invokeRemoteObjectFunction<ReturnType<typeof this.getCommands>, "!reqAuth">(
+                                "!reqAuth",
+                                [server.serverPeerId],
+                                timeoutMs,
+                                signal
+                            ),
+                        requestTweakSettings: (challenge, timeoutMs, signal) =>
+                            connection.invokeRemoteObjectFunction<
+                                ReturnType<typeof this.getCommands>,
+                                "getTweakSettings"
+                            >("getTweakSettings", [challenge], timeoutMs, signal),
+                    };
+                },
+            };
+        },
+        settings: () => this.settings,
+        currentSettings: () => this.currentSettings,
+        platform: () => this.platform,
+        assertPathIdentity: async (settings) => {
+            await assertDatabasePathIdentity(this.db, settings, true);
+        },
+        localTweakSettings: (challenge) => this.getTweakSettings(challenge),
+        reportDiagnostic: (input) => this.reportDiagnostic(input),
+    });
+    private readonly configurationExchange: ReturnType<typeof createConfigurationExchange> =
+        createConfigurationExchange({
+            isSetup: () => this._onSetup,
+            settings: () => this.settings,
+            // Resolve the current host services at use time and retain Confirm's receiver.
+            askString: (...args) => this.confirm.askString(...args),
+            translate: (key) => this.translate(key),
+            host: () => {
+                const server = this.server;
+                if (!server) {
+                    return undefined;
+                }
+                return {
+                    requestConfiguration: (peerId, timeoutMs) => {
+                        const connection = server.getConnection(peerId);
+                        return connection.invokeRemoteFunction("getAllConfig", [server.serverPeerId], timeoutMs);
+                    },
+                };
+            },
+        });
     private readonly changeRelay: ChangeRelay<P2PReplicationResult> = createChangeRelay<P2PReplicationResult>({
         createChangesFeed: (options) => this.db.changes(options),
         hasHost: () => Boolean(this.server),
@@ -201,6 +237,7 @@ export class TrysteroReplicator {
         }
     }
 
+    /** Immutable room settings used for transport binding and shared configuration. */
     get settings() {
         return this._env.settings;
     }
@@ -270,6 +307,7 @@ export class TrysteroReplicator {
         }
     }
 
+    /** Borrow the session owner's cancellation scope; legacy direct hosts use the caller signal. */
     private async runSessionFiniteOperation<T>(
         task: (signal?: AbortSignal) => T | PromiseLike<T>,
         callerSignal?: AbortSignal
@@ -385,41 +423,9 @@ export class TrysteroReplicator {
         this._onSetup = false;
     }
 
-    async getTweakSettings(fromPeerId: string) {
-        const currentSettings = this.currentSettings;
-        const pathNormalizationVersion = getPathNormalizationVersion(currentSettings);
-        if (pathNormalizationVersion === 1) {
-            await assertDatabasePathIdentity(this.db, currentSettings, true);
-        }
-        const allSettings = JSON.parse(JSON.stringify(this.settings)) as Partial<ObsidianLiveSyncSettings>;
-        for (const key in allSettings) {
-            if (key == "encrypt") {
-                continue;
-            }
-            if (key == "passphrase") {
-                // If the passphrase is not matched, id of chunks will be different among the peers.
-                allSettings[key] = await getHashedStringWithCurrentTime(allSettings[key] ?? "");
-                continue;
-            }
-            if (!(key in TweakValuesShouldMatchedTemplate)) {
-                delete allSettings[key as keyof ObsidianLiveSyncSettings];
-            }
-        }
-        const idSettings = this.currentSettings as P2PSyncSetting &
-            Partial<
-                Pick<EncryptionSettings, "idDerivationVersion" | "idDerivationKey" | "encrypt" | "usePathObfuscation">
-            >;
-        const idDerivationVersion = idSettings.idDerivationVersion ?? 0;
-        const idKey = configuredIdKey({ idDerivationVersion, idDerivationKey: idSettings.idDerivationKey ?? "" });
-        return {
-            ...allSettings,
-            pathNormalizationVersion,
-            idDerivationVersion,
-            idDerivationProof:
-                idKey && idSettings.encrypt && idSettings.usePathObfuscation
-                    ? await computeKeyedId(idKey, "peer-agreement", fromPeerId)
-                    : "",
-        };
+    /** Build challenge-bound compatibility data without exposing local ID keys. */
+    async getTweakSettings(fromPeerId: string): Promise<PeerTweakSettings> {
+        return await this.peerAgreement.getTweakSettings(fromPeerId);
     }
 
     private async handleSynchronisationRequest(
@@ -434,18 +440,26 @@ export class TrysteroReplicator {
         );
     }
 
+    /**
+     * Build the existing wire command object against this facade.
+     * Public method dispatch stays dynamic for host overrides; RpcRoom owns
+     * serialisation, request context, and call-versus-notification responses.
+     */
     getCommands() {
         return {
             // The wire-visible command deliberately accepts only serialisable
             // arguments. RpcRoom supplies cancellation context separately.
             reqSync: async (fromPeerId: string): Promise<P2PReplicationWireResult> =>
                 toP2PReplicationWireResult(await this.handleSynchronisationRequest(fromPeerId)),
+            // Incoming admission remains with the host's peer-acceptance policy.
             "!reqAuth": async (fromPeerId: string) => {
                 return await this.server?.isAcceptablePeer(fromPeerId);
             },
             getTweakSettings: async (fromPeerId: string) => {
                 return await this.getTweakSettings(fromPeerId);
             },
+            // Remote acquisition runs through the relay; notification send completion
+            // at the caller does not wait for this handler's pull result.
             onProgress: async (fromPeerId: string) => {
                 if (this._onSetup) {
                     this.reportDiagnostic({
@@ -459,44 +473,7 @@ export class TrysteroReplicator {
                 await this.onUpdateDatabase(fromPeerId);
             },
             getAllConfig: async (fromPeerId: string) => {
-                if (this._onSetup) {
-                    return { error: toP2PWireError(new Error("The setup is in progress")) };
-                }
-                const passphrase = await skipIfDuplicated(`getAllConfig-${fromPeerId}`, async () => {
-                    return await this.confirm.askString(
-                        "Passphrase required",
-                        this.translate("P2P.AskPassphraseForShare"),
-                        "something you only know",
-                        true
-                    );
-                });
-                const setting = {
-                    ...omitP2PRuntimeSettings(this.settings),
-                    configPassphraseStore: "",
-                    encryptedCouchDBConnection: "",
-                    encryptedPassphrase: "",
-                    pluginSyncExtendedSetting: {},
-                } as Partial<ObsidianLiveSyncSettings>;
-                delete setting.P2P_managedType;
-                delete setting.P2P_managedId;
-                delete setting.P2P_managedToken;
-                if (!passphrase || passphrase.trim() == "") {
-                    Logger(
-                        "Passphrase is required to transfer the configuration. The peer cannot be decrypt the config\nIf you repeatedly receive unintended configuration-sharing requests, change the RPC channel immediately. It allows you to leave the connection and disappear, while they are trying brute force attack for the decoy on their local.",
-                        LOG_LEVEL_NOTICE
-                    );
-                    const r = JSON.stringify(
-                        Object.fromEntries(
-                            Object.entries(setting).map(([key, value]) => {
-                                return [key, "******".repeat(Math.ceil(Math.random() * 10) + 2)];
-                            })
-                        )
-                    );
-                    const randomString = Math.random().toString(36).substring(7);
-                    // Harassment and stalling for intruders
-                    return encrypt(r, randomString);
-                }
-                return encrypt(JSON.stringify(setting), passphrase.trim());
+                return await this.configurationExchange.shareConfiguration(fromPeerId);
             },
             onProgressAcknowledged: async (
                 fromPeerId: string,
@@ -536,25 +513,9 @@ export class TrysteroReplicator {
         };
     }
 
-    async requestAuthenticate(peerId: string, signal?: AbortSignal) {
-        if (!this.server) return false;
-        try {
-            const connection = this.server.getConnection(peerId);
-            const selfPeerId = this.server.serverPeerId;
-            const r = await connection.invokeRemoteObjectFunction<ReturnType<typeof this.getCommands>, "!reqAuth">(
-                "!reqAuth",
-                [selfPeerId],
-                20000,
-                signal
-            );
-            this.reportDiagnostic(authenticationResultDiagnostic(peerId, r));
-            return r;
-        } catch (e) {
-            this.reportDiagnostic(authenticationFailureDiagnostic(peerId, e, signal));
-            Logger("Error while requesting authentication", LOG_LEVEL_VERBOSE);
-            Logger(e, LOG_LEVEL_VERBOSE);
-            return false;
-        }
+    /** Retain the public admission entry point and its caller cancellation signal. */
+    async requestAuthenticate(peerId: string, signal?: AbortSignal): Promise<boolean | undefined> {
+        return await this.peerAgreement.requestAuthenticate(peerId, signal);
     }
 
     get lastSeq(): string | number {
@@ -848,6 +809,11 @@ export class TrysteroReplicator {
         }
     }
 
+    /**
+     * Keep authentication and compatibility gates ahead of transfer state entry.
+     * Facade dispatch preserves caller overrides; this layer alone translates
+     * failed gates into the replication result and cancellation vocabulary.
+     */
     private async checkPeerForReplication(
         remotePeer: string,
         logLevel: LOG_LEVEL,
@@ -975,110 +941,13 @@ export class TrysteroReplicator {
     async onUpdateDatabase(fromPeerId: string) {
         return await this.changeRelay.onUpdateDatabase(fromPeerId);
     }
-    async getRemoteConfig(peerId: string) {
-        if (!this.server) {
-            Logger("Server is not available", LOG_LEVEL_NOTICE);
-            return false;
-        }
-        const connection = this.server.getConnection(peerId);
-        const encryptedConfig = await connection.invokeRemoteFunction("getAllConfig", [this.server.serverPeerId], 0);
-        const passphrase = await this.confirm.askString(
-            "Passphrase required",
-            this.translate("P2P.AskPassphraseForDecrypt"),
-            "something you only know",
-            true
-        );
-        if (!passphrase || passphrase.trim() == "") {
-            Logger(
-                "Passphrase is required to decrypt the configuration. The config cannot be decrypted",
-                LOG_LEVEL_NOTICE
-            );
-            return false;
-        }
-        try {
-            const decryptedConfig = JSON.parse(
-                await decrypt(encryptedConfig as string, passphrase)
-            ) as ObsidianLiveSyncSettings;
-            const settings = {
-                ...decryptedConfig,
-                idDerivationVersion: decryptedConfig.idDerivationVersion ?? 0,
-                idDerivationKey: decryptedConfig.idDerivationKey ?? "",
-            };
-            configuredIdKey(settings);
-            return omitP2PRuntimeSettings(settings) as ObsidianLiveSyncSettings;
-        } catch (e) {
-            Logger("Error while decrypting the configuration", LOG_LEVEL_NOTICE);
-            Logger(e, LOG_LEVEL_VERBOSE);
-            return false;
-        }
+    /** Fetch and validate shared settings; applying them remains the caller's responsibility. */
+    async getRemoteConfig(peerId: string): Promise<ObsidianLiveSyncSettings | false> {
+        return await this.configurationExchange.getRemoteConfig(peerId);
     }
-    /** Compare peer settings without exceeding the presentation authority of the initiating call. */
+    /** Compare peer settings without exceeding the initiating call's presentation authority. */
     async checkTweakValues(peerId: string, signal?: AbortSignal, logLevel: LOG_LEVEL = LOG_LEVEL_NOTICE) {
-        if (!this.server) {
-            Logger("Server is not available", logLevel);
-            return false;
-        }
-        const peerPlatform = this.server.knownAdvertisements.find((e) => e.peerId == peerId)?.platform;
-        if (peerPlatform == null) {
-            Logger("Peer is not found", logLevel);
-            return false;
-        }
-        const connection = this.server.getConnection(peerId);
-        const challengeBytes = new Uint8Array(16);
-        (await getWebCrypto()).getRandomValues(challengeBytes);
-        const challenge = uint8ArrayToHexString(challengeBytes);
-        const tweakValues = await connection.invokeRemoteObjectFunction<
-            ReturnType<typeof this.getCommands>,
-            "getTweakSettings"
-        >("getTweakSettings", [challenge], 5000, signal);
-        if (signal?.aborted) return false;
-        const thisTweakValues = await this.getTweakSettings(challenge);
-        const localPathNormalizationVersion = getPathNormalizationVersion(thisTweakValues);
-        const peerPathNormalizationVersion = getPathNormalizationVersion(tweakValues);
-        if (localPathNormalizationVersion !== peerPathNormalizationVersion) {
-            Logger("Replication cancelled: The path identity mode does not match this peer.", logLevel);
-            return false;
-        }
-        if (this.platform === "pseudo-replicator" || peerPlatform === "pseudo-replicator") {
-            return true;
-        }
-        if (thisTweakValues.passphrase !== tweakValues.passphrase) {
-            Logger(
-                "Replication cancelled: Passphrase is not matched\nCannot replicate to a remote database until the problem is resolved.",
-                logLevel
-            );
-            return false;
-        }
-
-        if (
-            thisTweakValues.encrypt !== tweakValues.encrypt ||
-            thisTweakValues.usePathObfuscation !== tweakValues.usePathObfuscation
-        ) {
-            Logger(
-                "Replication cancelled: The encryption or path obfuscation settings do not match this peer.",
-                logLevel
-            );
-            return false;
-        }
-
-        if (
-            thisTweakValues.encrypt &&
-            thisTweakValues.usePathObfuscation &&
-            ((thisTweakValues.idDerivationVersion ?? 0) !== (tweakValues.idDerivationVersion ?? 0) ||
-                (thisTweakValues.idDerivationProof ?? "") !== (tweakValues.idDerivationProof ?? ""))
-        ) {
-            Logger("Replication cancelled: The ID derivation settings do not match this peer.", logLevel);
-            return false;
-        }
-
-        const tweakAssessment = assessTweakCompatibility(thisTweakValues, tweakValues);
-        if (!tweakAssessment.representationDiffers) return true;
-
-        Logger(
-            "Some mismatched configuration have been detected... Please check settings for efficient replication.",
-            logLevel
-        );
-        return true;
+        return await this.peerAgreement.checkTweakValues(peerId, signal, logLevel);
     }
 
     private configuredPeerNames(): string[] {
