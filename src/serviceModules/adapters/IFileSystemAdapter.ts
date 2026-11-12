@@ -4,6 +4,7 @@ import type { ITypeGuardAdapter } from "./ITypeGuardAdapter.ts";
 import type { IConversionAdapter } from "./IConversionAdapter.ts";
 import type { IStorageAdapter } from "./IStorageAdapter.ts";
 import type { IVaultAdapter } from "./IVaultAdapter.ts";
+import type { FileNameLookup } from "@lib/platform/FilePathIndex.ts";
 
 /**
  * Main file system adapter interface
@@ -29,6 +30,9 @@ export interface IFileSystemAdapter<
 
     /** Storage operations */
     readonly storage: IStorageAdapter<TStat>;
+
+    /** Optional maintained file-name inventory and candidate lookup. */
+    readonly fileNameLookup?: FileNameLookup;
 
     /** Vault operations */
     readonly vault: IVaultAdapter<TNativeFile>;

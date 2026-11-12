@@ -160,6 +160,25 @@ invocation-wait cleanup. They add no consumer entry points, persistent state,
 retry policy, or new queue policy. Function comments record settings provenance,
 secret exclusions, completion meaning, error boundaries, and cancellation order.
 
+## File-name lookup implementation
+
+`ServiceFileAccessBase.ts` forwards name queries to the host adapter or its
+package-private `ServiceFileAccessBase/fileNames.ts` fallback. The fallback
+retains one typed request for the active storage-event count and comparison
+policy, shares its pending listing, and uses `FilePathIndex` to select candidates.
+A fresh read retires that request before listing again. Older completions remain
+visible to their original callers without replacing a newer retained request.
+`StorageAccess` inherits the name-query methods from the shared `FileNameLookup`
+contract. The host adapter's indexed capability remains optional; the facade's
+fallback keeps both methods available without redeclaring their signatures.
+
+The fallback factory owns only its active-request state. Index creation, request
+reuse, candidate selection, and rejection retirement are named module-level
+operations with explicit state and dependency parameters. Listing-only operations
+accept just `getFileNames`; observation counting is required only by candidate
+selection. Direct operation tests cover promise sharing, re-entrant invalidation,
+older request rejection, and policy snapshots alongside the factory contract tests.
+
 ## Service composition and state ownership
 
 Commonlib uses four related forms of composition. Choose between them by ownership and dependency direction, not merely by whether an implementation has mutable state.

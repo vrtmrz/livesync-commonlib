@@ -480,6 +480,7 @@ describe("ServiceRebuilder NFC path preflight", () => {
         services.database.resetDatabaseForCurrentSettings.mockRejectedValueOnce(resetBoundary);
         await expect(rebuilder.rebuildEverything()).rejects.toBe(resetBoundary);
         expect(services.storageAccess.getFileNames).toHaveBeenCalledOnce();
+        expect(services.storageAccess.getFileNames).toHaveBeenCalledWith({ fresh: true });
         expect(services.database.resetDatabaseForCurrentSettings).toHaveBeenCalledOnce();
         expect(services.replication.markLocked).not.toHaveBeenCalled();
     });

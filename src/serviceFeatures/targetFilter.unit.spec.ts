@@ -4,6 +4,8 @@ import { isAcceptedAlwaysFactory } from "./targetFilter";
 import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { IVaultService } from "@lib/services/base/IService";
+import { getStoragePathComparisonKey } from "@lib/platform/pathComparison.ts";
+import type { FilePath, PathComparisonSettings } from "@lib/platform/pathTypes.ts";
 const APIServiceMock = {
     addLog(message: string, level?: any) {
         // For testing, we can simply log to console or store logs in an array if needed.
@@ -38,13 +40,19 @@ const mockVault = {
         return this._caseSensitivityDisabled;
     },
 };
-const mockStorageAccess = {
-    _files: ["a.md", "A.md", "b.txt", "c.txt", "c.md"],
-    getFileNames: () => mockStorageAccess._files,
-};
-const mockFileProcessing = {
-    totalStorageFileEventCount: 0,
-};
+function createCandidateStorage(files: string[]) {
+    return {
+        _files: files,
+        findPathIdentityCandidates(path: FilePath, policy: PathComparisonSettings) {
+            const key = getStoragePathComparisonKey(path, policy);
+            return Promise.resolve(
+                this._files
+                    .filter((candidate) => getStoragePathComparisonKey(candidate as FilePath, policy) === key)
+                    .sort()
+            );
+        },
+    };
+}
 describe("isAcceptedInFilenameDuplication", () => {
     let logger: LogFunction;
     beforeAll(() => {
@@ -55,11 +63,10 @@ describe("isAcceptedInFilenameDuplication", () => {
         return {
             services: {
                 vault: mockVault,
-                fileProcessing: mockFileProcessing,
                 setting: { currentSettings: () => ({ pathNormalizationVersion: 0 }) },
             },
             serviceModules: {
-                storageAccess: mockStorageAccess,
+                storageAccess: createCandidateStorage(["a.md", "A.md", "b.txt", "c.txt", "c.md"]),
             },
         } as any;
     }
@@ -77,17 +84,11 @@ describe("isAcceptedInFilenameDuplication", () => {
         expect(await handler("A.md")).toBe(false);
         expect(await handler("b.txt")).toBe(true);
     });
-    it("should memorise file count map and update only when totalStorageFileEventCount changes", async () => {
+    it("delegates candidate freshness to storage access", async () => {
         const host = createHost({ caseInsensitive: true });
         const handler = isAcceptedInFilenameDuplicationFactory(host, logger);
-        expect(await handler("a.md")).toBe(false);
-        expect(await handler("A.md")).toBe(false);
         expect(await handler("b.txt")).toBe(true);
         host.serviceModules.storageAccess._files.push("B.txt");
-        // still should return false because the file count map is memorised and not updated yet
-        expect(await handler("b.txt")).toBe(true);
-        // update totalStorageFileEventCount to trigger file count map update
-        host.services.fileProcessing.totalStorageFileEventCount++;
         expect(await handler("b.txt")).toBe(false);
     });
 
@@ -120,9 +121,8 @@ describe("NFC filename duplication", () => {
             services: {
                 setting: { currentSettings: () => settings },
                 vault: { shouldCheckCaseInsensitively: () => caseInsensitive },
-                fileProcessing: { totalStorageFileEventCount: 0 },
             },
-            serviceModules: { storageAccess: { getFileNames: async () => files } },
+            serviceModules: { storageAccess: createCandidateStorage(files) },
         } as any;
         return { settings, files, handler: isAcceptedInFilenameDuplicationFactory(host, createLogger("NFC")) };
     }
@@ -142,6 +142,42 @@ describe("NFC filename duplication", () => {
         expect(await handler("Caf\u00e9.md")).toBe(true);
         settings.pathNormalizationVersion = 1;
         expect(await handler("Caf\u00e9.md")).toBe(false);
+    });
+});
+
+describe("filename collision candidate lookup", () => {
+    it("delegates candidate lookup with one explicit comparison policy", async () => {
+        const candidateLookups: Array<{ path: string; policy: unknown }> = [];
+        let wholeNameReads = 0;
+        const storageAccess = {
+            getFileNames: async () => {
+                wholeNameReads++;
+                return ["a.md"];
+            },
+            findPathIdentityCandidates: async (path: string, policy: unknown) => {
+                candidateLookups.push({ path, policy });
+                return [path];
+            },
+        };
+        const host = {
+            services: {
+                setting: { currentSettings: () => ({ pathNormalizationVersion: 1 }) },
+                vault: { shouldCheckCaseInsensitively: () => false },
+                fileProcessing: { totalStorageFileEventCount: 0 },
+            },
+            serviceModules: { storageAccess },
+        } as any;
+
+        const accepted = await isAcceptedInFilenameDuplicationFactory(host, createLogger("candidate lookup"))("a.md");
+
+        expect(accepted).toBe(true);
+        expect(wholeNameReads).toBe(0);
+        expect(candidateLookups).toEqual([
+            {
+                path: "a.md",
+                policy: { pathNormalizationVersion: 1, handleFilenameCaseSensitive: true },
+            },
+        ]);
     });
 });
 

@@ -2,12 +2,11 @@ import { LOG_LEVEL_DEBUG, LOG_LEVEL_VERBOSE, type UXFileInfoStub } from "@lib/co
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
 import { isAcceptedAll } from "@lib/string_and_binary/path";
-import { Computed } from "octagonal-wheels/dataobject/Computed";
 
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import type { IVaultService } from "@lib/services/base/IService";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
-import { getPathNormalizationVersion, normalisePathForIdentity } from "@lib/common/pathNormalization";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
 
 /**
  * This is a simple handler that accepts all files.
@@ -23,54 +22,22 @@ export function isAcceptedAlwaysFactory(host: NecessaryServices<never, never>, l
  * Check if a file is accepted based on filename duplication in the vault.
  */
 export function isAcceptedInFilenameDuplicationFactory(
-    host: NecessaryServices<"vault" | "fileProcessing" | "setting", "storageAccess">,
+    host: NecessaryServices<"vault" | "setting", "storageAccess">,
     log: LogFunction
 ) {
-    const fileCountMapComputed = new Computed({
-        evaluation: async (fileEventCount: number, version: number, caseInsensitive: boolean) => {
-            const vaultFiles = (await host.serviceModules.storageAccess.getFileNames()).sort();
-            const fileCountMap = new Map<string, string[]>();
-            for (const file of vaultFiles) {
-                const normalised = normalisePathForIdentity(file, version);
-                const key = caseInsensitive ? normalised.toLowerCase() : normalised;
-                const paths = fileCountMap.get(key) ?? [];
-                paths.push(file);
-                fileCountMap.set(key, paths);
-            }
-            return fileCountMap;
-        },
-        requiresUpdate: (args, previousArgs, previousResult) => {
-            if (!previousResult) return true;
-            if (previousResult instanceof Error) return true;
-            if (!previousArgs) return true;
-            if (args.every((value, index) => value === previousArgs[index])) {
-                return false;
-            }
-            return true;
-        },
-    });
-
     return async function isAcceptedInFilenameDuplication(
         file: string | UXFileInfoStub,
         options?: Parameters<IVaultService["isTargetFile"]>[1]
     ): Promise<boolean> {
         if (options?.skipCaseCollisionCheck) return true;
-        const version = getPathNormalizationVersion(host.services.setting.currentSettings());
-        const caseInsensitive = host.services.vault.shouldCheckCaseInsensitively();
-        const fileCountMap = (
-            await fileCountMapComputed.update(
-                host.services.fileProcessing.totalStorageFileEventCount,
-                version,
-                caseInsensitive
-            )
-        ).value;
-
+        const policy = {
+            pathNormalizationVersion: getPathNormalizationVersion(host.services.setting.currentSettings()),
+            handleFilenameCaseSensitive: !host.services.vault.shouldCheckCaseInsensitively(),
+        };
         const filepath = getStoragePathFromUXFileInfo(file);
-        const normalised = normalisePathForIdentity(filepath, version);
-        const key = caseInsensitive ? normalised.toLowerCase() : normalised;
-        const duplicates = fileCountMap.get(key);
-        if (duplicates && duplicates.length > 1) {
-            log("File path identity collision: " + duplicates.map((path) => JSON.stringify(path)).join(", "));
+        const candidates = await host.serviceModules.storageAccess.findPathIdentityCandidates(filepath, policy);
+        if (candidates.length > 1) {
+            log("File path identity collision: " + candidates.map((path) => JSON.stringify(path)).join(", "));
             return false;
         }
         log("File is not duplicated: " + filepath, LOG_LEVEL_DEBUG);
@@ -199,7 +166,6 @@ export function useTargetFilters(
             services: {
                 context: services.context,
                 vault: services.vault,
-                fileProcessing: services.fileProcessing,
                 setting: services.setting,
             },
             serviceModules: { storageAccess: serviceModules.storageAccess },

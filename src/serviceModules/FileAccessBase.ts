@@ -6,6 +6,8 @@ import type { IAPIService, IPathService, ISettingService, IVaultService } from "
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils.ts";
 import type { FileWithFileStat } from "@lib/common/models/fileaccess.type";
 import type { IFileSystemAdapter } from "./adapters";
+import type { FileNameReadOptions } from "@lib/platform/FilePathIndex.ts";
+import type { PathComparisonSettings } from "@lib/platform/pathTypes.ts";
 
 export function toArrayBuffer(arr: Uint8Array<ArrayBuffer> | ArrayBuffer | DataView<ArrayBuffer>): ArrayBuffer {
     if (arr instanceof Uint8Array) {
@@ -294,6 +296,21 @@ export class FileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, a
 
     async getFiles(): Promise<ExtractFile<TAdapter>[]> {
         return await this.adapter.getFiles();
+    }
+
+    async getFileNames(options?: FileNameReadOptions): Promise<FilePath[]> {
+        if (this.adapter.fileNameLookup) {
+            return await this.adapter.fileNameLookup.getFileNames(options);
+        }
+        const files = await this.getFiles();
+        return files.map((file) => this.getPath(file));
+    }
+
+    findPathIdentityCandidates(
+        path: FilePath,
+        policy: PathComparisonSettings
+    ): Promise<readonly FilePath[]> | undefined {
+        return this.adapter.fileNameLookup?.findPathIdentityCandidates(path, policy);
     }
 
     async ensureDirectory(fullPath: string) {

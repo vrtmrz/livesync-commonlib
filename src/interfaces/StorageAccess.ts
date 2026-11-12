@@ -9,6 +9,7 @@ import type {
 } from "@lib/common/types";
 import type { CustomRegExp } from "@lib/common/utils";
 import type { FileWithFileStat, FileWithStatAsProp } from "@lib/common/models/fileaccess.type";
+import type { FileNameLookup } from "@lib/platform/FilePathIndex.ts";
 export interface IStorageAccessManager {
     processWriteFile<T>(file: UXFileInfoStub | FilePathWithPrefix, proc: () => Promise<T>): Promise<T>;
     processReadFile<T>(file: UXFileInfoStub | FilePathWithPrefix, proc: () => Promise<T>): Promise<T>;
@@ -17,7 +18,13 @@ export interface IStorageAccessManager {
     touch(file: FileWithStatAsProp | FileWithFileStat): void;
     clearTouched(): void;
 }
-export interface StorageAccess {
+/**
+ * Storage facade with the shared name-query contract available on every host.
+ *
+ * An adapter can omit its indexed lookup capability; the service facade supplies
+ * the base fallback while retaining the FileNameLookup method contract.
+ */
+export interface StorageAccess extends FileNameLookup {
     normalisePath(path: string): string;
 
     restoreState(): Promise<void>;
@@ -54,7 +61,6 @@ export interface StorageAccess {
     getStub(path: string): Promise<UXFileInfoStub | UXFolderInfo | null>;
 
     getFiles(): Promise<UXFileInfoStub[]>;
-    getFileNames(): Promise<FilePathWithPrefix[]>;
 
     touched(file: UXFileInfoStub | FilePathWithPrefix): Promise<void>;
     recentlyTouched(file: UXFileInfoStub | FilePathWithPrefix): Promise<boolean>;

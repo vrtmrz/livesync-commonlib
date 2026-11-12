@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ServiceFileAccessBase } from "./ServiceFileAccessBase";
 import type { FilePath, FilePathWithPrefix } from "@lib/common/types";
+import type { PathComparisonSettings } from "@lib/platform/pathTypes.ts";
 
 type MockFolder = {
     kind: "folder";
@@ -255,5 +256,118 @@ describe("ServiceFileAccessBase local completion lifecycle", () => {
         const { getBeforeUnload } = fixture(async () => { throw new Error("Snapshot unavailable"); });
         expect(getBeforeUnload()).toBeDefined();
         await expect(getBeforeUnload()!()).rejects.toThrow("Snapshot unavailable");
+    });
+});
+
+describe("ServiceFileAccessBase file-name lookup", () => {
+    function createFileNameService(
+        getFileNames: (options?: { fresh?: boolean }) => Promise<FilePath[]>,
+        indexedLookup?: (path: FilePath, policy: PathComparisonSettings) => Promise<readonly FilePath[]> | undefined
+    ) {
+        const fileProcessing = {
+            totalStorageFileEventCount: 0,
+            commitPendingFileEvents: { addHandler: vi.fn() },
+        };
+        const vaultAccess = {
+            getFileNames,
+            findPathIdentityCandidates: indexedLookup ?? (() => undefined),
+        };
+        const service = new ServiceFileAccessBase<any>({
+            API: { addLog: vi.fn() } as any,
+            appLifecycle: {
+                onFirstInitialise: { addHandler: vi.fn() },
+                onBeforeUnload: { addHandler: vi.fn() },
+            } as any,
+            fileProcessing: fileProcessing as any,
+            vault: {} as any,
+            setting: {} as any,
+            storageEventManager: {} as any,
+            storageAccessManager: {} as any,
+            vaultAccess: vaultAccess as any,
+        });
+        return { service, fileProcessing, vaultAccess };
+    }
+
+    const caseInsensitivePolicy = { pathNormalizationVersion: 0 as const, handleFilenameCaseSensitive: false };
+
+    it("forwards candidate queries when the adapter supplies a lookup", async () => {
+        const candidates = ["A.md"] as FilePath[];
+        const indexedLookup = vi.fn(async () => candidates);
+        const getFileNames = vi.fn(async () => [] as FilePath[]);
+        const { service } = createFileNameService(getFileNames, indexedLookup);
+
+        await expect(service.findPathIdentityCandidates("a.md" as FilePath, caseInsensitivePolicy)).resolves.toEqual(
+            candidates
+        );
+        expect(indexedLookup).toHaveBeenCalledWith("a.md", caseInsensitivePolicy);
+        expect(getFileNames).not.toHaveBeenCalled();
+    });
+
+    it("caches fallback candidates by event count and effective comparison policy", async () => {
+        const names = ["A.md"] as FilePath[];
+        const getFileNames = vi.fn(async () => [...names]);
+        const { service, fileProcessing } = createFileNameService(getFileNames);
+
+        await expect(service.findPathIdentityCandidates("a.md" as FilePath, caseInsensitivePolicy)).resolves.toEqual([
+            "A.md",
+        ]);
+        await service.findPathIdentityCandidates("a.md" as FilePath, caseInsensitivePolicy);
+        expect(getFileNames).toHaveBeenCalledOnce();
+
+        names.push("a.md" as FilePath);
+        await expect(service.findPathIdentityCandidates("a.md" as FilePath, caseInsensitivePolicy)).resolves.toEqual([
+            "A.md",
+        ]);
+        fileProcessing.totalStorageFileEventCount++;
+        await expect(service.findPathIdentityCandidates("a.md" as FilePath, caseInsensitivePolicy)).resolves.toEqual([
+            "A.md",
+            "a.md",
+        ]);
+        expect(getFileNames).toHaveBeenCalledTimes(2);
+    });
+
+    it("coalesces concurrent fallback reads with the same cache key", async () => {
+        let resolveNames!: (paths: FilePath[]) => void;
+        const pendingNames = new Promise<FilePath[]>((resolve) => {
+            resolveNames = resolve;
+        });
+        const getFileNames = vi.fn(() => pendingNames);
+        const { service } = createFileNameService(getFileNames);
+
+        const first = service.findPathIdentityCandidates("a.md" as FilePath, caseInsensitivePolicy);
+        const second = service.findPathIdentityCandidates("a.md" as FilePath, caseInsensitivePolicy);
+        expect(getFileNames).toHaveBeenCalledOnce();
+        resolveNames(["A.md"] as FilePath[]);
+
+        await expect(Promise.all([first, second])).resolves.toEqual([["A.md"], ["A.md"]]);
+    });
+
+    it("does not publish an older in-flight fallback map after a fresh listing", async () => {
+        let resolveOldNames!: (paths: FilePath[]) => void;
+        const oldNames = new Promise<FilePath[]>((resolve) => {
+            resolveOldNames = resolve;
+        });
+        let currentNames = ["A.md"] as FilePath[];
+        let ordinaryReads = 0;
+        const getFileNames = vi.fn(async (options?: { fresh?: boolean }) => {
+            if (options?.fresh) {
+                return [...currentNames];
+            }
+            ordinaryReads++;
+            return ordinaryReads === 1 ? await oldNames : [...currentNames];
+        });
+        const { service } = createFileNameService(getFileNames);
+
+        const oldLookup = service.findPathIdentityCandidates("a.md" as FilePath, caseInsensitivePolicy);
+        currentNames = ["A.md", "a.md"] as FilePath[];
+        await expect(service.getFileNames({ fresh: true })).resolves.toEqual(currentNames);
+        resolveOldNames(["A.md"] as FilePath[]);
+        await expect(oldLookup).resolves.toEqual(["A.md"]);
+
+        await expect(service.findPathIdentityCandidates("a.md" as FilePath, caseInsensitivePolicy)).resolves.toEqual([
+            "A.md",
+            "a.md",
+        ]);
+        expect(getFileNames).toHaveBeenCalledTimes(3);
     });
 });
