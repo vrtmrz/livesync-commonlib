@@ -1,27 +1,25 @@
-import {
-    createReplicationProgress,
-    type P2PReplicationProgress,
-    type P2PReplicationReport,
-} from "./TrysteroReplicator/progress";
-import {
-    createTransfers,
-    p2pReplicationFailed,
-    type Transfers,
-    type P2PReplicationResult,
-} from "./TrysteroReplicator/transfers";
-import { createConfiguredTargets, type P2PConfiguredReplicationResult } from "./TrysteroReplicator/configuredTargets";
+import { createReplicationProgress } from "./TrysteroReplicator/progress";
+import { createTransfers, p2pReplicationFailed, type Transfers } from "./TrysteroReplicator/transfers";
+import { createConfiguredTargets } from "./TrysteroReplicator/configuredTargets";
+import type {
+    P2PReplicationProgress,
+    P2PReplicationReport,
+    P2PReplicationResult,
+    P2PConfiguredReplicationResult,
+    ProgressAcknowledgement,
+} from "./replicationTypes";
 export type {
     P2PReplicationDirectionProgress,
     P2PReplicationProgress,
     P2PReplicationReport,
-} from "./TrysteroReplicator/progress";
-export type { P2PReplicationResult } from "./TrysteroReplicator/transfers";
-export type { P2PConfiguredTargetResult, P2PConfiguredReplicationResult } from "./TrysteroReplicator/configuredTargets";
+    P2PReplicationResult,
+    P2PConfiguredTargetResult,
+    P2PConfiguredReplicationResult,
+} from "./replicationTypes";
 import { createConfigurationExchange } from "./TrysteroReplicator/configurationExchange";
 import { createPeerAgreement, type PeerAgreement, type PeerTweakSettings } from "./TrysteroReplicator/peerAgreement";
 import { createChangeRelay, type ChangeRelay } from "./TrysteroReplicator/changeRelay";
 import { reportP2PDiagnostic, type P2PDiagnosticInput } from "@lib/p2p/p2pDiagnostics";
-import type { ProgressAcknowledgement } from "./p2pReplicationProgress";
 import { parsePeerPatterns } from "./peerPatterns";
 import type PouchDB from "pouchdb-core";
 import { type EntryDoc, type ObsidianLiveSyncSettings } from "@lib/common/types";

@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
 import {
+    acknowledgeProgress,
+    beginAttempt,
+    clear,
     createReplicationProgress,
+    onProgressAcknowledged,
+    onReplicationProgress,
+    peerLeft,
     type P2PReplicationReport,
     type ProgressAcknowledgementTarget,
     type ReplicationProgressDependencies,
@@ -47,6 +53,70 @@ function createHarness() {
         },
     };
 }
+
+describe("standalone replication progress operations", () => {
+    it("projects fetching progress using only its required host capabilities", () => {
+        const emitProgress = vi.fn<(report: P2PReplicationReport) => void>();
+        const dependencies = {
+            isDisposed: vi.fn(() => false),
+            peerName: vi.fn((_peerId: string) => "Peer direct-fetch"),
+            emitProgress,
+        };
+
+        expect(onReplicationProgress(dependencies, "direct-fetch", progress(3))).toBe(true);
+        expect(emitProgress).toHaveBeenCalledExactlyOnceWith({
+            peerId: "direct-fetch",
+            peerName: "Peer direct-fetch",
+            fetching: {
+                max: 5,
+                current: 3,
+                isActive: true,
+                statistics: { documents: 3, checkedChanges: 3 },
+            },
+        });
+    });
+
+    it("tracks acknowledgements with only their dependencies and owned peer map", () => {
+        const emitProgress = vi.fn<(report: P2PReplicationReport) => void>();
+        const dependencies = {
+            isDisposed: vi.fn(() => false),
+            peerName: vi.fn((_peerId: string) => "Peer direct-send"),
+            emitProgress,
+        };
+        const acknowledgedAttempts = new Map();
+
+        expect(
+            onProgressAcknowledged({ dependencies, acknowledgedAttempts }, "direct-send", progress(4), { attempt: 12 })
+        ).toBe(true);
+        expect(acknowledgedAttempts.has("direct-send")).toBe(true);
+        expect(
+            onProgressAcknowledged({ dependencies, acknowledgedAttempts }, "direct-send", progress(5), { attempt: 11 })
+        ).toBe(false);
+        expect(emitProgress).toHaveBeenCalledOnce();
+    });
+
+    it("sends through a captured target and clears ordering state without resetting attempt order", () => {
+        const send = vi.fn(async () => undefined);
+        const target: ProgressAcknowledgementTarget = { send };
+        const dependencies = {
+            isDisposed: vi.fn(() => false),
+            captureAcknowledgementTarget: vi.fn(() => target),
+        };
+
+        expect(acknowledgeProgress(dependencies, "direct-target", progress(1), { attempt: 15 })).toBeUndefined();
+        expect(dependencies.captureAcknowledgementTarget).toHaveBeenCalledExactlyOnceWith("direct-target");
+        expect(send).toHaveBeenCalledExactlyOnceWith(progress(1), { attempt: 15 });
+
+        const acknowledgedAttempts = new Map();
+        acknowledgedAttempts.set("departing-peer", { attempt: 2, checkedChanges: 4 });
+        peerLeft(acknowledgedAttempts, "departing-peer");
+        expect(acknowledgedAttempts.has("departing-peer")).toBe(false);
+        acknowledgedAttempts.set("retained-peer", { attempt: 3, checkedChanges: 5 });
+        clear(acknowledgedAttempts);
+        expect(acknowledgedAttempts.size).toBe(0);
+        expect(beginAttempt().attempt).toBeTypeOf("number");
+    });
+});
 
 describe("P2P replication progress coordinator", () => {
     it("allocates monotonically increasing attempt numbers across instances and clear", () => {

@@ -1,31 +1,14 @@
-import type { ProgressInfo, ReplicationStatistics } from "@lib/pouchdb/ReplicatorShim";
+import type { ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
 import { Logger, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import { bindContext } from "octagonal-wheels/context";
-import {
-    projectAcknowledgedAttempt,
-    projectDirectionProgress,
-    type AcknowledgedProgressAttempt,
-    type ProgressAcknowledgement,
-} from "../p2pReplicationProgress";
+import { projectAcknowledgedAttempt, projectDirectionProgress } from "../p2pReplicationProgress";
 
-/** Sequence progress retained for compatibility, with independently observed work counts. */
-export type P2PReplicationDirectionProgress = {
-    max: number;
-    current: number;
-    isActive: boolean;
-    statistics?: ReplicationStatistics;
-};
-
-export type P2PReplicationProgress = {
-    peerId: string;
-    peerName: string;
-    fetching: P2PReplicationDirectionProgress;
-    sending: P2PReplicationDirectionProgress;
-};
-export type P2PReplicationReport = {
-    peerId: string;
-    peerName: string;
-} & ({ fetching: P2PReplicationDirectionProgress } | { sending: P2PReplicationDirectionProgress });
+import type { P2PReplicationReport, AcknowledgedProgressAttempt, ProgressAcknowledgement } from "../replicationTypes";
+export type {
+    P2PReplicationDirectionProgress,
+    P2PReplicationProgress,
+    P2PReplicationReport,
+} from "../replicationTypes";
 
 /** A target captured from the current room and used for one progress acknowledgement. */
 export type ProgressAcknowledgementTarget = {
@@ -40,10 +23,16 @@ export type ReplicationProgressDependencies = {
     captureAcknowledgementTarget: (peerId: string) => ProgressAcknowledgementTarget | undefined;
 };
 
-type ReplicationProgressContext = {
-    dependencies: ReplicationProgressDependencies;
-    acknowledgedAttempts: Map<string, AcknowledgedProgressAttempt>;
+type AcknowledgedAttempts = Map<string, AcknowledgedProgressAttempt>;
+
+type OnReplicationProgressDeps = Pick<ReplicationProgressDependencies, "isDisposed" | "peerName" | "emitProgress">;
+
+type OnProgressAcknowledgedContext = {
+    dependencies: Pick<ReplicationProgressDependencies, "isDisposed" | "peerName" | "emitProgress">;
+    acknowledgedAttempts: AcknowledgedAttempts;
 };
+
+type AcknowledgeProgressDeps = Pick<ReplicationProgressDependencies, "isDisposed" | "captureAcknowledgementTarget">;
 
 /**
  * Trystero's default peer ID lives for this module realm. Keep attempts ordered
@@ -56,8 +45,11 @@ let nextProgressAttempt = 0;
  * transport acknowledgement. The fetching report carries the current PouchDB
  * progress snapshot and preserves its statistics as an independent copy.
  */
-function onReplicationProgress(context: ReplicationProgressContext, peerId: string, info?: ProgressInfo): boolean {
-    const { dependencies } = context;
+export function onReplicationProgress(
+    dependencies: OnReplicationProgressDeps,
+    peerId: string,
+    info?: ProgressInfo
+): boolean {
     if (dependencies.isDisposed()) {
         return false;
     }
@@ -75,13 +67,12 @@ function onReplicationProgress(context: ReplicationProgressContext, peerId: stri
  * change count are not stale. Final progress supplies the last statistics after
  * transfer completion, while the emitted sending direction remains inactive.
  */
-function onProgressAcknowledged(
-    context: ReplicationProgressContext,
+export function onProgressAcknowledged(
+    { dependencies, acknowledgedAttempts }: OnProgressAcknowledgedContext,
     peerId: string,
     info?: ProgressInfo | null,
     acknowledgement?: ProgressAcknowledgement
 ): boolean {
-    const { dependencies, acknowledgedAttempts } = context;
     if (dependencies.isDisposed()) {
         return false;
     }
@@ -108,13 +99,12 @@ function onProgressAcknowledged(
  * current room after checking disposal and observe send failures in the background.
  * This reporting RPC is separate from the response-free change notification.
  */
-function acknowledgeProgress(
-    context: ReplicationProgressContext,
+export function acknowledgeProgress(
+    dependencies: AcknowledgeProgressDeps,
     remotePeerId: string,
     info?: ProgressInfo,
     acknowledgement?: ProgressAcknowledgement
 ): void {
-    const { dependencies } = context;
     if (dependencies.isDisposed()) {
         return;
     }
@@ -134,18 +124,18 @@ function acknowledgeProgress(
 }
 
 /** Start a new room-independent attempt number in this module realm. */
-function beginAttempt(_context: ReplicationProgressContext): ProgressAcknowledgement {
+export function beginAttempt(): ProgressAcknowledgement {
     return { attempt: ++nextProgressAttempt };
 }
 
 /** Forget only the departed peer's ordering state. */
-function peerLeft(context: ReplicationProgressContext, peerId: string): void {
-    context.acknowledgedAttempts.delete(peerId);
+export function peerLeft(acknowledgedAttempts: AcknowledgedAttempts, peerId: string): void {
+    acknowledgedAttempts.delete(peerId);
 }
 
 /** Forget all room-local acknowledgement state without resetting attempt order. */
-function clear(context: ReplicationProgressContext): void {
-    context.acknowledgedAttempts.clear();
+export function clear(acknowledgedAttempts: AcknowledgedAttempts): void {
+    acknowledgedAttempts.clear();
 }
 
 /**
@@ -153,16 +143,13 @@ function clear(context: ReplicationProgressContext): void {
  * ordering. Construction is inert: it allocates only the bounded peer-state map.
  */
 export function createReplicationProgress(dependencies: ReplicationProgressDependencies) {
-    const context: ReplicationProgressContext = {
-        dependencies,
-        acknowledgedAttempts: new Map(),
-    };
+    const acknowledgedAttempts: AcknowledgedAttempts = new Map();
     return {
-        onReplicationProgress: bindContext(context, onReplicationProgress),
-        onProgressAcknowledged: bindContext(context, onProgressAcknowledged),
-        acknowledgeProgress: bindContext(context, acknowledgeProgress),
-        beginAttempt: bindContext(context, beginAttempt),
-        peerLeft: bindContext(context, peerLeft),
-        clear: bindContext(context, clear),
+        onReplicationProgress: bindContext(dependencies, onReplicationProgress),
+        onProgressAcknowledged: bindContext({ dependencies, acknowledgedAttempts }, onProgressAcknowledged),
+        acknowledgeProgress: bindContext(dependencies, acknowledgeProgress),
+        beginAttempt,
+        peerLeft: bindContext(acknowledgedAttempts, peerLeft),
+        clear: bindContext(acknowledgedAttempts, clear),
     };
 }

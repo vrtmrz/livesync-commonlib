@@ -2,7 +2,19 @@ import { EventEmitter } from "node:events";
 import type PouchDB from "pouchdb-core";
 import { describe, expect, it, vi } from "vitest";
 import type { EntryDoc } from "@lib/common/types";
-import { createChangeRelay, type PeerNotificationTarget } from "./changeRelay";
+import {
+    closeChanges,
+    createChangeRelay,
+    disableBroadcastChanges,
+    enableBroadcastChanges,
+    notifyPeerProgress,
+    notifyProgress,
+    onChange,
+    onUpdateDatabase,
+    unwatchPeer,
+    watchPeer,
+    type PeerNotificationTarget,
+} from "./changeRelay";
 
 function createHarness() {
     const emitter = new EventEmitter();
@@ -46,7 +58,172 @@ function target(): PeerNotificationTarget {
     return { isAccepted: vi.fn(async () => true), isCurrent: vi.fn(() => true), send: vi.fn(async () => {}) };
 }
 
+describe("standalone change relay operations", () => {
+    it("records an opaque change sequence and closes the feed through narrow capabilities", async () => {
+        const announceChanges = vi.fn(async () => {});
+        const relay = { lastSeq: "" as string | number };
+        await onChange({ deps: { announceChanges }, relay }, { seq: "opaque-sequence" });
+        expect(relay.lastSeq).toBe("opaque-sequence");
+        expect(announceChanges).toHaveBeenCalledOnce();
+
+        const emitter = new EventEmitter();
+        const feed = Object.assign(emitter, { cancel: vi.fn() });
+        const dispatchStatus = vi.fn();
+        const reportDiagnostic = vi.fn();
+        const closeState = { changes: feed as unknown as PouchDB.Core.Changes<EntryDoc>, isBroadcasting: true };
+        closeChanges({ deps: { dispatchStatus, reportDiagnostic }, relay: closeState }, new Error("feed failed"));
+
+        expect(feed.cancel).toHaveBeenCalledOnce();
+        expect(feed.listenerCount("change")).toBe(0);
+        expect(closeState).toMatchObject({ changes: undefined, isBroadcasting: false });
+        expect(dispatchStatus).toHaveBeenCalledOnce();
+        expect(reportDiagnostic).toHaveBeenCalledExactlyOnceWith({
+            category: "sync",
+            code: "broadcast-disabled",
+            reason: "replication-error",
+        });
+    });
+
+    it("disables broadcasting directly while retaining synchronous completion deduplication", () => {
+        const emitter = new EventEmitter();
+        const feed = Object.assign(emitter, { cancel: vi.fn() });
+        const dispatchStatus = vi.fn();
+        const reportDiagnostic = vi.fn();
+        const relay = { changes: feed as unknown as PouchDB.Core.Changes<EntryDoc>, isBroadcasting: true };
+        feed.cancel.mockImplementation(() => {
+            relay.isBroadcasting = false;
+        });
+
+        disableBroadcastChanges({ deps: { dispatchStatus, reportDiagnostic }, relay });
+
+        expect(feed.cancel).toHaveBeenCalledOnce();
+        expect(relay.isBroadcasting).toBe(false);
+        expect(dispatchStatus).toHaveBeenCalledOnce();
+        expect(reportDiagnostic).not.toHaveBeenCalled();
+    });
+
+    it("enables a feed by composing the standalone change and close operations", async () => {
+        const emitter = new EventEmitter();
+        const feed = Object.assign(emitter, { cancel: vi.fn() });
+        const announceChanges = vi.fn(async () => {});
+        const dispatchStatus = vi.fn();
+        const reportDiagnostic = vi.fn();
+        const relay = {
+            changes: undefined as PouchDB.Core.Changes<EntryDoc> | undefined,
+            isBroadcasting: false,
+            lastSeq: "",
+        };
+        const deps = {
+            createChangesFeed: vi.fn(() => feed as unknown as PouchDB.Core.Changes<EntryDoc>),
+            dispatchStatus,
+            reportDiagnostic,
+            announceChanges,
+        };
+
+        enableBroadcastChanges({
+            deps,
+            relay,
+            onChange: (change) => onChange({ deps: { announceChanges }, relay }, change),
+            closeChanges: (reason) => closeChanges({ deps: { dispatchStatus, reportDiagnostic }, relay }, reason),
+        });
+        await vi.waitFor(() => expect(announceChanges).toHaveBeenCalledTimes(1));
+        feed.emit("change", { seq: "direct-sequence" });
+        await vi.waitFor(() => expect(announceChanges).toHaveBeenCalledTimes(2));
+        expect(relay.lastSeq).toBe("direct-sequence");
+        feed.emit("complete");
+        expect(relay).toMatchObject({ changes: undefined, isBroadcasting: false });
+        expect(reportDiagnostic.mock.calls.map(([event]) => event.code)).toEqual([
+            "broadcast-enabled",
+            "broadcast-disabled",
+        ]);
+    });
+
+    it("schedules peer notification through the bound operation and sends with only target capabilities", async () => {
+        const notifyPeer = vi.fn(async (_peerId: string) => {});
+        const scheduled = notifyProgress(
+            {
+                deps: { hasHost: () => true, peerIds: () => ["standalone-excluded", "standalone-sent"] },
+                relay: { isBroadcasting: true },
+                notifyPeerProgress: notifyPeer,
+            },
+            "standalone-excluded"
+        );
+
+        expect(scheduled).toBeInstanceOf(Promise);
+        await scheduled;
+        await vi.waitFor(() => expect(notifyPeer).toHaveBeenCalledExactlyOnceWith("standalone-sent"));
+
+        const peer = target();
+        const reportDiagnostic = vi.fn();
+        const dependencies = {
+            captureNotificationTarget: vi.fn(() => peer),
+            isDisposed: vi.fn(() => false),
+            reportDiagnostic,
+        };
+        await notifyPeerProgress({ deps: dependencies, relay: { isBroadcasting: true } }, "standalone-sent");
+        expect(peer.send).toHaveBeenCalledOnce();
+        expect(reportDiagnostic).toHaveBeenCalledExactlyOnceWith({
+            category: "sync",
+            code: "change-notification-sent",
+            peerId: "standalone-sent",
+        });
+    });
+
+    it("uses only the watched set and operation-specific capabilities for pulls", async () => {
+        const watchingPeers = new Set<string>();
+        const dispatchStatus = vi.fn();
+        const reportDiagnostic = vi.fn();
+        const watchDeps = { dispatchStatus, reportDiagnostic };
+        watchPeer({ deps: watchDeps, relay: { watchingPeers } }, "standalone-watched");
+
+        const result = { status: "completed" };
+        const pullPeer = vi.fn(async () => result);
+        const pullDeps = { pullPeer, reportDiagnostic };
+        expect(await onUpdateDatabase({ deps: pullDeps, relay: { watchingPeers } }, "standalone-watched")).toBe(result);
+        unwatchPeer({ deps: watchDeps, relay: { watchingPeers } }, "standalone-watched");
+        expect(await onUpdateDatabase({ deps: pullDeps, relay: { watchingPeers } }, "standalone-watched")).toBe(false);
+
+        expect(pullPeer).toHaveBeenCalledExactlyOnceWith("standalone-watched");
+        expect(dispatchStatus).toHaveBeenCalledTimes(2);
+        expect(reportDiagnostic.mock.calls.map(([event]) => event.code)).toEqual([
+            "watch-enabled",
+            "change-notification-received",
+            "watch-disabled",
+            "change-notification-ignored",
+        ]);
+    });
+});
+
 describe("room-local change relay", () => {
+    it("preserves the dependency object receiver when binding relay operations", async () => {
+        const deps = {
+            hostAvailable: true,
+            peerIdsValue: [] as string[],
+            createChangesFeed: vi.fn(() => {
+                throw new Error("The changes feed is not used in this test");
+            }),
+            hasHost() {
+                return this.hostAvailable;
+            },
+            peerIds() {
+                return this.peerIdsValue;
+            },
+            captureNotificationTarget: vi.fn(() => undefined),
+            isDisposed: vi.fn(() => false),
+            announceChanges: vi.fn(),
+            pullPeer: vi.fn(async () => undefined),
+            dispatchStatus: vi.fn(),
+            reportDiagnostic: vi.fn(),
+        };
+        const relay = createChangeRelay(deps);
+        relay.isBroadcasting = true;
+
+        const scheduled = relay.notifyProgress();
+
+        expect(scheduled).toBeInstanceOf(Promise);
+        await scheduled;
+    });
+
     it("creates its own empty state without starting database or transport work", () => {
         const h = createHarness();
         expect(h.relay.isBroadcasting).toBe(false);
@@ -204,4 +381,17 @@ describe("room-local change relay", () => {
             expect(peer.send).not.toHaveBeenCalled();
         }
     );
+});
+
+it("uses the current watching set after the facade replaces it", async () => {
+    const h = createHarness();
+    const previous = h.relay.watchingPeers;
+    const replacement = new Set(["replacement-peer"]);
+    h.relay.watchingPeers = replacement;
+    expect(await h.relay.onUpdateDatabase("replacement-peer")).toBe(h.result);
+    h.relay.watchPeer("added-peer");
+    expect(replacement.has("added-peer")).toBe(true);
+    h.relay.unwatchPeer("replacement-peer");
+    expect(replacement.has("replacement-peer")).toBe(false);
+    expect(previous.size).toBe(0);
 });

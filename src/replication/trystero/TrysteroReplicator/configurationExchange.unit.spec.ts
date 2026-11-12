@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { decryptWithEphemeralSalt, encryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 import type { P2PSyncSetting } from "@lib/common/types";
-import { createConfigurationExchange } from "./configurationExchange";
+import { createConfigurationExchange, getRemoteConfig, shareConfiguration } from "./configurationExchange";
 
 type ConfigurationExchangeDependencies = Parameters<typeof createConfigurationExchange>[0];
 
@@ -33,6 +33,38 @@ function makeDependencies(overrides: Partial<ConfigurationExchangeDependencies> 
 async function encryptConfiguration(configuration: Record<string, unknown>, passphrase = "transfer-passphrase") {
     return await encryptWithEphemeralSalt(JSON.stringify(configuration), passphrase, true);
 }
+
+describe("standalone configuration exchange operations", () => {
+    it("shares settings using only the setup, snapshot, and prompt dependencies", async () => {
+        const result = await shareConfiguration(
+            {
+                isSetup: () => false,
+                settings: () => makeRoomSettings({ databaseName: "direct-share-room" }),
+                askString: async () => "direct-share-passphrase",
+                translate: (key) => key,
+            },
+            "direct-share-peer"
+        );
+
+        expect(typeof result).toBe("string");
+        const shared = JSON.parse(await decryptWithEphemeralSalt(result as string, "direct-share-passphrase"));
+        expect(shared.databaseName).toBe("direct-share-room");
+    });
+
+    it("imports settings using only host and prompt dependencies", async () => {
+        const encrypted = await encryptConfiguration({ encrypt: true });
+        const result = await getRemoteConfig(
+            {
+                host: () => ({ requestConfiguration: async () => encrypted }),
+                askString: async () => "transfer-passphrase",
+                translate: (key) => key,
+            },
+            "direct-import-peer"
+        );
+
+        expect(result).toMatchObject({ encrypt: true, idDerivationVersion: 0, idDerivationKey: "" });
+    });
+});
 
 describe("createConfigurationExchange", () => {
     it("constructs without IO and reads the room settings only after the sharing prompt", async () => {
@@ -111,8 +143,8 @@ describe("createConfigurationExchange", () => {
         expect(shared.remoteConfigurations.p2p.uri).toBe(profileUri);
     });
 
-    it.each([false, ""])("encrypts a masked decoy when sharing is declined with %s", async (answer) => {
-        const dependencies = makeDependencies({ askString: vi.fn(async () => answer) });
+    it.each([false, ""] as const)("encrypts a masked decoy when sharing is declined with %s", async (answer) => {
+        const dependencies = makeDependencies({ askString: vi.fn(async (): Promise<string | false> => answer) });
         const exchange = createConfigurationExchange(dependencies);
         const random = vi.spyOn(Math, "random").mockReturnValue(0.123456789);
 
@@ -176,13 +208,13 @@ describe("createConfigurationExchange", () => {
         expect(dependencies.askString).toHaveBeenCalledTimes(1);
     });
 
-    it.each([false, ""])(
+    it.each([false, ""] as const)(
         "returns false without decrypting when the import passphrase is blank (%s)",
         async (answer) => {
             const requestConfiguration = vi.fn(async () => "invalid-ciphertext");
             const dependencies = makeDependencies({
                 host: vi.fn(() => ({ requestConfiguration })),
-                askString: vi.fn(async () => answer),
+                askString: vi.fn(async (): Promise<string | false> => answer),
             });
             const exchange = createConfigurationExchange(dependencies);
 

@@ -34,6 +34,11 @@ export interface PeerAgreementHost {
     connection(peerId: string): PeerAgreementConnection;
 }
 
+/** The authentication operation uses only the authentication method on a captured connection. */
+interface PeerAuthenticationHost {
+    connection(peerId: string): Pick<PeerAgreementConnection, "requestAuthentication">;
+}
+
 /**
  * The host owns room binding, database validation, and presentation authority.
  * Snapshot settings describe the room; current settings supply policy and identity
@@ -49,6 +54,20 @@ export interface PeerAgreementDependencies {
     localTweakSettings(challenge: string): Promise<PeerTweakSettings>;
     reportDiagnostic(input: P2PDiagnosticInput): void;
 }
+
+/** Settings and path-identity capabilities used to produce a peer's tweak response. */
+export type GetTweakSettingsDependencies = Pick<
+    PeerAgreementDependencies,
+    "settings" | "currentSettings" | "assertPathIdentity"
+>;
+
+/** Host and diagnostic capabilities used to request peer authentication. */
+export type RequestAuthenticateDependencies = Pick<PeerAgreementDependencies, "reportDiagnostic"> & {
+    host(): PeerAuthenticationHost | undefined;
+};
+
+/** Host and local-policy capabilities used to compare peer tweak settings. */
+export type CheckTweakValuesDependencies = Pick<PeerAgreementDependencies, "host" | "platform" | "localTweakSettings">;
 
 export interface PeerAgreement {
     getTweakSettings(challenge: string): Promise<PeerTweakSettings>;
@@ -78,7 +97,10 @@ async function hashPassphrase(source: string): Promise<string> {
  * tweak fields. Read current ID settings separately, preserving that policy stage.
  * The passphrase is hashed and the ID key becomes a challenge-bound proof.
  */
-async function getTweakSettings(deps: PeerAgreementDependencies, challenge: string): Promise<PeerTweakSettings> {
+export async function getTweakSettings(
+    deps: GetTweakSettingsDependencies,
+    challenge: string
+): Promise<PeerTweakSettings> {
     const currentSettings = deps.currentSettings();
     const pathNormalizationVersion = getPathNormalizationVersion(currentSettings);
     if (pathNormalizationVersion === 1) {
@@ -118,8 +140,8 @@ async function getTweakSettings(deps: PeerAgreementDependencies, challenge: stri
  * Preserve its result for the caller's strict acceptance check. Missing hosts and
  * RPC failures return false; failures retain the existing redacted diagnostics.
  */
-async function requestAuthenticate(
-    deps: PeerAgreementDependencies,
+export async function requestAuthenticate(
+    deps: RequestAuthenticateDependencies,
     peerId: string,
     signal?: AbortSignal
 ): Promise<boolean | undefined> {
@@ -147,8 +169,8 @@ async function requestAuthenticate(
  * content and ID settings. Representation-only differences warn and still pass.
  * RPC/local-validation errors propagate; an observed abort after RPC returns false.
  */
-async function checkTweakValues(
-    deps: PeerAgreementDependencies,
+export async function checkTweakValues(
+    deps: CheckTweakValuesDependencies,
     peerId: string,
     signal?: AbortSignal,
     logLevel: LOG_LEVEL = LOG_LEVEL_NOTICE

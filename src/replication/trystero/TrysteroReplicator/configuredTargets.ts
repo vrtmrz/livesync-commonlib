@@ -3,41 +3,15 @@ import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, Logger } from "octagonal-wheels/commo
 import type { TimeoutScheduler } from "octagonal-wheels/concurrency/deferredAction";
 import type { P2PSyncSetting } from "@lib/common/types";
 import type { MessageTranslator } from "@lib/services/base/MessageTranslator";
-import type { P2PPeerAcceptance } from "../TrysteroReplicatorP2PServer";
 import type { Advertisement } from "../types";
-import type { P2PReplicationResult } from "./transfers";
+import type {
+    P2PPeerAcceptance,
+    P2PReplicationResult,
+    P2PConfiguredTargetResult,
+    P2PConfiguredReplicationResult,
+} from "../replicationTypes";
 
-export type P2PConfiguredTargetResult = {
-    readonly name: string;
-    readonly peerId?: string;
-} & (
-    | { readonly status: "completed" }
-    | { readonly status: "cancelled" }
-    | { readonly status: "missing" }
-    | { readonly status: "rejected" }
-    | { readonly status: "undecided" }
-    | { readonly status: "failed"; readonly error: unknown }
-);
-
-/** Explicit result of configured, unattended P2P target synchronisation. */
-export type P2PConfiguredReplicationResult =
-    | {
-          readonly status: "completed";
-          readonly targets: readonly P2PConfiguredTargetResult[];
-      }
-    | {
-          readonly status: "cancelled";
-          readonly targets: readonly P2PConfiguredTargetResult[];
-      }
-    | {
-          readonly status: "blocked";
-          readonly reason: "no-targets";
-          readonly targets: readonly [];
-      }
-    | {
-          readonly status: "partial";
-          readonly targets: readonly P2PConfiguredTargetResult[];
-      };
+export type { P2PConfiguredTargetResult, P2PConfiguredReplicationResult } from "../replicationTypes";
 
 /** Narrow host capabilities used to synchronise the configured peer list. */
 export interface ConfiguredTargetsDependencies {
@@ -68,93 +42,137 @@ export interface ConfiguredTargets {
     ): Promise<P2PConfiguredReplicationResult>;
 }
 
-interface ConfiguredTargetsContext {
-    deps: ConfiguredTargetsDependencies;
-}
+/** Only discovery capabilities are needed while waiting for advertisements. */
+export type AdvertisementWaitContext = {
+    deps: Pick<ConfiguredTargetsDependencies, "advertisements" | "onAdvertisement" | "scheduleTimeout">;
+};
 
-/**
- * Construct the configured-target operation without reading settings, subscribing,
- * scheduling, or starting replication.
- *
- * Each invocation reads current enablement and then snapshots configured names.
- * Advertisements and admission are checked against current room state as targets
- * are processed. Baseline work and sync remain owned by the existing host.
- */
+/** The workflow consumes a composed wait operation, not its timer or subscription dependencies. */
+export type ConfiguredSyncContext = {
+    deps: Pick<
+        ConfiguredTargetsDependencies,
+        "currentSettings" | "advertisements" | "evaluatePeerAcceptance" | "runBaseline" | "sync" | "translate"
+    >;
+    waitForConfiguredAdvertisements(
+        peerNames: readonly string[],
+        timeoutMs: number,
+        signal?: AbortSignal
+    ): Promise<void>;
+};
+
+/** Resources acquired for one discovery wait; no state is shared between waits. */
+export type AdvertisementWaitState = {
+    signal: AbortSignal | undefined;
+    resolve(): void;
+    detachAdvertisement(): void;
+    cancelTimeout: (() => void) | undefined;
+};
+
+/** Construct bindings without reading settings, subscribing, scheduling, or starting replication. */
 export function createConfiguredTargets(deps: ConfiguredTargetsDependencies): ConfiguredTargets {
-    const context: ConfiguredTargetsContext = { deps };
+    const wait = bindContext({ deps }, waitForConfiguredAdvertisements);
     return {
-        replicateFromCommand: bindContext(context, replicateFromCommand),
+        replicateFromCommand: bindContext({ deps, waitForConfiguredAdvertisements: wait }, replicateFromCommand),
     };
 }
 
-/** Read, trim, and de-duplicate the configured names for one operation snapshot. */
-function configuredPeerNames({ deps }: ConfiguredTargetsContext): string[] {
-    return [
-        ...new Set(
-            deps
-                .currentSettings()
-                .P2P_SyncOnReplication.split(",")
-                .map((name) => name.trim())
-        ),
-    ].filter(Boolean);
+/** Read, trim, and de-duplicate the already selected policy string. */
+export function configuredPeerNames(names: string): string[] {
+    return [...new Set(names.split(",").map((name) => name.trim()))].filter(Boolean);
 }
 
-/** Find a peer by its current advertised name. */
-function findAdvertisement({ deps }: ConfiguredTargetsContext, peerName: string): Advertisement | undefined {
-    return deps.advertisements().find((advertisement) => advertisement.name === peerName);
+/** Find a peer in the advertisement snapshot supplied by the caller. */
+export function findAdvertisement(
+    advertisements: readonly Advertisement[],
+    peerName: string
+): Advertisement | undefined {
+    return advertisements.find((advertisement) => advertisement.name === peerName);
+}
+
+/** Re-read advertisements for each configured name, preserving the existing discovery predicate. */
+export function areConfiguredPeersPresent(
+    deps: Pick<ConfiguredTargetsDependencies, "advertisements">,
+    peerNames: readonly string[]
+): boolean {
+    return peerNames.every((name) => findAdvertisement(deps.advertisements(), name) !== undefined);
+}
+
+/** Release event, abort, and timeout hooks synchronously before completing the wait. */
+export function finishAdvertisementWait(state: AdvertisementWaitState, abortListener: () => void): void {
+    const { detachAdvertisement, signal, cancelTimeout, resolve } = state;
+    detachAdvertisement();
+    signal?.removeEventListener("abort", abortListener);
+    cancelTimeout?.();
+    resolve();
+}
+
+/** Finish discovery only after its captured set of names is currently present. */
+export function finishIfConfiguredPeersPresent(
+    deps: Pick<ConfiguredTargetsDependencies, "advertisements">,
+    peerNames: readonly string[],
+    finish: () => void
+): void {
+    if (areConfiguredPeersPresent(deps, peerNames)) {
+        finish();
+    }
 }
 
 /**
- * Wait for the captured set of names to appear, or for timeout or cancellation.
- *
- * The listener, any caller abort hook, and the timeout are installed before the
- * final state check so advertisements arriving during subscription are not
- * missed. Discovery cleanup detaches the event listener, removes the abort hook,
- * and cancels the timeout before the waiting operation continues into target processing.
- * Timeout and cancellation end discovery waiting; target processing still
- * reports each name as present, missing, or cancelled.
+ * Register one event-driven discovery wait. The Promise adapter supplies resolve;
+ * this function needs only advertisements, subscription, and timing capabilities.
+ * Registration order and the final recheck preserve the existing handling of
+ * advertisements and aborts delivered during setup. Setup errors propagate to
+ * the adapter's executor, which turns them into promise rejection.
  */
-async function waitForConfiguredAdvertisements(
-    context: ConfiguredTargetsContext,
+export function registerAdvertisementWait(
+    { deps }: AdvertisementWaitContext,
+    peerNames: readonly string[],
+    timeoutMs: number,
+    signal: AbortSignal | undefined,
+    resolve: () => void
+): void {
+    if (areConfiguredPeersPresent(deps, peerNames) || timeoutMs <= 0 || signal?.aborted) {
+        resolve();
+        return;
+    }
+    const state: AdvertisementWaitState = {
+        signal,
+        resolve,
+        detachAdvertisement: () => undefined,
+        cancelTimeout: undefined,
+    };
+    // This adapter retains the exact listener identity for removal, including
+    // callbacks delivered synchronously before subscription registration returns.
+    const finish = () => finishAdvertisementWait(state, finish);
+    state.detachAdvertisement = deps.onAdvertisement(() => finishIfConfiguredPeersPresent(deps, peerNames, finish));
+    signal?.addEventListener("abort", finish, { once: true });
+    state.cancelTimeout = deps.scheduleTimeout(finish, timeoutMs);
+    if (areConfiguredPeersPresent(deps, peerNames) || signal?.aborted) {
+        finish();
+    }
+}
+
+/**
+ * Adapt advertisement events, timeout, and abort to one promise without an outer
+ * async/await wrapper. Initial checks also run inside the executor, so their
+ * exceptions remain rejections. Timeout and cancellation end discovery waiting;
+ * target processing still classifies each target separately.
+ */
+export function waitForConfiguredAdvertisements(
+    context: AdvertisementWaitContext,
     peerNames: readonly string[],
     timeoutMs: number,
     signal?: AbortSignal
 ): Promise<void> {
-    const allPresent = () => peerNames.every((name) => findAdvertisement(context, name) !== undefined);
-    if (allPresent() || timeoutMs <= 0 || signal?.aborted) {
-        return;
-    }
-
-    const { deps } = context;
-    await new Promise<void>((resolve) => {
-        let cancelTimeout: (() => void) | undefined;
-        let detachAdvertisement: () => void = () => undefined;
-
-        const finish = () => {
-            detachAdvertisement();
-            signal?.removeEventListener("abort", finish);
-            if (cancelTimeout !== undefined) {
-                cancelTimeout();
-            }
-            resolve();
-        };
-
-        detachAdvertisement = deps.onAdvertisement(() => {
-            if (allPresent()) {
-                finish();
-            }
-        });
-        signal?.addEventListener("abort", finish, { once: true });
-        cancelTimeout = deps.scheduleTimeout(finish, timeoutMs);
-        // Recheck after registration, including events delivered while subscribing.
-        if (allPresent() || signal?.aborted) {
-            finish();
-        }
-    });
+    return new Promise<void>((resolve) => registerAdvertisementWait(context, peerNames, timeoutMs, signal, resolve));
 }
 
 /** Keep the target-level outcome mapping used by the facade. */
-function configuredTargetResult(name: string, peerId: string, result: P2PReplicationResult): P2PConfiguredTargetResult {
+export function configuredTargetResult(
+    name: string,
+    peerId: string,
+    result: P2PReplicationResult
+): P2PConfiguredTargetResult {
     if (result.status === "completed") {
         return { name, peerId, status: "completed" };
     }
@@ -172,8 +190,8 @@ function configuredTargetResult(name: string, peerId: string, result: P2PReplica
  * becomes a failed target; thrown settings, admission, baseline, timer, or sync
  * errors propagate to the caller unchanged.
  */
-async function replicateFromCommand(
-    { deps }: ConfiguredTargetsContext,
+export async function replicateFromCommand(
+    { deps, waitForConfiguredAdvertisements }: ConfiguredSyncContext,
     showResult: boolean = false,
     discoveryTimeoutMs: number = 5000,
     callerSignal?: AbortSignal
@@ -185,7 +203,7 @@ async function replicateFromCommand(
     }
 
     // Keep enablement and target policy as separate current-settings reads.
-    const peerNames = configuredPeerNames({ deps });
+    const peerNames = configuredPeerNames(deps.currentSettings().P2P_SyncOnReplication);
     if (peerNames.length === 0) {
         Logger(deps.translate("P2P.NoAutoSyncPeers"), logLevel);
         return { status: "blocked", reason: "no-targets", targets: [] };
@@ -193,7 +211,7 @@ async function replicateFromCommand(
 
     // Discovery waits only for the configured-name snapshot. Timeout or abort
     // allows the ordered pass below to classify every target independently.
-    await waitForConfiguredAdvertisements({ deps }, peerNames, discoveryTimeoutMs, callerSignal);
+    await waitForConfiguredAdvertisements(peerNames, discoveryTimeoutMs, callerSignal);
 
     const targets: P2PConfiguredTargetResult[] = [];
     for (const peerName of peerNames) {
@@ -202,7 +220,7 @@ async function replicateFromCommand(
             continue;
         }
 
-        const advertisement = findAdvertisement({ deps }, peerName);
+        const advertisement = findAdvertisement(deps.advertisements(), peerName);
         if (!advertisement) {
             Logger(deps.translate("P2P.SeemsOffline", { name: peerName }), logLevel);
             targets.push({ name: peerName, status: "missing" });

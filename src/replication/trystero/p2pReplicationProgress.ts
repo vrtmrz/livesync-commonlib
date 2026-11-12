@@ -1,9 +1,10 @@
 import type { ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
-import type { P2PReplicationDirectionProgress } from "./TrysteroReplicator/progress";
-
-/** Transient attempt correlation; no replication checkpoint is stored here. */
-export type ProgressAcknowledgement = { attempt: number; finalProgress?: ProgressInfo };
-export type AcknowledgedProgressAttempt = { attempt: number; isActive: boolean; checkedChanges: number };
+import type {
+    P2PReplicationDirectionProgress,
+    ProgressAcknowledgement,
+    AcknowledgedProgressAttempt,
+} from "./replicationTypes";
+export type { ProgressAcknowledgement, AcknowledgedProgressAttempt } from "./replicationTypes";
 
 export function projectDirectionProgress(info?: ProgressInfo | null): P2PReplicationDirectionProgress {
     return {

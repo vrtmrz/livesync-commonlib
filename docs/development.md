@@ -96,11 +96,19 @@ Agreement and configuration operations obtain snapshot settings and current
 policy at their documented stages. The host retains peer acceptance, database
 validation, transport binding, and finite-transfer ownership. Public method
 dispatch remains dynamic so host overrides continue to apply. The operations
-use `octagonal-wheels/context` to bind their narrow capabilities; construction
-starts no database or RPC work.
+use `octagonal-wheels/context` to bind named, standalone functions. Each function
+declares only the dependencies and state it uses, or accepts a composed operation
+instead of that operation's dependencies. Factories allocate state and connect
+these functions; construction starts no database or RPC work. State-bearing
+bindings retain the owner object so existing facade setters remain effective.
 
-The public replication and progress result types remain available through their
-existing root module as re-exports. Transfer methods borrow the session owner's
+Shared result, progress, acknowledgement, and peer-admission data contracts live
+in `src/replication/trystero/replicationTypes.ts`, independently of their operation
+owners. The facade, projection, diagnostic, and wire adapters import that leaf
+rather than importing types back from the implementations they support. Local
+failures retain their original error values; the separate wire result uses
+JSON-safe RPC error data. Existing type export paths remain available as
+re-exports. Transfer methods borrow the session owner's
 signal and retain dynamic public dispatch for pull and reverse-sync requests.
 Progress attempts remain ordered across room replacement within one module
 realm; peer departure removes one acknowledgement history, and close clears all
@@ -114,6 +122,11 @@ The room supplies transport, request IDs, timing, and warning callbacks, and
 forwards peer departure and close events. Notifications bypass this coordinator.
 
 The internal modules have focused unit tests beside their implementations.
+Direct function tests supply only the capabilities used by that operation;
+factory tests retain coverage of state sharing and lifetime integration.
+Configured-target discovery returns a Promise to adapt advertisement, abort,
+and timeout callbacks. Registration and the initial predicate run inside its
+executor so setup exceptions remain rejections, while cleanup remains synchronous.
 Their lifetime boundaries retain the existing feed stop boundaries and synchronous
 invocation-wait cleanup. They add no consumer entry points, persistent state,
 retry policy, or new queue policy. Function comments record settings provenance,

@@ -1,4 +1,4 @@
-import type { P2PReplicationResult } from "./TrysteroReplicator";
+import type { P2PReplicationResult } from "./replicationTypes";
 
 /**
  * Stable de-duplication state for automatic baseline transfers.

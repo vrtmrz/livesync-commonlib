@@ -1,5 +1,5 @@
 import { classifyP2PRpcFailure, type P2PDiagnosticInput } from "@lib/p2p/p2pDiagnostics";
-import type { P2PReplicationResult } from "./TrysteroReplicator";
+import type { P2PReplicationResult } from "./replicationTypes";
 
 const authenticationFailureCodes = {
     "rpc-timeout": "auth-timeout",

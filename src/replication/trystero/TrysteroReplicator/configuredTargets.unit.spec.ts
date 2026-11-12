@@ -6,6 +6,10 @@ import type { Advertisement } from "../types";
 import type { TimeoutScheduler } from "octagonal-wheels/concurrency/deferredAction";
 import {
     createConfiguredTargets,
+    configuredPeerNames,
+    replicateFromCommand,
+    waitForConfiguredAdvertisements,
+    type AdvertisementWaitContext,
     type ConfiguredTargetsDependencies,
     type P2PConfiguredReplicationResult,
 } from "./configuredTargets";
@@ -333,7 +337,7 @@ describe("createConfiguredTargets", () => {
             return "accepted";
         });
         const failure = new Error("pull failed");
-        harness.sync.mockImplementation(async (peerId) => {
+        harness.sync.mockImplementation(async (peerId): Promise<P2PReplicationResult> => {
             if (peerId === "id-failed") {
                 return { status: "failed", error: failure };
             }
@@ -394,5 +398,139 @@ describe("createConfiguredTargets", () => {
         harness.sync.mockRejectedValue(baselineFailure);
 
         await expect(harness.target.replicateFromCommand(false, 0)).rejects.toBe(baselineFailure);
+    });
+});
+
+describe("configured-target operations with minimal capabilities", () => {
+    function discovery() {
+        let advertisements: Advertisement[] = [];
+        let notify: () => void = () => undefined;
+        let timeout: () => void = () => undefined;
+        const detach = vi.fn(() => {
+            notify = () => undefined;
+        });
+        const cancelTimeout = vi.fn();
+        const deps: AdvertisementWaitContext["deps"] = {
+            advertisements: () => advertisements,
+            onAdvertisement: (listener) => {
+                notify = listener;
+                return detach;
+            },
+            scheduleTimeout: (callback) => {
+                timeout = callback;
+                return cancelTimeout;
+            },
+        };
+        return {
+            context: { deps },
+            detach,
+            cancelTimeout,
+            advertise: (names: string[]) => {
+                advertisements = names.map(advertised);
+                notify();
+            },
+            timeout: () => timeout(),
+        };
+    }
+
+    it("normalises names without needing any host capability", () => {
+        expect(configuredPeerNames(" peer-a, ,peer-a,Peer-A, peer-b ")).toEqual(["peer-a", "Peer-A", "peer-b"]);
+    });
+
+    it("adapts advertisements to a promise with only discovery capabilities", async () => {
+        const h = discovery();
+        const controller = new AbortController();
+        const addAbort = vi.spyOn(controller.signal, "addEventListener");
+        const removeAbort = vi.spyOn(controller.signal, "removeEventListener");
+        const continued = vi.fn();
+        const operation = waitForConfiguredAdvertisements(h.context, ["peer-a"], 50, controller.signal).then(continued);
+        h.advertise(["peer-a"]);
+        await operation;
+        expect(h.detach).toHaveBeenCalledOnce();
+        expect(h.cancelTimeout).toHaveBeenCalledOnce();
+        expect(removeAbort).toHaveBeenCalledWith("abort", addAbort.mock.calls[0][1]);
+        expect(h.cancelTimeout.mock.invocationCallOrder[0]).toBeLessThan(continued.mock.invocationCallOrder[0]);
+        controller.abort();
+        expect(h.cancelTimeout).toHaveBeenCalledOnce();
+    });
+
+    it.each(["timeout", "abort"] as const)("finishes discovery after %s without rejecting it", async (ending) => {
+        const h = discovery();
+        const controller = new AbortController();
+        const operation = waitForConfiguredAdvertisements(h.context, ["peer-a"], 50, controller.signal);
+        if (ending === "timeout") {
+            h.timeout();
+        } else {
+            controller.abort();
+        }
+        await expect(operation).resolves.toBeUndefined();
+        expect(h.detach).toHaveBeenCalledOnce();
+        expect(h.cancelTimeout).toHaveBeenCalledOnce();
+    });
+
+    it("resolves an immediate match without acquiring event or timing resources", async () => {
+        const onAdvertisement = vi.fn();
+        const scheduleTimeout = vi.fn();
+        await expect(
+            waitForConfiguredAdvertisements(
+                {
+                    deps: {
+                        advertisements: () => [advertised("peer-a")],
+                        onAdvertisement,
+                        scheduleTimeout,
+                    },
+                },
+                ["peer-a"],
+                50
+            )
+        ).resolves.toBeUndefined();
+        expect(onAdvertisement).not.toHaveBeenCalled();
+        expect(scheduleTimeout).not.toHaveBeenCalled();
+    });
+
+    it("retains promise rejection when the initial advertisement read throws", async () => {
+        const error = new Error("discovery unavailable");
+        const operation = waitForConfiguredAdvertisements(
+            {
+                deps: {
+                    advertisements: () => {
+                        throw error;
+                    },
+                    onAdvertisement: vi.fn(),
+                    scheduleTimeout: vi.fn(),
+                },
+            },
+            ["peer-a"],
+            50
+        );
+        await expect(operation).rejects.toBe(error);
+    });
+
+    it("runs the workflow with a composed wait and no timer or event dependency", async () => {
+        const controller = new AbortController();
+        const wait = vi.fn(async (_names: readonly string[], _timeout: number, _signal?: AbortSignal) => {});
+        const sync = vi.fn<ConfiguredTargetsDependencies["sync"]>(async () => completed);
+        const result = await replicateFromCommand(
+            {
+                deps: {
+                    currentSettings: () => settings("peer-a, peer-a"),
+                    advertisements: () => [advertised("peer-a")],
+                    evaluatePeerAcceptance: async () => "accepted",
+                    runBaseline: async (_name, work) => await work(),
+                    sync,
+                    translate: (key) => key,
+                },
+                waitForConfiguredAdvertisements: wait,
+            },
+            true,
+            70,
+            controller.signal
+        );
+        expect(wait).toHaveBeenCalledExactlyOnceWith(["peer-a"], 70, controller.signal);
+        expect(sync).toHaveBeenCalledExactlyOnceWith("id-peer-a", true, controller.signal);
+        expect(result).toEqual({
+            status: "completed",
+            targets: [{ name: "peer-a", peerId: "id-peer-a", status: "completed" }],
+        });
     });
 });

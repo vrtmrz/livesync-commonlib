@@ -1,7 +1,7 @@
 import type PouchDB from "pouchdb-core";
 import type { EntryDoc, P2PSyncSetting } from "@lib/common/types";
 import type { P2PDiagnosticInput } from "@lib/p2p/p2pDiagnostics";
-import type { replicateShim, ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
+import type { replicateShim, ProgressInfo, PouchDBShim, SomeDocument } from "@lib/pouchdb/ReplicatorShim";
 import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 import { bindContext } from "octagonal-wheels/context";
 import { scheduleOnceIfDuplicated } from "octagonal-wheels/concurrency/lock_v2";
@@ -13,20 +13,12 @@ import {
     LOG_LEVEL_VERBOSE,
     type LOG_LEVEL,
 } from "octagonal-wheels/common/logger";
-import type { TrysteroReplicatorP2PClient } from "../TrysteroReplicatorP2PClient";
 import { readLocalP2PPathIdentity, readRemoteP2PPathIdentity } from "../TrysteroReplicator.pathIdentity.ts";
 import { fromP2PReplicationWireResult, type P2PReplicationWireResult } from "../P2PReplicationWire";
 import { pullResultDiagnostic, pullFailureDiagnostic } from "../p2pReplicationDiagnostics";
-import type { ProgressAcknowledgement } from "../p2pReplicationProgress";
+import type { P2PReplicationResult, ProgressAcknowledgement } from "../replicationTypes";
 
-/**
- * Local replication outcome. Error-compatible values remain available to callers;
- * the wire adapter, rather than this state owner, converts them to JSON-safe data.
- */
-export type P2PReplicationResult =
-    | { readonly status: "completed"; readonly ok: true; readonly error?: never }
-    | { readonly status: "cancelled"; readonly ok?: false; readonly error?: never }
-    | { readonly status: "failed"; readonly ok?: false; readonly error: unknown };
+export type { P2PReplicationResult } from "../replicationTypes";
 
 export const P2P_REPLICATION_COMPLETED = Object.freeze({ status: "completed", ok: true } as const);
 export const P2P_REPLICATION_CANCELLED = Object.freeze({ status: "cancelled" } as const);
@@ -35,16 +27,14 @@ export function p2pReplicationFailed(error: unknown): P2PReplicationResult {
     return { status: "failed", error };
 }
 
-function isP2PReplicationCancelled(result: P2PReplicationResult): boolean {
+export function isP2PReplicationCancelled(result: P2PReplicationResult): boolean {
     return result.status === "cancelled";
 }
 
-/** The existing RPC database boundary, without requiring a complete PouchDB implementation. */
-type RemoteDatabase = ReturnType<TrysteroReplicatorP2PClient["getRemoteDB"]>;
-
 export interface TransferConnection {
     requestSynchronisation(timeoutMs: number, signal?: AbortSignal): Promise<P2PReplicationWireResult>;
-    getRemoteDB(signal?: AbortSignal): RemoteDatabase;
+    /** Reuse the RPC database contract rather than requiring a complete PouchDB implementation. */
+    getRemoteDB(signal?: AbortSignal): PouchDBShim<SomeDocument<object>>;
 }
 
 export interface TransferHost {
@@ -97,7 +87,71 @@ export interface Transfers extends TransferState {
     clearActivePeers(): void;
 }
 
-type TransfersContext = { deps: TransferDependencies; state: TransferState };
+/** Only policy admission and connection lookup are needed for a reverse request. */
+export type RequestSynchronisationContext = {
+    deps: Pick<TransferDependencies, "canStartOrdinaryReplication" | "host">;
+};
+
+export type AvailableTargetsContext = {
+    deps: Pick<TransferDependencies, "requestSynchroniseToPeer">;
+    state: Pick<TransferState, "availableReplicationPairs">;
+};
+
+export type BidirectionalSyncContext = {
+    deps: Pick<TransferDependencies, "replicateFrom" | "requestSynchroniseToPeer">;
+};
+
+/** The observer forwards a composed pull result and only owns diagnostic reporting. */
+export type ReplicationObservationContext = {
+    deps: Pick<TransferDependencies, "reportDiagnostic">;
+    pullFromWithinSession: Transfers["replicateFrom"];
+};
+
+export type PeerAgreementGateContext = {
+    deps: Pick<TransferDependencies, "requestAuthenticate" | "checkTweakValues">;
+};
+
+export type DatabaseTransferContext = {
+    deps: Pick<
+        TransferDependencies,
+        "host" | "database" | "currentSettings" | "replicate" | "processReplicatedDocs" | "notifyProgress"
+    >;
+};
+
+/** Admission and database transfer are operations composed by the factory. */
+export type PullContext = {
+    deps: Pick<
+        TransferDependencies,
+        | "canStartOrdinaryReplication"
+        | "dispatchStatus"
+        | "beginProgressAttempt"
+        | "dispatchReplicationProgress"
+        | "acknowledgeProgress"
+    >;
+    state: Pick<TransferState, "replicateFromPeers">;
+    checkPeerForReplication(
+        peerId: string,
+        logLevel: LOG_LEVEL,
+        signal?: AbortSignal
+    ): Promise<P2PReplicationResult | undefined>;
+    transferFromPeer(
+        peerId: string,
+        fromStart: boolean,
+        logLevel: LOG_LEVEL,
+        signal?: AbortSignal,
+        onStatistics?: (info: ProgressInfo) => void
+    ): Promise<P2PReplicationResult>;
+};
+
+export type ActiveTransferStateContext = {
+    state: Pick<TransferState, "replicateFromPeers" | "replicateToPeers">;
+};
+
+/** Clear activity indicators without discarding the available-target set or closing borrowed resources. */
+export function clearActivePeers({ state }: ActiveTransferStateContext): void {
+    state.replicateFromPeers.clear();
+    state.replicateToPeers.clear();
+}
 
 /**
  * Construct the transfer state owner without opening a database or starting RPC.
@@ -110,16 +164,18 @@ export function createTransfers(deps: TransferDependencies): Transfers {
         replicateToPeers: new Set<string>(),
         replicateFromPeers: new Set<string>(),
     };
-    const context: TransfersContext = { deps, state };
+    const agreement = bindContext({ deps }, checkPeerForReplication);
+    const transfer = bindContext({ deps }, transferFromPeer);
+    const pull = bindContext(
+        { deps, state, checkPeerForReplication: agreement, transferFromPeer: transfer },
+        pullFromWithinSession
+    );
     return Object.assign(state, {
-        requestSynchroniseToPeer: bindContext(context, requestSynchroniseToPeer),
-        requestSynchroniseToAllAvailablePeers: bindContext(context, requestSynchroniseToAllAvailablePeers),
-        sync: bindContext(context, sync),
-        replicateFrom: bindContext(context, replicateFrom),
-        clearActivePeers: () => {
-            state.replicateFromPeers.clear();
-            state.replicateToPeers.clear();
-        },
+        requestSynchroniseToPeer: bindContext({ deps }, requestSynchroniseToPeer),
+        requestSynchroniseToAllAvailablePeers: bindContext({ deps, state }, requestSynchroniseToAllAvailablePeers),
+        sync: bindContext({ deps }, sync),
+        replicateFrom: bindContext({ deps, pullFromWithinSession: pull }, replicateFrom),
+        clearActivePeers: bindContext({ state }, clearActivePeers),
     });
 }
 
@@ -128,8 +184,8 @@ export function createTransfers(deps: TransferDependencies): Transfers {
  * 25 ms scheduling delay. Cancellation is checked on both sides of that delay;
  * the RPC itself retains its zero deadline and the caller's signal.
  */
-async function requestSynchroniseToPeer(
-    context: TransfersContext,
+export async function requestSynchroniseToPeer(
+    context: RequestSynchronisationContext,
     peerId: string,
     signal?: AbortSignal
 ): Promise<P2PReplicationResult> {
@@ -161,7 +217,7 @@ async function requestSynchroniseToPeer(
 }
 
 /** Retain the existing shared scheduling key and fan-out to available peer IDs. */
-async function requestSynchroniseToAllAvailablePeers(context: TransfersContext) {
+export async function requestSynchroniseToAllAvailablePeers(context: AvailableTargetsContext) {
     const { deps, state } = context;
     await scheduleOnceIfDuplicated("requestSynchroniseToAllAvailablePeers", async () => {
         await delay(25);
@@ -173,8 +229,8 @@ async function requestSynchroniseToAllAvailablePeers(context: TransfersContext) 
 }
 
 /** Apply the existing pull-result and cancellation gates before requesting the reverse transfer. */
-async function sync(
-    context: TransfersContext,
+export async function sync(
+    context: BidirectionalSyncContext,
     remotePeer: string,
     showNotice: boolean,
     signal?: AbortSignal
@@ -207,8 +263,8 @@ async function sync(
 }
 
 /** Report the pull outcome without changing which failures propagate to the caller. */
-async function replicateFrom(
-    context: TransfersContext,
+export async function replicateFrom(
+    context: ReplicationObservationContext,
     remotePeer: string,
     showNotice: boolean,
     fromStart: boolean,
@@ -218,8 +274,7 @@ async function replicateFrom(
     const { deps } = context;
     deps.reportDiagnostic({ category: "sync", code: "pull-started", peerId: remotePeer });
     try {
-        const result = await pullFromWithinSession(
-            context,
+        const result = await context.pullFromWithinSession(
             remotePeer,
             showNotice,
             fromStart,
@@ -239,8 +294,8 @@ async function replicateFrom(
  * existing progress-start boundary and finalisation order; the session remains
  * responsible for cancellation, and these operations do not close borrowed DBs.
  */
-async function pullFromWithinSession(
-    context: TransfersContext,
+export async function pullFromWithinSession(
+    context: PullContext,
     remotePeer: string,
     showNotice: boolean,
     fromStart: boolean,
@@ -257,7 +312,7 @@ async function pullFromWithinSession(
         return P2P_REPLICATION_CANCELLED;
     }
     const logLevel = showNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
-    const rejection = await checkPeerForReplication(context, remotePeer, logLevel, signal);
+    const rejection = await context.checkPeerForReplication(remotePeer, logLevel, signal);
     if (rejection) {
         return rejection;
     }
@@ -280,7 +335,7 @@ async function pullFromWithinSession(
     deps.acknowledgeProgress(remotePeer, latestProgress, acknowledgement);
 
     try {
-        return await transferFromPeer(context, remotePeer, fromStart, logLevel, signal, (info) => {
+        return await context.transferFromPeer(remotePeer, fromStart, logLevel, signal, (info) => {
             latestProgress = info;
             deps.dispatchReplicationProgress(remotePeer, info);
             deps.acknowledgeProgress(remotePeer, info, acknowledgement);
@@ -306,8 +361,8 @@ async function pullFromWithinSession(
  * Facade dispatch preserves caller overrides; this layer alone translates
  * failed gates into the replication result and cancellation vocabulary.
  */
-async function checkPeerForReplication(
-    context: TransfersContext,
+export async function checkPeerForReplication(
+    context: PeerAgreementGateContext,
     remotePeer: string,
     logLevel: LOG_LEVEL,
     signal?: AbortSignal
@@ -351,8 +406,8 @@ async function checkPeerForReplication(
  * Notify other peers only after the host has processed a committed batch. The
  * engine owns checkpoint and document handling; this adapter retains its options.
  */
-async function transferFromPeer(
-    context: TransfersContext,
+export async function transferFromPeer(
+    context: DatabaseTransferContext,
     remotePeer: string,
     fromStart: boolean,
     logLevel: LOG_LEVEL,

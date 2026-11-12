@@ -1,11 +1,18 @@
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, type P2PSyncSetting } from "@lib/common/types";
-import { createPeerAgreement, type PeerAgreementHost, type PeerTweakSettings } from "./peerAgreement";
+import { DEFAULT_SETTINGS, type P2PSyncSetting, type ObsidianLiveSyncSettings } from "@lib/common/types";
+import {
+    checkTweakValues,
+    createPeerAgreement,
+    getTweakSettings,
+    requestAuthenticate,
+    type PeerAgreementHost,
+    type PeerTweakSettings,
+} from "./peerAgreement";
 
 function createHarness() {
-    const snapshot: P2PSyncSetting = { ...DEFAULT_SETTINGS, passphrase: "room-pass", encrypt: true };
-    const current: P2PSyncSetting = { ...snapshot };
+    const snapshot: ObsidianLiveSyncSettings = { ...DEFAULT_SETTINGS, passphrase: "room-pass", encrypt: true };
+    const current: ObsidianLiveSyncSettings = { ...snapshot };
     const local: PeerTweakSettings = {
         pathNormalizationVersion: 0,
         idDerivationVersion: 0,
@@ -60,6 +67,63 @@ function createHarness() {
 afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+});
+
+describe("standalone peer agreement operations", () => {
+    it("builds tweak settings from only settings and path-identity dependencies", async () => {
+        const current: P2PSyncSetting = { ...DEFAULT_SETTINGS, pathNormalizationVersion: 1 };
+        const snapshot = { ...DEFAULT_SETTINGS, passphrase: "snapshot-pass" } as P2PSyncSetting;
+        const currentSettings = vi.fn(() => current);
+        const settings = vi.fn(() => snapshot);
+        const assertPathIdentity = vi.fn(async (_settings: P2PSyncSetting) => {});
+
+        const result = await getTweakSettings({ currentSettings, settings, assertPathIdentity }, "direct-challenge");
+
+        expect(assertPathIdentity).toHaveBeenCalledExactlyOnceWith(current);
+        expect(settings).toHaveBeenCalledOnce();
+        expect(result.pathNormalizationVersion).toBe(1);
+        expect(result.passphrase).not.toBe("snapshot-pass");
+    });
+
+    it("requests authentication with only host and diagnostic dependencies", async () => {
+        const requestAuthentication = vi.fn(async (_timeoutMs: number, _signal?: AbortSignal) => true);
+        const host = { connection: vi.fn(() => ({ requestAuthentication })) };
+        const reportDiagnostic = vi.fn();
+
+        const result = await requestAuthenticate({ host: () => host, reportDiagnostic }, "direct-peer");
+
+        expect(result).toBe(true);
+        expect(host.connection).toHaveBeenCalledExactlyOnceWith("direct-peer");
+        expect(requestAuthentication).toHaveBeenCalledExactlyOnceWith(20000, undefined);
+        expect(reportDiagnostic).toHaveBeenCalledOnce();
+    });
+
+    it("compares tweaks with only host and local-policy dependencies", async () => {
+        const local: PeerTweakSettings = {
+            pathNormalizationVersion: 0,
+            idDerivationVersion: 0,
+            idDerivationProof: "",
+            passphrase: "local-digest",
+            encrypt: true,
+            usePathObfuscation: false,
+        };
+        const requestAuthentication = vi.fn(async () => true);
+        const requestTweakSettings = vi.fn(async () => local);
+        const host: PeerAgreementHost = {
+            peerPlatform: vi.fn(() => "pseudo-replicator"),
+            connection: vi.fn(() => ({ requestAuthentication, requestTweakSettings })),
+        };
+        const localTweakSettings = vi.fn(async (_challenge: string) => local);
+
+        const result = await checkTweakValues(
+            { host: () => host, platform: () => "test", localTweakSettings },
+            "direct-peer"
+        );
+
+        expect(result).toBe(true);
+        expect(localTweakSettings).toHaveBeenCalledOnce();
+        expect(host.connection).toHaveBeenCalledExactlyOnceWith("direct-peer");
+    });
 });
 
 describe("peer agreement", () => {

@@ -1,3 +1,4 @@
+import { LOG_LEVEL_INFO } from "octagonal-wheels/common/logger";
 import type PouchDB from "pouchdb-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, type EntryDoc } from "@lib/common/types";
@@ -5,6 +6,12 @@ import { VERSIONING_DOCID } from "@lib/common/models/db.const";
 import type { ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
 import {
     createTransfers,
+    replicateFrom as observePull,
+    sync as synchronise,
+    pullFromWithinSession,
+    checkPeerForReplication,
+    requestSynchroniseToPeer as requestReverseTransfer,
+    type PullContext,
     P2P_REPLICATION_CANCELLED,
     P2P_REPLICATION_COMPLETED,
     type TransferConnection,
@@ -75,7 +82,8 @@ function harness() {
         host: hostPort,
         database: () => local as unknown as PouchDB.Database<EntryDoc>,
         currentSettings: () => settings,
-        replicate,
+        // Vitest records one instantiated call signature; retain the engine's generic contract at this mock boundary.
+        replicate: replicate as TransferDependencies["replicate"],
         processReplicatedDocs,
         canStartOrdinaryReplication,
         requestAuthenticate,
@@ -321,5 +329,124 @@ describe("transfer state and orchestration", () => {
         expect(active.size).toBe(0);
         expect(h.transfers.replicateToPeers.size).toBe(0);
         expect([...h.transfers.availableReplicationPairs]).toEqual(["available"]);
+    });
+});
+
+describe("transfer operations with function-specific capabilities", () => {
+    it.each([
+        P2P_REPLICATION_COMPLETED,
+        P2P_REPLICATION_CANCELLED,
+        { status: "failed", error: new Error("private details") } as P2PReplicationResult,
+    ])("observes a $status pull with only a reporter and a pull operation", async (outcome) => {
+        const controller = new AbortController();
+        const reportDiagnostic = vi.fn();
+        const pull = vi.fn(async (..._args: Parameters<TransferDependencies["replicateFrom"]>) => outcome);
+        const result = await observePull(
+            { deps: { reportDiagnostic }, pullFromWithinSession: pull },
+            "peer",
+            true,
+            true,
+            false,
+            controller.signal
+        );
+        expect(result).toBe(outcome);
+        expect(pull).toHaveBeenCalledExactlyOnceWith("peer", true, true, false, controller.signal);
+        expect(reportDiagnostic.mock.calls.map(([event]) => event.code)).toEqual([
+            "pull-started",
+            `pull-${outcome.status}`,
+        ]);
+        expect(JSON.stringify(reportDiagnostic.mock.calls)).not.toContain("private details");
+    });
+
+    it("preserves a thrown pull error without needing transfer state or a database", async () => {
+        const error = new Error("pull unavailable");
+        const reportDiagnostic = vi.fn();
+        await expect(
+            observePull(
+                {
+                    deps: { reportDiagnostic },
+                    pullFromWithinSession: async () => {
+                        throw error;
+                    },
+                },
+                "peer",
+                false,
+                false,
+                false
+            )
+        ).rejects.toBe(error);
+        expect(reportDiagnostic.mock.calls.map(([event]) => event.code)).toEqual(["pull-started", "pull-failed"]);
+    });
+
+    it("composes bidirectional sync from only pull and reverse-request capabilities", async () => {
+        const replicateFrom = vi.fn<TransferDependencies["replicateFrom"]>(async () => P2P_REPLICATION_COMPLETED);
+        const requestSynchroniseToPeer = vi.fn<TransferDependencies["requestSynchroniseToPeer"]>(
+            async () => P2P_REPLICATION_COMPLETED
+        );
+        const controller = new AbortController();
+        expect(
+            await synchronise({ deps: { replicateFrom, requestSynchroniseToPeer } }, "peer", false, controller.signal)
+        ).toBe(P2P_REPLICATION_COMPLETED);
+        expect(replicateFrom).toHaveBeenCalledExactlyOnceWith("peer", false, false, false, controller.signal);
+        expect(requestSynchroniseToPeer).toHaveBeenCalledExactlyOnceWith("peer", controller.signal);
+    });
+
+    it("rejects admission with only the two agreement capabilities", async () => {
+        const requestAuthenticate = vi.fn(async () => false);
+        const checkTweakValues = vi.fn(async () => true);
+        const result = await checkPeerForReplication(
+            { deps: { requestAuthenticate, checkTweakValues } },
+            "peer",
+            LOG_LEVEL_INFO
+        );
+        expect(result).toMatchObject({ status: "failed" });
+        expect(requestAuthenticate).toHaveBeenCalledExactlyOnceWith("peer");
+        expect(checkTweakValues).not.toHaveBeenCalled();
+    });
+
+    it("does not need progress, database, or discovery capabilities to refuse a reverse request", async () => {
+        const host = vi.fn();
+        const canStartOrdinaryReplication = vi.fn(async () => false);
+        expect(await requestReverseTransfer({ deps: { host, canStartOrdinaryReplication } }, "peer")).toMatchObject({
+            status: "failed",
+        });
+        expect(canStartOrdinaryReplication).toHaveBeenCalledExactlyOnceWith(false);
+        expect(host).not.toHaveBeenCalled();
+    });
+
+    it("owns the pull lifecycle while agreement and database transfer are supplied operations", async () => {
+        const state = { replicateFromPeers: new Set<string>() };
+        const trace: string[] = [];
+        const finalAcknowledgement = vi.fn();
+        const context: PullContext = {
+            state,
+            deps: {
+                canStartOrdinaryReplication: async () => true,
+                dispatchStatus: () => {
+                    trace.push(state.replicateFromPeers.has("peer") ? "active" : "released");
+                },
+                beginProgressAttempt: () => ({ attempt: 19 }),
+                dispatchReplicationProgress: (_peer, info) => {
+                    trace.push(info ? "progress" : "end");
+                },
+                acknowledgeProgress: finalAcknowledgement,
+            },
+            checkPeerForReplication: async () => {
+                trace.push("agreement");
+                return undefined;
+            },
+            transferFromPeer: async () => {
+                expect(state.replicateFromPeers.has("peer")).toBe(true);
+                trace.push("transfer");
+                return P2P_REPLICATION_COMPLETED;
+            },
+        };
+        expect(await pullFromWithinSession(context, "peer", false, false, false)).toBe(P2P_REPLICATION_COMPLETED);
+        expect(trace).toEqual(["agreement", "active", "progress", "transfer", "end", "released"]);
+        expect(finalAcknowledgement).toHaveBeenLastCalledWith("peer", undefined, {
+            attempt: 19,
+            finalProgress: { lastSeq: 0, maxSeqInBatch: 0, statistics: { documents: 0, checkedChanges: 0 } },
+        });
+        expect(state.replicateFromPeers.size).toBe(0);
     });
 });

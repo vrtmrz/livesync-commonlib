@@ -32,6 +32,8 @@ import { subscribeConnectionStatus, subscribeFailureDiagnosis } from "@lib/rpc/t
 import { type DiagRTCStats } from "@lib/rpc/transports/DiagRTCPeerConnections.types";
 import type { SimpleStore } from "@lib/common/utils";
 import { asRpcErrorShape } from "@lib/rpc/errors";
+import type { P2PPeerAcceptance } from "./replicationTypes";
+export type { P2PPeerAcceptance } from "./replicationTypes";
 
 export type PeerInfo = Advertisement & {
     isAccepted: boolean | undefined;
@@ -47,8 +49,6 @@ export type RevokeAcceptanceDecision = {
     peerId: string;
     name: string;
 };
-/** Non-interactive result of evaluating the persisted and automatic peer policy. */
-export type P2PPeerAcceptance = "accepted" | "rejected" | "undecided" | "unknown";
 export type P2PServerInfo = {
     isConnected: boolean;
     knownAdvertisements: PeerInfo[];
