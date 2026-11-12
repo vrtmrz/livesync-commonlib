@@ -76,6 +76,27 @@ class. Its extracted functions and their focused tests live in
 `src/managers/StorageEventManager/`. These organise the event lifecycle separately
 from the file handler's database and storage effects.
 
+## P2P and RPC implementation
+
+`src/replication/trystero/TrysteroReplicator.ts` retains the existing replicator
+interface and composes `TrysteroReplicator/changeRelay.ts`. The relay owns its
+changes feed, broadcast state, followed peers, and last sequence. It receives
+narrow database, notification, pull, status, and diagnostic callbacks. The
+replicator supplies the current room and transfer operations; its existing
+state accessors refer to the relay's state. Relay operations use
+`octagonal-wheels/context` to bind that state and those callbacks.
+
+`src/rpc/RpcRoom.ts` retains registrations, inbound request routing, transport,
+and chunk state. `RpcRoom/pendingInvocations.ts` owns outbound response waits,
+deadlines, abort subscriptions, settlement, and request-before-cancel ordering.
+The room supplies transport, request IDs, timing, and warning callbacks, and
+forwards peer departure and close events. Notifications bypass this coordinator.
+
+Both internal modules have focused unit tests beside their implementations.
+Their lifetime boundaries retain the existing feed stop boundaries and synchronous
+invocation-wait cleanup; neither module adds a consumer entry point, persistent
+state, retry policy, or new queue policy.
+
 ## Service composition and state ownership
 
 Commonlib uses four related forms of composition. Choose between them by ownership and dependency direction, not merely by whether an implementation has mutable state.

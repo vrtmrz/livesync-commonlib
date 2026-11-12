@@ -5,6 +5,7 @@ import {
     type TimeoutScheduler,
 } from "octagonal-wheels/concurrency/deferredAction";
 import { IncomingChunkBuffer, estimateBytes, splitIntoChunks } from "./chunking";
+import { createPendingInvocations } from "./RpcRoom/pendingInvocations";
 import { asRpcErrorShape, RpcError } from "./errors";
 import { RpcSession } from "./RpcSession";
 import {
@@ -22,16 +23,6 @@ import {
     type RpcRoomOptions,
     type RpcWireMessage,
 } from "./types";
-
-type PendingInvocation = {
-    peerId: string;
-    method: string;
-    resolve: (value: JsonLike) => void;
-    reject: (reason?: unknown) => void;
-    releaseWait: () => void;
-    requestSent: boolean;
-    cancelRequested: boolean;
-};
 
 type InboundCallContext = RpcRequestContext & {
     peerId: string;
@@ -65,7 +56,7 @@ const scheduleRpcTimeout: TimeoutScheduler = (callback, delayMs) => {
 
 export class RpcRoom {
     private options: Required<Pick<RpcRoomOptions, "maxWirePayloadBytes" | "chunkMissingRetryMs">> & RpcRoomOptions;
-    private pending = new Map<string, PendingInvocation>();
+    private pendingInvocations: ReturnType<typeof createPendingInvocations>;
     private inboundCalls = new Map<string, InboundCallContext>();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a generic type for method handlers, so we can't be more specific about the types here.
     private methods = new Map<string, RegisteredMethod<any, any>>();
@@ -83,6 +74,12 @@ export class RpcRoom {
             chunkMissingRetryMs: options.chunkMissingRetryMs ?? 350,
             ...options,
         };
+        this.pendingInvocations = createPendingInvocations({
+            sendEnvelope: (peerId, envelope) => this.sendEnvelope(peerId, envelope),
+            createRequestId: () => newId("req"),
+            scheduleTimeout: scheduleRpcTimeout,
+            onProtocolWarning: (message, peerId) => this.options.onProtocolWarning?.(message, peerId),
+        });
         this.disposers.push(
             this.options.transport.onMessage((msg, peerId) => {
                 void this.onWireMessage(msg, peerId);
@@ -102,10 +99,7 @@ export class RpcRoom {
         if (this.options.transport.onPeerLeave) {
             this.disposers.push(
                 this.options.transport.onPeerLeave((peerId) => {
-                    this.pending.forEach((pending, requestId) => {
-                        if (pending.peerId !== peerId) return;
-                        this.rejectPending(requestId, new RpcError("NOT_CONNECTED", "Peer disconnected"));
-                    });
+                    this.pendingInvocations.peerLeft(peerId);
                     this.inboundCalls.forEach((context, requestId) => {
                         if (context.peerId !== peerId) return;
                         this.abortInboundCall(requestId, context);
@@ -125,9 +119,7 @@ export class RpcRoom {
         if (this.closed) return;
         this.closed = true;
         this.disposers.splice(0).forEach((dispose) => dispose());
-        this.pending.forEach((_pending, requestId) => {
-            this.rejectPending(requestId, new RpcError("NOT_CONNECTED", "Room closed"), true);
-        });
+        this.pendingInvocations.close();
         this.inboundCalls.forEach((context, requestId) => {
             this.abortInboundCall(requestId, context);
         });
@@ -216,79 +208,7 @@ export class RpcRoom {
         if (this.closed) {
             throw new RpcError("NOT_CONNECTED", "Room is closed");
         }
-        const options: RpcCallOptions =
-            typeof timeoutOrOptions === "number" ? { timeoutMs: timeoutOrOptions } : (timeoutOrOptions ?? {});
-        const timeoutMs = options.timeoutMs ?? 30000;
-        if (options.signal?.aborted) {
-            throw new RpcError("CANCELLED", `RPC cancelled: ${method}`);
-        }
-        const requestId = newId("req");
-        let pending!: PendingInvocation;
-        const p = new Promise<JsonLike>((resolve, reject) => {
-            const signal = options.signal;
-            const onAbort = () => {
-                const current = this.pending.get(requestId);
-                if (!current) return;
-                this.rejectPending(requestId, new RpcError("CANCELLED", `RPC cancelled: ${method}`), true);
-            };
-            const deadline =
-                timeoutMs > 0
-                    ? createDeferredAction(() => {
-                          this.rejectPending(requestId, new RpcError("TIMEOUT", `RPC timed out: ${method}`), true);
-                      }, scheduleRpcTimeout)
-                    : undefined;
-            pending = {
-                peerId,
-                method,
-                resolve,
-                reject,
-                releaseWait: () => {
-                    deadline?.dispose();
-                    signal?.removeEventListener("abort", onAbort);
-                },
-                requestSent: false,
-                cancelRequested: false,
-            };
-            deadline?.schedule(timeoutMs);
-            this.pending.set(requestId, pending);
-            if (signal) {
-                signal.addEventListener("abort", onAbort, { once: true });
-                // The signal can be aborted between the check above and the
-                // listener registration in an embedding host.
-                if (signal.aborted) onAbort();
-            }
-        });
-
-        const sendTask = this.sendEnvelope(peerId, {
-            kind: "request",
-            requestId,
-            method,
-            args,
-        });
-        void sendTask.then(
-            () => {
-                // The invocation can already have been cancelled while the
-                // transport was waiting. Mark the request as sent only after
-                // the transport settles, then preserve request-before-cancel
-                // ordering for the late cancellation notification.
-                const current = this.pending.get(requestId);
-                pending.requestSent = true;
-                if (!current && pending.cancelRequested) {
-                    this.notifyRemoteCancellation(peerId, requestId);
-                }
-            },
-            (ex: unknown) => {
-                // A cancellation may have already removed the pending call.
-                // In that case the late transport failure is deliberately
-                // consumed here rather than becoming an unhandled rejection.
-                const current = this.pending.get(requestId);
-                if (!current) return;
-                const failed = this.removePending(requestId);
-                if (failed) failed.reject(ex);
-            }
-        );
-
-        return await p;
+        return await this.pendingInvocations.invoke(peerId, method, args, timeoutOrOptions);
     }
 
     /**
@@ -313,43 +233,7 @@ export class RpcRoom {
     }
 
     async cancel(peerId: string, requestId: string) {
-        const pending = this.pending.get(requestId);
-        if (pending?.peerId === peerId) {
-            const requestSent = pending.requestSent;
-            pending.cancelRequested = true;
-            this.rejectPending(requestId, new RpcError("CANCELLED", "Invocation cancelled"));
-            // If the request is still being sent, invoke() sends the cancel
-            // after its request envelope settles to preserve wire ordering.
-            if (!requestSent) return;
-        }
-        await this.sendEnvelope(peerId, {
-            kind: "cancel",
-            requestId,
-        });
-    }
-
-    private removePending(requestId: string) {
-        const pending = this.pending.get(requestId);
-        if (!pending) return undefined;
-        this.pending.delete(requestId);
-        pending.releaseWait();
-        return pending;
-    }
-
-    private rejectPending(requestId: string, error: RpcError, notifyRemote = false) {
-        const pending = this.pending.get(requestId);
-        if (!pending) return;
-        if (notifyRemote) pending.cancelRequested = true;
-        const removed = this.removePending(requestId);
-        if (!removed) return;
-        removed.reject(error);
-        if (notifyRemote && removed.requestSent) this.notifyRemoteCancellation(removed.peerId, requestId);
-    }
-
-    private notifyRemoteCancellation(peerId: string, requestId: string) {
-        void this.sendEnvelope(peerId, { kind: "cancel", requestId }).catch((error: unknown) => {
-            this.options.onProtocolWarning?.(`Failed to send RPC cancellation: ${String(error)}`, peerId);
-        });
+        return await this.pendingInvocations.cancel(peerId, requestId);
     }
 
     private abortInboundCall(requestId: string, context: InboundCallContext) {
@@ -477,15 +361,7 @@ export class RpcRoom {
             return;
         }
         if (envelope.kind === "response") {
-            const pending = this.pending.get(envelope.requestId);
-            if (!pending) return;
-            const settled = this.removePending(envelope.requestId);
-            if (!settled) return;
-            if (envelope.ok === true) {
-                settled.resolve(envelope.data);
-            } else {
-                settled.reject(new RpcError(envelope.error.code, envelope.error.message, envelope.error.details));
-            }
+            this.pendingInvocations.receiveResponse(envelope);
             return;
         }
 

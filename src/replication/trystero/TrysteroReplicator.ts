@@ -1,10 +1,10 @@
+import { createChangeRelay, type ChangeRelay } from "./TrysteroReplicator/changeRelay";
 import { reportP2PDiagnostic, type P2PDiagnosticInput } from "@lib/p2p/p2pDiagnostics";
 import {
     authenticationResultDiagnostic,
     authenticationFailureDiagnostic,
     pullResultDiagnostic,
     pullFailureDiagnostic,
-    notificationFailureDiagnostic,
 } from "./p2pReplicationDiagnostics";
 import {
     projectDirectionProgress,
@@ -33,8 +33,8 @@ import {
 import { replicateShim, type ProgressInfo, type ReplicationStatistics } from "@lib/pouchdb/ReplicatorShim";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import { resolveCurrentP2PSettings, type Advertisement, type ReplicatorHostEnv } from "./types";
-import { scheduleOnceIfDuplicated, serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock_v2";
-import { delay, fireAndForget } from "octagonal-wheels/promises";
+import { scheduleOnceIfDuplicated, skipIfDuplicated } from "octagonal-wheels/concurrency/lock_v2";
+import { delay } from "octagonal-wheels/promises";
 import {
     EVENT_ADVERTISEMENT_RECEIVED,
     EVENT_P2P_REPLICATOR_PROGRESS,
@@ -169,6 +169,28 @@ export class TrysteroReplicator {
     private readonly fallbackAutomationCoordinator = new P2PAutomationCoordinator();
 
     server?: P2PHost;
+    private readonly changeRelay: ChangeRelay<P2PReplicationResult> = createChangeRelay<P2PReplicationResult>({
+        createChangesFeed: (options) => this.db.changes(options),
+        hasHost: () => Boolean(this.server),
+        peerIds: () => this.server?.knownAdvertisements.map(({ peerId }) => peerId) ?? [],
+        captureNotificationTarget: (peerId) => {
+            const server = this.server;
+            const room = server?.rpcRoom;
+            if (!server || !room) {
+                return undefined;
+            }
+            return {
+                isAccepted: () => server.isAcceptablePeer(peerId),
+                isCurrent: () => this.server === server && server.rpcRoom === room,
+                send: () => server.getConnection(peerId).notifyRemoteFunction("onProgress", [server.serverPeerId]),
+            };
+        },
+        isDisposed: () => this.disposed,
+        announceChanges: () => this.notifyProgress(),
+        pullPeer: (peerId) => this.runFiniteReplicationActivity(() => this.replicateFrom(peerId)),
+        dispatchStatus: () => this.dispatchStatus(),
+        reportDiagnostic: (input) => this.reportDiagnostic(input),
+    });
     replicationStatus() {
         return {};
     }
@@ -535,7 +557,12 @@ export class TrysteroReplicator {
         }
     }
 
-    lastSeq = "" as string | number;
+    get lastSeq(): string | number {
+        return this.changeRelay.lastSeq;
+    }
+    set lastSeq(sequence: string | number) {
+        this.changeRelay.lastSeq = sequence;
+    }
     async requestSynchroniseToPeer(peerId: string, callerSignal?: AbortSignal): Promise<P2PReplicationResult> {
         return await this.runSessionFiniteOperation(
             async (signal) => await this.requestSynchroniseToPeerWithinSession(peerId, signal),
@@ -595,66 +622,23 @@ export class TrysteroReplicator {
         void this.server?.dispatchConnectionStatus();
     }
 
-    changes?: PouchDB.Core.Changes<EntryDoc>;
-    _isBroadcasting = false;
-    disableBroadcastChanges() {
-        const wasBroadcasting = this._isBroadcasting;
-        this.changes?.cancel();
-        const needsDiagnostic = wasBroadcasting && this._isBroadcasting;
-        this._isBroadcasting = false;
-        this.dispatchStatus();
-        if (needsDiagnostic) this.reportDiagnostic({ category: "sync", code: "broadcast-disabled" });
+    get changes(): PouchDB.Core.Changes<EntryDoc> | undefined {
+        return this.changeRelay.changes;
     }
-
+    set changes(changes: PouchDB.Core.Changes<EntryDoc> | undefined) {
+        this.changeRelay.changes = changes;
+    }
+    get _isBroadcasting(): boolean {
+        return this.changeRelay.isBroadcasting;
+    }
+    set _isBroadcasting(enabled: boolean) {
+        this.changeRelay.isBroadcasting = enabled;
+    }
+    disableBroadcastChanges() {
+        this.changeRelay.disableBroadcastChanges();
+    }
     enableBroadcastChanges() {
-        if (this._isBroadcasting) return;
-        this._isBroadcasting = true;
-        this.dispatchStatus();
-        if (this.changes) {
-            void this.changes.cancel();
-            void this.changes.removeAllListeners();
-        }
-        this.changes = this.db.changes({
-            since: "now",
-            live: true,
-            include_docs: false,
-            selector: {
-                _id: {
-                    $gt: "_local/",
-                },
-            },
-        });
-        void this.changes.on("change", async (change) => {
-            this.lastSeq = change.seq;
-            await this.notifyProgress();
-        });
-        const closeChanges = (reason?: unknown) => {
-            const wasBroadcasting = this._isBroadcasting;
-            if (reason) {
-                if (reason instanceof Error) {
-                    Logger(`Error while broadcasting the changes`, LOG_LEVEL_INFO);
-                    Logger(reason, LOG_LEVEL_VERBOSE);
-                } else {
-                    Logger(`Broadcasting the changes has been finished`, LOG_LEVEL_INFO);
-                    Logger(reason, LOG_LEVEL_VERBOSE);
-                }
-            }
-            void this.changes?.cancel();
-            void this.changes?.removeAllListeners();
-            this.changes = undefined;
-            this._isBroadcasting = false;
-            this.dispatchStatus();
-            if (wasBroadcasting)
-                this.reportDiagnostic({
-                    category: "sync",
-                    code: "broadcast-disabled",
-                    ...(reason instanceof Error ? { reason: "replication-error" as const } : {}),
-                });
-        };
-        void this.changes.on("error", closeChanges);
-        void this.changes.on("complete", closeChanges);
-        this.reportDiagnostic({ category: "sync", code: "broadcast-enabled" });
-        fireAndForget(async () => await this.notifyProgress());
+        this.changeRelay.enableBroadcastChanges();
     }
 
     /** Apply automatic broadcast policy without restarting this room. */
@@ -961,51 +945,7 @@ export class TrysteroReplicator {
     }
 
     notifyProgress(excludePeerId?: string) {
-        if (!this._isBroadcasting) {
-            return;
-        }
-        if (!this.server) {
-            return;
-        }
-        for (const peer of this.server.knownAdvertisements) {
-            const peerId = peer.peerId;
-            if (peerId === excludePeerId) {
-                continue;
-            }
-            void serialized(`notifyProgress-${peerId}`, () => this.notifyPeerProgress(peerId));
-        }
-        return Promise.resolve();
-    }
-
-    private async notifyPeerProgress(peerId: string) {
-        const server = this.server;
-        const room = server?.rpcRoom;
-        if (!room || this.disposed || !this._isBroadcasting) {
-            return;
-        }
-        const isAcceptable = await server.isAcceptablePeer(peerId);
-        if (!isAcceptable) {
-            this.reportDiagnostic({
-                category: "sync",
-                code: "change-notification-ignored",
-                peerId,
-                reason: "not-accepted",
-            });
-            Logger(`Peer ${peerId} is not acceptable to notify progress`, LOG_LEVEL_VERBOSE);
-            return;
-        }
-        try {
-            // Admission may settle after this room or broadcast has stopped.
-            if (this.disposed || !this._isBroadcasting || this.server !== server || server.rpcRoom !== room) {
-                return;
-            }
-            await server.getConnection(peerId).notifyRemoteFunction("onProgress", [server.serverPeerId]);
-            this.reportDiagnostic({ category: "sync", code: "change-notification-sent", peerId });
-        } catch (error) {
-            this.reportDiagnostic(notificationFailureDiagnostic(peerId, error));
-            Logger(`Error while notifying progress to ${peerId}`, LOG_LEVEL_VERBOSE);
-            Logger(error, LOG_LEVEL_VERBOSE);
-        }
+        return this.changeRelay.notifyProgress(excludePeerId);
     }
     async requestBroadcastChanges(peerId: string) {
         return await this.server
@@ -1020,38 +960,20 @@ export class TrysteroReplicator {
             Logger(e, LOG_LEVEL_VERBOSE);
         }
     }
-    _watchingPeers = new Set<string>();
-
+    get _watchingPeers(): Set<string> {
+        return this.changeRelay.watchingPeers;
+    }
+    set _watchingPeers(peers: Set<string>) {
+        this.changeRelay.watchingPeers = peers;
+    }
     watchPeer(peerId: string) {
-        if (!this._watchingPeers.has(peerId)) {
-            this.reportDiagnostic({ category: "sync", code: "watch-enabled", peerId });
-        }
-        this._watchingPeers.add(peerId);
-        this.dispatchStatus();
+        this.changeRelay.watchPeer(peerId);
     }
     unwatchPeer(peerId: string) {
-        if (this._watchingPeers.has(peerId)) {
-            this.reportDiagnostic({ category: "sync", code: "watch-disabled", peerId });
-        }
-        this._watchingPeers.delete(peerId);
-        this.dispatchStatus();
+        this.changeRelay.unwatchPeer(peerId);
     }
-
     async onUpdateDatabase(fromPeerId: string) {
-        if (this._watchingPeers.has(fromPeerId)) {
-            this.reportDiagnostic({ category: "sync", code: "change-notification-received", peerId: fromPeerId });
-            Logger(`Progress notification from ${fromPeerId}`, LOG_LEVEL_VERBOSE);
-            return await serialized(`onProgress-${fromPeerId}`, async () => {
-                return await this.runFiniteReplicationActivity(() => this.replicateFrom(fromPeerId));
-            });
-        }
-        this.reportDiagnostic({
-            category: "sync",
-            code: "change-notification-ignored",
-            peerId: fromPeerId,
-            reason: "not-watching",
-        });
-        return false;
+        return await this.changeRelay.onUpdateDatabase(fromPeerId);
     }
     async getRemoteConfig(peerId: string) {
         if (!this.server) {

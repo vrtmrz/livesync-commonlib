@@ -96,7 +96,6 @@ function responses(transport: TestTransport) {
 
 function roomState(room: RpcRoom) {
     return room as unknown as {
-        pending: Map<string, unknown>;
         inboundCalls: Map<string, unknown>;
         outgoingChunkMap: Map<string, unknown>;
     };
@@ -138,7 +137,7 @@ it("suppresses the RPC response for a request marked as a notification", async (
     expect(roomState(room).inboundCalls.size).toBe(0);
 });
 
-it("settles only after transport send and creates no pending invocation or response timer", async () => {
+it("settles only after transport send and creates no response wait", async () => {
     vi.useFakeTimers();
     const transport = new TestTransport("peer-a");
     let finishSend!: () => void;
@@ -154,7 +153,6 @@ it("settles only after transport send and creates no pending invocation or respo
     const request = parseRawEnvelope(transport.sent[0].message);
     expect(request).toMatchObject({ kind: "request", method: "events.changed", args: [], expectsResponse: false });
     expect(request?.requestId).toEqual(expect.any(String));
-    expect(roomState(room).pending.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
     await Promise.resolve();
     expect(settled).toBe(false);
@@ -162,7 +160,6 @@ it("settles only after transport send and creates no pending invocation or respo
     finishSend();
     await notification;
     expect(settled).toBe(true);
-    expect(roomState(room).pending.size).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
 });
 
@@ -193,12 +190,10 @@ it("does not wait for a long remote handler or block a later notification", asyn
     const first = roomA.session("peer-b").notify("events.changed", [1]);
     await first;
     await firstHandlerStarted;
-    expect(roomState(roomA).pending.size).toBe(0);
 
     await roomA.session("peer-b").notify("events.changed", [2]);
     await secondHandlerStarted;
     expect(responses(transportA)).toEqual([]);
-    expect(roomState(roomA).pending.size).toBe(0);
 
     releaseFirst();
     await flushMessages();
@@ -218,7 +213,6 @@ it("settles when the receiver denies admission without waiting for a response", 
 
     expect(handlerCalled).toBe(false);
     expect(responses(transportA)).toEqual([]);
-    expect(roomState(roomA).pending.size).toBe(0);
 });
 
 it("rejects when the transport send fails", async () => {
@@ -228,7 +222,6 @@ it("rejects when the transport send fails", async () => {
     const room = makeRoom({ transport });
 
     await expect(room.session("peer-b").notify("events.changed")).rejects.toBe(failure);
-    expect(roomState(room).pending.size).toBe(0);
 });
 
 it.each(["admission exception", "protocol version mismatch", "missing method", "handler exception"] as const)(
@@ -338,7 +331,6 @@ it("interoperates with a simulated 0.4.3 receiver that ignores the optional flag
     await flushMessages();
 
     expect(responses(transportB)).toHaveLength(1);
-    expect(roomState(roomA).pending.size).toBe(0);
     expect(roomState(roomA).inboundCalls.size).toBe(0);
 });
 
@@ -363,7 +355,6 @@ it("retains chunk acknowledgements and handler processing for large notification
         transportB.sent.some(({ message }) => message.wire === "chunk-ack" && message.missing.length === 0)
     ).toBe(true);
     expect(responses(transportB)).toEqual([]);
-    expect(roomState(roomA).pending.size).toBe(0);
     expect(roomState(roomA).outgoingChunkMap.size).toBe(0);
 });
 
