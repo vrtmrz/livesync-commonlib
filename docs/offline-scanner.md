@@ -214,6 +214,13 @@ Strict internal reads propagate `ContentReadError` with directly observed `local
 
 `ReflectionOperationContext` carries the target, source policy, and optional checkpoint. `reflectDatabaseEntry` and `processSynchroniseResult` return `completed`, `policy`, or `cancelled`; uncontinuable failures reject the operation. Existing Boolean retrieval and `dbToStorage` facades retain their compatibility conversion at the outside boundary. They are not used to recover a lost cause from a second callback channel. `/replication` re-exports the neutral content and reflection contracts for consumers.
 
+The reflection result keeps its `status` shape, with shared immutable
+`FILE_REFLECTION_COMPLETED`, `FILE_REFLECTION_POLICY`, and
+`FILE_REFLECTION_CANCELLED` values. `isReflectionCompleted` and
+`isReflectionCancelled` express the corresponding caller decisions. The scanner
+converts reflection outcomes to its own pair result once, before applying
+completion events and observed-time bookkeeping.
+
 A host can use `IReplicationService.onFiniteReplicationCompleted` to schedule
 retained work after a successful, uncancelled CouchDB finite pull or bidirectional
 transfer, including the initial pull before continuous replication. Zero changed

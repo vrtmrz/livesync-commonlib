@@ -1,4 +1,4 @@
-import type { FileReflectionResult } from "@lib/interfaces/FileHandler";
+import { isReflectionCompleted } from "@lib/interfaces/FileHandler";
 import {
     LOG_LEVEL_DEBUG,
     LOG_LEVEL_INFO,
@@ -29,7 +29,7 @@ async function reflectScannedEntry(
     file: FilePath | null,
     force: boolean,
     options?: VaultScanOptions
-): Promise<FileReflectionResult | { status: "failed" }> {
+): Promise<FilePairProcessResult> {
     const target = entry._rev ? { documentId: entry._id, revision: entry._rev } : undefined;
     try {
         const result = await host.serviceModules.fileHandler.reflectDatabaseEntry(
@@ -38,14 +38,14 @@ async function reflectScannedEntry(
             force,
             options?.reflectionOperation ?? (target ? { target, source: "scan" } : undefined)
         );
-        return result;
+        return isReflectionCompleted(result) ? FilePairProcessResults.COMPLETED : FilePairProcessResults.SKIPPED;
     } catch (error) {
         // The owner notification is awaited after the reflection operation fails.
         // Its rejection must remain a persistence failure, not another read failure.
         if (target && options?.onReflectionFailed) {
             await options.onReflectionFailed(target, error);
         }
-        return { status: "failed" };
+        return FilePairProcessResults.FAILED;
     }
 }
 
@@ -88,19 +88,15 @@ export async function syncFileBetweenDBandStorage(
             if (!host.services.vault.isFileSizeTooLarge(doc.size)) {
                 log("STORAGE <- DB :" + docPath);
                 const reflection = await reflectScannedEntry(host, doc, stripAllPrefixes(docPath), false, scanOptions);
-                if (reflection.status === "policy" || reflection.status === "cancelled") {
-                    return FilePairProcessResults.SKIPPED;
-                }
-                if (reflection.status === "completed") {
+                if (reflection === FilePairProcessResults.COMPLETED) {
                     host.services.context.events.emitEvent("event-file-changed", {
                         file: file.path,
                         automated: true,
                     });
-                    return FilePairProcessResults.COMPLETED;
-                } else {
+                } else if (reflection === FilePairProcessResults.FAILED) {
                     log(`STORAGE <- DB : Cloud not read ${file.path}, possibly deleted`, LOG_LEVEL_NOTICE);
-                    return FilePairProcessResults.FAILED;
                 }
+                return reflection;
             } else {
                 log(
                     `STORAGE <- DB : ${file.path} has been skipped due to file size exceeding the limit`,
@@ -312,11 +308,8 @@ export async function updateToStorage(
             // Keep a failed reflection retryable. Treating it as success would let
             // the caller persist the database mtime as a locally observed file and
             // a later newer-wins scan could misclassify the missing file as deleted.
-            if (reflected.status === "policy" || reflected.status === "cancelled") {
-                return FilePairProcessResults.SKIPPED;
-            }
-            if (reflected.status !== "completed") {
-                return FilePairProcessResults.FAILED;
+            if (reflected !== FilePairProcessResults.COMPLETED) {
+                return reflected;
             }
             host.services.context.events.emitEvent("event-file-changed", {
                 file: path,

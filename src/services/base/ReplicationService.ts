@@ -6,7 +6,7 @@ import {
     type ObsidianLiveSyncSettings,
     type RemoteDBSettings,
 } from "@lib/common/types";
-import { handlers, MultiBinder } from "@lib/services/lib/HandlerUtils";
+import { handlers } from "@lib/services/lib/HandlerUtils";
 import type {
     IAPIService,
     IDatabaseService,
@@ -180,37 +180,6 @@ export interface ReplicationServiceDependencies {
     replicatorService: IReplicatorService;
     fileProcessingService: IFileProcessingService;
 }
-/** Existing registration ownership with rejection-preserving reflection dispatch. */
-class ReflectionResultHandlers extends MultiBinder<IReplicationService["processSynchroniseResult"]> {
-    readonly dispatch = Object.assign(
-        async (...args: Parameters<IReplicationService["processSynchroniseResult"]>) => {
-            for (const callback of [...this._callbacks]) {
-                const result = await callback(...args);
-                if (result !== undefined) {
-                    return result;
-                }
-            }
-            return undefined;
-        },
-        { addHandler: this.addHandler.bind(this), removeHandler: this.removeHandler.bind(this) }
-    );
-}
-
-/** Snapshot persistence failures remain failures of the notification owner. */
-class ReflectionFailureHandlers extends MultiBinder<IReplicationService["onFileReflectionFailed"]> {
-    readonly dispatch = Object.assign(
-        async (...args: Parameters<IReplicationService["onFileReflectionFailed"]>) => {
-            for (const callback of [...this._callbacks]) {
-                if ((await callback(...args)) === false) {
-                    return false;
-                }
-            }
-            return true;
-        },
-        { addHandler: this.addHandler.bind(this), removeHandler: this.removeHandler.bind(this) }
-    );
-}
-
 /**
  * Host-facing replication façade for handlers, legacy entry points, and counters.
  *
@@ -288,7 +257,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     /**
      * Process a synchronisation result document.
      */
-    readonly processSynchroniseResult = new ReflectionResultHandlers("processSynchroniseResult").dispatch;
+    readonly processSynchroniseResult = handlers<IReplicationService>().firstDefined("processSynchroniseResult");
 
     /**
      * Process a synchronisation result document for optional entries i.e., hidden files.
@@ -313,7 +282,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
 
     readonly onFiniteReplicationCompleted = handlers<IReplicationService>().allSettled("onFiniteReplicationCompleted");
 
-    readonly onFileReflectionFailed = new ReflectionFailureHandlers("onFileReflectionFailed").dispatch;
+    readonly onFileReflectionFailed = handlers<IReplicationService>().allOrThrow("onFileReflectionFailed");
 
     /** Provider preparation which applies only to the central remote. */
     readonly onPrepareCentralRemoteReplication = handlers<IReplicationService>().bailFirstFailure(

@@ -1,4 +1,4 @@
-import type { FilePath, FilePathWithPrefix, MetaEntry } from "@lib/common/models/db.type";
+import type { DocumentID, FilePath, FilePathWithPrefix, MetaEntry } from "@lib/common/models/db.type";
 import type { UXFileInfo, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/models/fileaccess.type";
 
 export interface StoreFileOptions {
@@ -56,7 +56,7 @@ export type DeletionRecoveryResult =
     | DeletionRecoveryClearedResult;
 
 export interface ReflectionTarget {
-    documentId: import("@lib/common/types").DocumentID;
+    documentId: DocumentID;
     revision: string;
 }
 
@@ -68,7 +68,21 @@ export interface ReflectionOperationContext {
     readonly checkpoint?: () => boolean | void;
 }
 
-export type FileReflectionResult = { status: "completed" | "policy" | "cancelled" };
+export type FileReflectionResult = Readonly<{ status: "completed" | "policy" | "cancelled" }>;
+
+export const FILE_REFLECTION_COMPLETED = Object.freeze({ status: "completed" as const });
+export const FILE_REFLECTION_POLICY = Object.freeze({ status: "policy" as const });
+export const FILE_REFLECTION_CANCELLED = Object.freeze({ status: "cancelled" as const });
+
+/** Only completed reflection permits the caller's success bookkeeping. */
+export function isReflectionCompleted(result: FileReflectionResult): boolean {
+    return result.status === "completed";
+}
+
+/** Preserve cancellation when adapting reflection to legacy Boolean results. */
+export function isReflectionCancelled(result: FileReflectionResult): boolean {
+    return result.status === "cancelled";
+}
 
 export interface IFileHandler {
     /** Strict reflection; failures reject to the target owner. */

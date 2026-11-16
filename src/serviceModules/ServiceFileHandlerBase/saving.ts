@@ -1,3 +1,4 @@
+import { isReflectionCancelled } from "@lib/interfaces/FileHandler";
 import { ContentReadError } from "@lib/common/LSError.ts";
 import { isFolderInfo, infoToStub } from "./storage";
 import { withFileEventPaths, queueConflictCheckFor } from "./locking";
@@ -559,7 +560,7 @@ async function finishUnchangedStorageSave(
         await queueConflictCheckFor(ctx, file.path);
     } else if (!currentEntry || currentEntry.deleted || currentEntry._deleted || revision !== currentEntry._rev) {
         if (!currentEntry) return false;
-        return (await dbToStorageCore(ctx, file.path as FilePathWithPrefix, file)).status !== "cancelled";
+        return !isReflectionCancelled(await dbToStorageCore(ctx, file.path as FilePathWithPrefix, file));
     } else {
         if (upgradeCurrentRecord && snapshotMatches) {
             await setProvenance(ctx, file.path, revision, readFile.stat.mtime, readFile.body, evidence);

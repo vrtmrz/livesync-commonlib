@@ -1,5 +1,12 @@
 import { ContentReadError } from "@lib/common/LSError.ts";
-import type { FileReflectionResult, ReflectionOperationContext } from "@lib/interfaces/FileHandler";
+import {
+    FILE_REFLECTION_COMPLETED,
+    FILE_REFLECTION_POLICY,
+    FILE_REFLECTION_CANCELLED,
+    isReflectionCancelled,
+    type FileReflectionResult,
+    type ReflectionOperationContext,
+} from "@lib/interfaces/FileHandler";
 import { withFileEventPaths, queueConflictCheckFor } from "./locking";
 import { infoToStub, isFolderInfo, getParentPath } from "./storage";
 import {
@@ -105,7 +112,7 @@ async function dbToStorageWithSpecificRevCore(
         );
         return false;
     }
-    return (await applyDatabaseEntryToStorage(ctx, docEntry, file, force, true)).status !== "cancelled";
+    return !isReflectionCancelled(await applyDatabaseEntryToStorage(ctx, docEntry, file, force, true));
 }
 
 /**
@@ -132,7 +139,7 @@ export async function dbToStorage(
             operationReturned = true;
             return outcome;
         });
-        return result.status !== "cancelled";
+        return !isReflectionCancelled(result);
     } catch (error) {
         // Only adapt the operation's failure. A post-unlock hook can fail after
         // successful reflection and must never turn that work into a retry.
@@ -177,7 +184,7 @@ export async function dbToStorageCore(
     operation?: ReflectionOperationContext
 ): Promise<FileReflectionResult> {
     if (operation?.checkpoint?.() === false) {
-        return { status: "cancelled" };
+        return FILE_REFLECTION_CANCELLED;
     }
     const file = await infoToStub(ctx, info);
     const pathFromEntryInfo = typeof entryInfo === "string" ? entryInfo : ctx.host.getPath(entryInfo);
@@ -222,19 +229,19 @@ export async function applyDatabaseEntryToStorage(
         } else {
             // If not, then it should be checked. and will be processed later (i.e., after the conflict is resolved).
             await queueConflictCheckFor(ctx, path, true);
-            return { status: "policy" };
+            return FILE_REFLECTION_POLICY;
         }
     }
     let existDoc = await ctx.host.storage().getStub(path);
     if (isFolderInfo(existDoc)) {
         ctx.host.log(`Folder ${path} is already exist on the storage as a folder`, LOG_LEVEL_VERBOSE);
-        return { status: "policy" };
+        return FILE_REFLECTION_POLICY;
     }
     const existOnDB = !(docEntry._deleted || docEntry.deleted || false);
     if (!existOnDB && !existDoc) {
         ctx.host.log(`File ${path} seems to be deleted, but already not on storage`, LOG_LEVEL_VERBOSE);
         await deleteProvenance(ctx, path);
-        return { status: "completed" };
+        return FILE_REFLECTION_COMPLETED;
     }
     if (!existOnDB && existDoc) {
         return await applyIncomingDeletion(
@@ -403,7 +410,7 @@ async function applyIncomingDeletion(
     if (!force && !settings.writeDocumentsIfConflicted) {
         let protection = await preserveUnsyncedStorageAsConflict(ctx, path, existDoc, docEntry, undefined);
         if (protection.preserved) {
-            return { status: "policy" };
+            return FILE_REFLECTION_POLICY;
         }
         if (
             !protection.snapshot ||
@@ -411,7 +418,7 @@ async function applyIncomingDeletion(
         ) {
             protection = await recheckIncomingStorage(ctx, path, docEntry, undefined, allowExistingConflicts);
             if (protection.preserved) {
-                return { status: "policy" };
+                return FILE_REFLECTION_POLICY;
             }
             if (
                 !protection.snapshot ||
@@ -438,7 +445,7 @@ async function applyIncomingDeletion(
     ) {
         const protection = await recheckIncomingStorage(ctx, path, docEntry, undefined, allowExistingConflicts);
         if (protection.preserved) {
-            return { status: "policy" };
+            return FILE_REFLECTION_POLICY;
         }
         if (
             !protection.snapshot ||
@@ -462,11 +469,11 @@ async function applyIncomingDeletion(
         }
     }
     if (operation?.checkpoint?.() === false) {
-        return { status: "cancelled" };
+        return FILE_REFLECTION_CANCELLED;
     }
     await ctx.host.storage().deleteVaultItem(path);
     await deleteProvenance(ctx, path);
-    return { status: "completed" };
+    return FILE_REFLECTION_COMPLETED;
 }
 
 /**
@@ -538,7 +545,7 @@ async function prepareIncomingStorageWrite(
 ): Promise<IncomingStoragePreparation> {
     const { existDoc, force, allowExistingConflicts, docRead } = write;
     if (allowExistingConflicts && existDoc && !force && (await acceptMatchingSelectedContent(ctx, write, existDoc))) {
-        return { kind: "complete", result: { status: "completed" } };
+        return { kind: "complete", result: FILE_REFLECTION_COMPLETED };
     }
     if (existDoc && !force) return await prepareExistingStorageWrite(ctx, write, existDoc);
     ctx.host.log(`File ${docRead.path} ${existDoc ? "(new) " : ""} ${force ? " (forced)" : ""}`, LOG_LEVEL_VERBOSE);
@@ -575,7 +582,7 @@ async function commitIncomingStorageWrite(
     if (safeSnapshot && !(await currentStorageSnapshotMatches(ctx, safeSnapshot.file, safeSnapshot.revision))) {
         const protection = await recheckIncomingStorage(ctx, path, docEntry, docData, allowExistingConflicts);
         if (protection.preserved) {
-            return { status: "policy" };
+            return FILE_REFLECTION_POLICY;
         }
         if (
             !protection.snapshot ||
@@ -599,7 +606,7 @@ async function commitIncomingStorageWrite(
         throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
     }
     if (operation?.checkpoint?.() === false) {
-        return { status: "cancelled" };
+        return FILE_REFLECTION_CANCELLED;
     }
     const ret = await ctx.host.storage().writeFileAuto(path, docData, { ctime: docRead.ctime, mtime: docRead.mtime });
     await ctx.host.storage().touched(path);
@@ -610,14 +617,14 @@ async function commitIncomingStorageWrite(
         // Preserve that newer branch identity. A plain user edit leaves the
         // record unchanged, so the written revision remains its correct base.
         if (safeSnapshot && !sameProvenance(await readProvenanceSnapshot(ctx, path), safeSnapshot.revision)) {
-            return { status: "completed" };
+            return FILE_REFLECTION_COMPLETED;
         }
         await setProvenance(ctx, path, docEntry._rev, storedStat?.mtime, reflectedContent, reflectedEvidence);
     }
     if (!ret) {
         throw new IncompleteFileReflectionError("Storage rejected the reflected write");
     }
-    return { status: "completed" };
+    return FILE_REFLECTION_COMPLETED;
 }
 
 /**
@@ -679,7 +686,7 @@ async function prepareExistingStorageWrite(
     if (!shouldApplied) {
         await setProvenance(ctx, path, docEntry._rev, existDoc.stat.mtime, reflectedContent, reflectedEvidence);
         ctx.host.log(`File ${docRead.path} is not changed`, LOG_LEVEL_VERBOSE);
-        return { kind: "complete", result: { status: "completed" } };
+        return { kind: "complete", result: FILE_REFLECTION_COMPLETED };
     }
 
     return await prepareIncomingStorageProtection(ctx, write, current);
@@ -704,12 +711,12 @@ async function prepareIncomingStorageProtection(
 
     let protection = await preserveUnsyncedStorageAsConflict(ctx, path, existDoc, docEntry, docData);
     if (protection.preserved) {
-        return { kind: "complete", result: { status: "policy" } };
+        return { kind: "complete", result: FILE_REFLECTION_POLICY };
     }
     if (!protection.snapshot) {
         protection = await recheckIncomingStorage(ctx, path, docEntry, docData, allowExistingConflicts);
         if (protection.preserved) {
-            return { kind: "complete", result: { status: "policy" } };
+            return { kind: "complete", result: FILE_REFLECTION_POLICY };
         }
         if (!protection.snapshot) {
             throw new IncompleteFileReflectionError("Storage changed during overwrite protection");

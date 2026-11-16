@@ -390,6 +390,14 @@ The platform and RPC ownership decisions are accepted:
 
 The package build records each compatibility path explicitly. Do not add a wildcard export. A new compatibility path requires a real downstream import, a packed-consumer or downstream test, and a migration plan towards a focused public entry or the owning package.
 
+For the unreleased reflection integration, service composition uses
+`handlers<T>().firstDefined()` to select the first non-`undefined` result and
+`handlers<T>().allOrThrow()` to run boolean callbacks until one returns `false`.
+Both propagate callback exceptions unchanged and retain the existing registration,
+priority, and invocation-snapshot semantics. Reflection and snapshot failures can
+therefore reach their owner without a service-specific dispatcher. The existing
+`firstResult`, `all`, and other handler contracts retain their error handling.
+
 The existing `compat/services/lib` helpers `bindableFunction` and `lazyBindableFunction` return an `UnregisterFunction` from `setHandler()`. It removes only the assignment made by that registration while it remains current; a stale remover, including after an override with the same callback, and repeated removals are no-ops. Existing callers may ignore the return value, but implementations and test doubles of the handler interfaces must return a remover. Keep this contract within the existing compatibility boundary rather than presenting it as a general SDK pattern.
 
 After the reviewed Self-hosted LiveSync revision changes, inspect its current compatibility imports with:

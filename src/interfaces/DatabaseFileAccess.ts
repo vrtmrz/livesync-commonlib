@@ -1,10 +1,17 @@
-import type { FilePathWithPrefix, LoadedEntry, MetaEntry, UXFileInfo, UXFileInfoStub } from "@lib/common/types";
+import type {
+    DocumentID,
+    FilePathWithPrefix,
+    LoadedEntry,
+    MetaEntry,
+    UXFileInfo,
+    UXFileInfoStub,
+} from "@lib/common/types";
 
 export type ContentReadResource = "local-database" | "remote";
 
 /** Known recovery dependencies; unresolved or invalid content has no automatic retry dependency. */
 export interface ContentReadFailure {
-    documentId: import("@lib/common/types").DocumentID;
+    documentId: DocumentID;
     revision?: string;
     /** Every listed dependency must recover; an empty list requires manual review. */
     resources: readonly ContentReadResource[];

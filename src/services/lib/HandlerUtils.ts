@@ -372,6 +372,18 @@ export class AllHandler<T extends unknown[]> extends BooleanHandlerBase<T> {
     }
 }
 
+/** Run handlers in order, stopping at false and propagating callback failures. */
+export class AllOrThrowHandler<T extends unknown[]> extends BooleanHandlerBase<T> {
+    async invoke(...args: T): Promise<boolean> {
+        for (const callback of [...this._callbacks]) {
+            if ((await callback(...args)) === false) {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
 /**
  * A handler that preserves a non-boolean continuation result while continuing
  * to give false results and exceptions veto power.
@@ -520,6 +532,19 @@ export class FirstResultHandler<T extends unknown[], U> extends MultiBinder<Bool
     }
 }
 
+/** Return the first defined value, propagating callback failures unchanged. */
+export class FirstDefinedHandler<T extends unknown[], U> extends MultiBinder<HandlerFunc<T, U>> {
+    async invoke(...args: T): Promise<Awaited<U> | undefined> {
+        for (const callback of [...this._callbacks]) {
+            const result = await callback(...args);
+            if (result !== undefined) {
+                return result;
+            }
+        }
+        return undefined;
+    }
+}
+
 /**
  * Invokes registered handlers in priority and registration order until one
  * completes or vetoes. Each invocation uses a snapshot of registrations.
@@ -613,6 +638,12 @@ export interface MultipleHandlerFunction<TFunc extends (...args: any[]) => U | P
      */
     removeHandler: (callback: TFunc) => void;
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches the callback signature accepted by the other multiple-handler helpers.
+export type FirstDefinedFunction<TFunc extends (...args: any[]) => Promise<unknown>> = ((
+    ...args: Parameters<TFunc>
+) => Promise<Awaited<ReturnType<TFunc>> | undefined>) &
+    Pick<MultipleHandlerFunction<TFunc>, "addHandler" | "removeHandler">;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches the callback signature accepted by the other multiple-handler helpers.
 export type FirstHandledFunction<TFunc extends (...args: any[]) => AnyHandlerOutcome | Promise<AnyHandlerOutcome>> = ((
@@ -709,6 +740,14 @@ export function allFunction<TFunc extends (...args: any[]) => Promise<boolean>>(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- covariant in return type, so cannot be generic.
+export function allOrThrowFunction<TFunc extends (...args: any[]) => Promise<boolean>>(
+    name?: string
+): BooleanMultipleHandlerFunction<TFunc> {
+    const handler = new AllOrThrowHandler<Parameters<TFunc>>(name ?? "allOrThrowFunction");
+    return getMultipleBound(handler);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- covariant in return type, so cannot be generic.
 export function allSettledFunction<TFunc extends (...args: any[]) => Promise<boolean>>(
     name?: string
 ): BooleanMultipleHandlerFunction<TFunc> {
@@ -756,6 +795,16 @@ export function firstResultFunction<TFunc extends (...args: any[]) => Promise<un
 ): MultipleHandlerFunction<TFunc> {
     const handler = new FirstResultHandler<Parameters<TFunc>, ReturnType<TFunc>>(name ?? "firstResultFunction");
     return getMultipleBound(handler) as MultipleHandlerFunction<TFunc>;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- covariant in return type, so cannot be generic.
+export function firstDefinedFunction<TFunc extends (...args: any[]) => Promise<unknown>>(
+    name?: string
+): FirstDefinedFunction<TFunc> {
+    const handler = new FirstDefinedHandler<Parameters<TFunc>, Awaited<ReturnType<TFunc>>>(
+        name ?? "firstDefinedFunction"
+    );
+    return getMultipleBound(handler) as FirstDefinedFunction<TFunc>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches the callback signature accepted by the other multiple-handler helpers.
@@ -846,6 +895,14 @@ export function handlers<T extends object>() {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- covariant in return type, so cannot be generic.
             return allFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>>(String(name));
         },
+        /** Stop at a false result; propagate callback errors and rejections unchanged. */
+        allOrThrow<K extends FunctionKeys<T>>(
+            name: K
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- follows the existing callback-selection pattern.
+        ): BooleanMultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>> {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- follows the existing callback-selection pattern.
+            return allOrThrowFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>>(String(name));
+        },
         /**
          * Create a handler that invokes every added handler sequentially and
          * returns true only if all of them succeed.
@@ -922,6 +979,14 @@ export function handlers<T extends object>() {
         ): MultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<unknown>>> {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- covariant in return type, so cannot be generic.
             return firstResultFunction<Extract<T[K], (...args: any[]) => Promise<unknown>>>(String(name));
+        },
+        /** Return the first defined result; propagate callback failures unchanged. */
+        firstDefined<K extends FunctionKeys<T>>(
+            name: K
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- follows the existing callback-selection pattern.
+        ): FirstDefinedFunction<Extract<T[K], (...args: any[]) => Promise<unknown>>> {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- follows the existing callback-selection pattern.
+            return firstDefinedFunction<Extract<T[K], (...args: any[]) => Promise<unknown>>>(String(name));
         },
         /**
          * Create a handler that invokes registered handlers until one completes or vetoes.
