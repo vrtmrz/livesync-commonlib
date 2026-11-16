@@ -1,3 +1,4 @@
+import { computeFileContentHash } from "@lib/common/fileContentHash";
 import { describe, expect, it } from "vitest";
 
 import { EntryTypes, type FilePathWithPrefix, type LoadedEntry } from "@lib/common/types";
@@ -8,7 +9,7 @@ import {
     makeFileStub,
     makeMetaEntry,
 } from "../../../_tools/fixtures/file-handler-context";
-import { canSkipUnchangedFile, tryRecordUntrackedFileRevision } from "./scanning";
+import { canSkipUnchangedFile, tryRecordUntrackedFileRevision, hasReflectedRevision } from "./scanning";
 
 const filePath = "notes/scanning.md" as FilePathWithPrefix;
 
@@ -178,5 +179,33 @@ describe("ServiceFileHandlerBase scanning decisions", () => {
         expect(fixture.db.fetchEntryMeta).not.toHaveBeenCalled();
         expect(withoutProvenance.db.fetchEntryMeta).not.toHaveBeenCalled();
         expect(fixture.provenance.set).not.toHaveBeenCalled();
+    });
+});
+
+describe("confirmed reflection without Chunk retrieval", () => {
+    it.each([true, false])("checks current bytes against provenance (matching=%s)", async (matching) => {
+        const fixture = createFileHandlerFixture();
+        const file = makeFile(filePath, matching ? "known bytes" : "local edits", { mtime: 1_234 });
+        fixture.files.set(filePath, file);
+        fixture.db.fetchEntryMeta.mockResolvedValue(makeMetaEntry(filePath, "2-target"));
+        fixture.provenance.get.mockResolvedValue({
+            revision: "2-target",
+            observedStorageMtime: file.stat.mtime,
+            contentHash: await computeFileContentHash(new Blob(["known bytes"])),
+            contentSize: new Blob(["known bytes"]).size,
+        });
+
+        await expect(hasReflectedRevision(fixture.ctx, filePath, "2-target")).resolves.toBe(matching);
+
+        expect(fixture.db.fetchEntryFromMeta).not.toHaveBeenCalled();
+        expect(fixture.provenance.set).not.toHaveBeenCalled();
+        expect(fixture.storage.writeFileAuto).not.toHaveBeenCalled();
+    });
+
+    it("keeps absent or superseded evidence inconclusive", async () => {
+        const fixture = createFileHandlerFixture();
+        fixture.provenance.get.mockResolvedValue(undefined);
+        await expect(hasReflectedRevision(fixture.ctx, filePath, "2-target")).resolves.toBe(false);
+        expect(fixture.db.fetchEntryFromMeta).not.toHaveBeenCalled();
     });
 });

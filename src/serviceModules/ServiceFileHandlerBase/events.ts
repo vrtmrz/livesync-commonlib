@@ -12,6 +12,7 @@ import { deleteFileFromDBIfPresent } from "./deletion";
 import { renameFileInDBCore } from "./renaming";
 import { isFolderInfo } from "./storage";
 import { dbToStorageCore } from "./reflection";
+import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 
 import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 
@@ -207,7 +208,11 @@ async function planRestoredRename(
  * @returns Whether replication reflection completed; excluded or unsafe documents retain a false result.
  * @remarks Operation intent is revalidated under related document locks. Policy skips, retained failures, and conservative conflict handling retain their original meanings.
  */
-export async function processReplicatedDocument(ctx: FileHandlerContext, entry: MetaEntry): Promise<boolean> {
+export async function processReplicatedDocument(
+    ctx: FileHandlerContext,
+    entry: MetaEntry,
+    onContentReadFailure?: ContentReadFailureHandler
+): Promise<boolean> {
     return await withFileEventPaths(ctx, [ctx.host.getPath(entry)], async () => {
         if (!(await ctx.vault.isTargetFile(entry.path))) {
             ctx.host.log(`File ${entry.path} is not the target file`, LOG_LEVEL_VERBOSE);
@@ -239,7 +244,7 @@ export async function processReplicatedDocument(ctx: FileHandlerContext, entry: 
             );
             // Before writing (or skipped ), merging dialogue should be cancelled.
             ctx.events.emitEvent(EVENT_CONFLICT_CANCELLED, path);
-            const ret = await dbToStorageCore(ctx, entry, targetFile);
+            const ret = await dbToStorageCore(ctx, entry, targetFile, undefined, onContentReadFailure);
             ctx.host.log(`Processing ${path} (${entry._id.substring(0, 8)} :${entry._rev?.substring(0, 5)}) : Done`);
             return ret;
         }

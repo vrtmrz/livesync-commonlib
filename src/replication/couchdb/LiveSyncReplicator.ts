@@ -52,6 +52,8 @@ import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";
 import { prepareInitialFetchFastForward } from "./fastForward.ts";
 import type { InitialFetchFastForwardResource } from "../RemoteResource.ts";
+import type { ContentReadFailureCause, ChunkReadFailureReason } from "../contentRead.ts";
+import { LiveSyncError, RemoteRequestError } from "@lib/common/LSError.ts";
 
 import { ensureDatabaseIsCompatible, getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import {
@@ -116,6 +118,92 @@ class OneShotConnectivityPreflightTimeoutError extends Error {
         super(`Remote connectivity preflight exceeded ${timeoutMs} ms.`);
         this.name = "OneShotConnectivityPreflightTimeoutError";
     }
+}
+
+function getErrorCauseChain(error: unknown): unknown[] {
+    const chain: unknown[] = [];
+    const seen = new Set<object>();
+    let current = error;
+    while (current !== null && (typeof current === "object" || typeof current === "function")) {
+        if (seen.has(current)) {
+            break;
+        }
+        seen.add(current);
+        chain.push(current);
+        try {
+            current = "cause" in current ? (current as { cause?: unknown }).cause : undefined;
+        } catch {
+            break;
+        }
+    }
+    return chain;
+}
+
+function getErrorName(error: unknown): unknown {
+    if (error === null || (typeof error !== "object" && typeof error !== "function")) {
+        return undefined;
+    }
+    try {
+        return "name" in error ? (error as { name?: unknown }).name : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function getErrorStatus(error: unknown): number | undefined {
+    if (error === null || (typeof error !== "object" && typeof error !== "function")) {
+        return undefined;
+    }
+    try {
+        return "status" in error && typeof (error as { status?: unknown }).status === "number"
+            ? (error as { status: number }).status
+            : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function classifyOnDemandChunkReadFailure(error: unknown, isOnline: boolean): ChunkReadFailureReason {
+    const chain = getErrorCauseChain(error);
+    if (chain.some((candidate) => getErrorName(candidate) === "AbortError")) {
+        return "cancelled";
+    }
+
+    const hasTypedRequest = LiveSyncError.isCausedBy(error, RemoteRequestError);
+    const typedRequest = hasTypedRequest ? chain.find((candidate) => candidate instanceof RemoteRequestError) : undefined;
+    // LiveSyncError.status defaults to 500. For a typed request rejection, classify
+    // its original cause instead of allowing that synthetic status to hide transport.
+    const evidenceChain = typedRequest
+        ? getErrorCauseChain((typedRequest as RemoteRequestError).cause)
+        : chain;
+    const status = evidenceChain.map(getErrorStatus).find((value) => value !== undefined);
+    if (status === 401 || status === 403) {
+        return "authentication";
+    }
+    if (status === 404 || evidenceChain.some((candidate) => getErrorName(candidate) === "not_found")) {
+        return "missing";
+    }
+    if (status !== undefined && status >= 400 && status < 500) {
+        return "configuration";
+    }
+    if (!isOnline) {
+        return "offline";
+    }
+    if (typedRequest !== undefined && status === undefined) {
+        return "transport";
+    }
+    if (
+        status === 0 ||
+        evidenceChain.some(
+            (candidate) =>
+                candidate instanceof TypeError ||
+                getErrorName(candidate) === "TypeError" ||
+                getErrorName(candidate) === "NetworkError"
+        )
+    ) {
+        return "transport";
+    }
+    return "unavailable";
 }
 
 // eslint-disable-next-line
@@ -1062,6 +1150,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         return false;
                     }
                     if (syncResult == "DONE") {
+                        if (syncMode !== "pushOnly") {
+                            await this.notifyFiniteReplicationCompleted();
+                        }
                         return true;
                     }
                     if (syncResult == "CANCELLED") {
@@ -1187,6 +1278,19 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         } catch (ex) {
             Logger("Failed to close remote database.", LOG_LEVEL_INFO, "sync");
             Logger(ex, LOG_LEVEL_VERBOSE, "sync");
+        }
+    }
+
+    private async notifyFiniteReplicationCompleted(): Promise<void> {
+        const handler = this.env.services.replication?.onFiniteReplicationCompleted;
+        if (typeof handler !== "function") {
+            return;
+        }
+        try {
+            await handler();
+        } catch (error) {
+            Logger("A finite-replication completion observer failed.", LOG_LEVEL_VERBOSE, "sync");
+            Logger(error, LOG_LEVEL_VERBOSE, "sync");
         }
     }
 
@@ -1887,10 +1991,39 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     async fetchRemoteChunks(
         missingChunks: string[],
         showResult: boolean,
-        setting: RemoteDBSettings = this.currentSettings
+        setting: RemoteDBSettings = this.currentSettings,
+        onFailure?: (id: DocumentID, reason: ChunkReadFailureReason, cause?: ContentReadFailureCause) => void
     ): Promise<false | EntryLeaf[]> {
-        const ret = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), false, true);
+        const reportFailure = (reason: ChunkReadFailureReason, cause?: ContentReadFailureCause) => {
+            for (const id of missingChunks) {
+                try {
+                    if (cause) {
+                        onFailure?.(id as DocumentID, reason, cause);
+                    } else {
+                        onFailure?.(id as DocumentID, reason);
+                    }
+                } catch (error) {
+                    Logger("A remote chunk-read failure observer failed.", LOG_LEVEL_VERBOSE);
+                    Logger(error, LOG_LEVEL_VERBOSE);
+                }
+            }
+        };
+        const reportError = (error: unknown, online: boolean) => {
+            const cause = LiveSyncError.isCausedBy(error, RemoteRequestError)
+                ? RemoteRequestError.fromError(error)
+                : undefined;
+            reportFailure(classifyOnDemandChunkReadFailure(error, online), cause);
+        };
+        const isOnline = this.env.services.API.isOnline !== false;
+        let ret: string | OwnedCouchDBConnection<EntryDoc>;
+        try {
+            ret = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), false, true);
+        } catch (error) {
+            reportError(error, isOnline);
+            throw error;
+        }
         if (typeof ret === "string") {
+            reportFailure(this.env.services.API.isOnline === false ? "offline" : "configuration");
             Logger(
                 `${this.translate("liveSyncReplicator.couldNotConnectToServer")} ${ret} `,
                 showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
@@ -1899,8 +2032,24 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
         return await this.withRemoteConnection(ret, async (db) => {
-            if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) return false;
-            const remoteChunks = await db.allDocs({ keys: missingChunks, include_docs: true });
+            let compatible: boolean;
+            try {
+                compatible = await checkRemoteVersion(db, this.migrate.bind(this), VER);
+            } catch (error) {
+                reportError(error, this.env.services.API.isOnline !== false);
+                throw error;
+            }
+            if (!compatible) {
+                reportFailure("configuration");
+                return false;
+            }
+            let remoteChunks: PouchDB.Core.AllDocsWithKeysResponse<EntryDoc>;
+            try {
+                remoteChunks = await db.allDocs({ keys: missingChunks, include_docs: true });
+            } catch (error) {
+                reportError(error, this.env.services.API.isOnline !== false);
+                throw error;
+            }
             const errorRows = remoteChunks.rows.filter((e) => "error" in e);
             if (errorRows.length > 0) {
                 Logger(

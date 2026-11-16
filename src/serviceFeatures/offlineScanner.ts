@@ -48,7 +48,12 @@ export {
     updateToStorage,
     syncStorageAndDatabase,
 } from "./offlineScanner/files";
-export { getFilePairState, resolveFilePairAction, synchroniseAllFilesBetweenDBandStorage } from "./offlineScanner/scan";
+export {
+    getFilePairState,
+    resolveFilePairAction,
+    processFilePair,
+    synchroniseAllFilesBetweenDBandStorage,
+} from "./offlineScanner/scan";
 
 /**
  * Check configuration, suspension, and remediation policy before a full scan.
@@ -209,6 +214,7 @@ export function useOfflineScanner(
             ignoreSuspending,
             continueOnFileFailure,
             strictContentCheck: scanOptions?.strictContentCheck,
+            onContentReadFailure: scanOptions?.onContentReadFailure,
         });
     };
     // Bind handlers to lifecycle events

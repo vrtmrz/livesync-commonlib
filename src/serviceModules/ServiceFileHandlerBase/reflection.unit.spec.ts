@@ -382,3 +382,26 @@ describe("database-to-storage reflection", () => {
         expect(storage.deleteVaultItem).not.toHaveBeenCalled();
     });
 });
+
+describe("reflection content-read outcome", () => {
+    it("reports the failed read to its caller while leaving storage untouched", async () => {
+        const { ctx, db, storage } = createFileHandlerFixture();
+        const entry = makeMetaEntry(path, "2-unavailable");
+        const failure = { documentId: entry._id, revision: entry._rev, reason: "transport" as const };
+        db.fetchEntryMeta.mockResolvedValue(entry);
+        db.fetchEntryFromMeta.mockImplementation(async (...args) => {
+            const observer = (args as unknown[])[4];
+            if (typeof observer === "function") {
+                observer(failure);
+            }
+            return false;
+        });
+        const onFailure = vi.fn();
+
+        await expect(Reflect.apply(dbToStorage, undefined, [ctx, entry, null, false, onFailure])).resolves.toBe(false);
+
+        expect(onFailure).toHaveBeenCalledExactlyOnceWith(failure);
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
+        expect(storage.triggerFileEvent).not.toHaveBeenCalled();
+    });
+});

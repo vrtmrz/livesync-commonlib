@@ -1,7 +1,12 @@
+import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 import { createFileHandlerContext } from "./ServiceFileHandlerBase/context";
 import { processFileEvent, processReplicatedDocument } from "./ServiceFileHandlerBase/events";
 import { getFileEntryPath, getFileStoragePath, readStorageFile } from "./ServiceFileHandlerBase/storage";
-import { canSkipUnchangedFile, tryRecordUntrackedFileRevision } from "./ServiceFileHandlerBase/scanning";
+import {
+    canSkipUnchangedFile,
+    tryRecordUntrackedFileRevision,
+    hasReflectedRevision,
+} from "./ServiceFileHandlerBase/scanning";
 import { storeFileToDB, storeFileToDBWithBaseRevision } from "./ServiceFileHandlerBase/saving";
 import {
     deleteFileFromDB,
@@ -157,6 +162,11 @@ export abstract class ServiceFileHandlerBase
      * @returns Whether the scan may skip this unchanged metadata observation.
      * @remarks Acquire the document lock while checking a metadata-only hint. No revision or file content is written; inspection failures are logged and return false.
      */
+    /** Confirm current bytes against existing provenance without retrieving Chunks. */
+    async hasReflectedRevision(path: FilePathWithPrefix, revision: string): Promise<boolean> {
+        return await hasReflectedRevision(this.context, path, revision);
+    }
+
     async canSkipUnchangedFile(info: UXFileInfoStub, expected: MetaEntry): Promise<boolean> {
         return await canSkipUnchangedFile(this.context, info, expected);
     }
@@ -316,9 +326,10 @@ export abstract class ServiceFileHandlerBase
     async dbToStorage(
         entryInfo: MetaEntry | FilePathWithPrefix,
         info: UXFileInfoStub | UXFileInfo | FilePath | null,
-        force?: boolean
+        force?: boolean,
+        onContentReadFailure?: ContentReadFailureHandler
     ): Promise<boolean> {
-        return await dbToStorage(this.context, entryInfo, info, force);
+        return await dbToStorage(this.context, entryInfo, info, force, onContentReadFailure);
     }
 
     /**
@@ -327,8 +338,11 @@ export abstract class ServiceFileHandlerBase
      * @returns Whether replication reflection completed; excluded or unsafe documents retain a false result.
      * @remarks Acquire the related document lock before selection and reflection. Constructor registration captures the current subclass override with bind; internal public seams remain live at use time.
      */
-    async _anyProcessReplicatedDoc(entry: MetaEntry): Promise<boolean> {
-        return await processReplicatedDocument(this.context, entry);
+    async _anyProcessReplicatedDoc(
+        entry: MetaEntry,
+        onContentReadFailure?: ContentReadFailureHandler
+    ): Promise<boolean> {
+        return await processReplicatedDocument(this.context, entry, onContentReadFailure);
     }
 
     /**

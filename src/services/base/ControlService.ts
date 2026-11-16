@@ -92,11 +92,7 @@ export class ControlService<T extends ServiceContext = ServiceContext>
         stopAllRunningProcessors();
         await this.services.appLifecycleService.onUnload();
         this._unloaded = true;
-        const localDatabase = this.services.databaseService.localDatabaseDirect;
-        if (localDatabase != null) {
-            localDatabase.onunload();
-            await localDatabase.close();
-        }
+        await this.services.databaseService.closeDatabase();
         this.context.events.emitEvent(EVENT_PLATFORM_UNLOADED);
         this.context.events.offAll();
         this._log(this.context.translate("moduleLiveSyncMain.logUnloadingPlugin"));

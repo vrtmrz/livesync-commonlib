@@ -125,3 +125,23 @@ export class LiveSyncError extends Error implements ErrorWithCause {
 }
 
 export class LiveSyncFatalError extends LiveSyncError {}
+
+/** A requestUrl call failed before it returned an HTTP response. */
+export class RemoteRequestError extends LiveSyncError {
+    constructor(message: string, options?: { cause?: unknown; status?: number }) {
+        super(message, options);
+        if (options && "cause" in options) {
+            this.cause = options.cause as Error | object | string | undefined;
+        }
+    }
+}
+
+/** A local database operation failed because its connection is no longer usable. */
+export class LocalDatabaseUnavailableError extends LiveSyncError {
+    constructor(message: string, options?: { cause?: unknown; status?: number }) {
+        super(message, options);
+        if (options && "cause" in options) {
+            this.cause = options.cause as Error | object | string | undefined;
+        }
+    }
+}

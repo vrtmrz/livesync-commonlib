@@ -1,3 +1,4 @@
+import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 import type { FilePathWithPrefix, LoadedEntry, MetaEntry, UXFileInfo, UXFileInfoStub } from "@lib/common/types";
 
 export interface DatabaseFileAccess {
@@ -68,7 +69,8 @@ export interface DatabaseFileAccess {
      */
     findLiveContentRevisions: (
         file: UXFileInfoStub | FilePathWithPrefix,
-        content: string | string[] | Blob | ArrayBuffer
+        content: string | string[] | Blob | ArrayBuffer,
+        onFailure?: ContentReadFailureHandler
     ) => Promise<string[]>;
     fetch: (
         file: UXFileInfoStub | FilePathWithPrefix,
@@ -76,11 +78,18 @@ export interface DatabaseFileAccess {
         waitForReady?: boolean,
         skipCheck?: boolean
     ) => Promise<UXFileInfo | false>;
-    fetchEntryFromMeta: (meta: MetaEntry, waitForReady?: boolean, skipCheck?: boolean) => Promise<LoadedEntry | false>;
+    fetchEntryFromMeta: (
+        meta: MetaEntry,
+        waitForReady?: boolean,
+        skipCheck?: boolean,
+        localOnly?: boolean,
+        onFailure?: ContentReadFailureHandler
+    ) => Promise<LoadedEntry | false>;
     fetchEntryMeta: (
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
-        skipCheck?: boolean
+        skipCheck?: boolean,
+        onFailure?: ContentReadFailureHandler
     ) => Promise<MetaEntry | false>;
     /**
      * Load a revision's content, or return `false` when it cannot be loaded.
@@ -92,7 +101,11 @@ export interface DatabaseFileAccess {
         rev?: string,
         waitForReady?: boolean,
         skipCheck?: boolean,
-        localOnly?: boolean
+        localOnly?: boolean,
+        onFailure?: ContentReadFailureHandler
     ) => Promise<LoadedEntry | false>;
-    getConflictedRevs: (file: UXFileInfoStub | FilePathWithPrefix) => Promise<string[]>;
+    getConflictedRevs: (
+        file: UXFileInfoStub | FilePathWithPrefix,
+        onFailure?: ContentReadFailureHandler
+    ) => Promise<string[]>;
 }

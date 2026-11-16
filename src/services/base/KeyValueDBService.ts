@@ -91,18 +91,28 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
     }
     // Called when another database; LiveSyncLocalDB, is being unloaded.
     // We need to close our KeyValueDB to avoid IndexedDB locking issues.
-    private async _onOtherDatabaseUnload() {
+    private async _onOtherDatabaseUnload(_database?: unknown, reason?: "recovery") {
+        if (reason === "recovery") {
+            return true;
+        }
         if (this._kvDB) await this.tryCloseKvDB();
         return Promise.resolve(true);
     }
     // Also, Called when another database; LiveSyncLocalDB, is being closed.
     // We need to close our KeyValueDB to avoid IndexedDB locking issues.
-    private async _onOtherDatabaseClose() {
+    private async _onOtherDatabaseClose(_database?: unknown, reason?: "recovery") {
+        if (reason === "recovery") {
+            return true;
+        }
         if (this._kvDB) await this.tryCloseKvDB();
         return Promise.resolve(true);
     }
 
-    private _everyOnInitializeDatabase(any: unknown): Promise<boolean> {
+    private _everyOnInitializeDatabase(_database: unknown, reason?: "recovery"): Promise<boolean> {
+        // Local Pouch recovery keeps the journal available to incoming file events.
+        if (reason === "recovery" && this._kvDB) {
+            return Promise.resolve(true);
+        }
         return this.openKeyValueDB();
     }
 

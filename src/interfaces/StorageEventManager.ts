@@ -21,6 +21,13 @@ export abstract class StorageEventManager {
         return true;
     }
     abstract waitForIdle(): Promise<void>;
+    /**
+     * Pause new file-handler dispatch when the manager supports a reversible pause.
+     * @returns A promise fulfilled after processing active at the call settles; pending work is not awaited.
+     */
+    pauseDispatch?(): Promise<void>;
+    /** Resume file-handler dispatch after a supported pause. */
+    resumeDispatch?(): void;
     abstract restoreState(): Promise<void>;
 
     /**

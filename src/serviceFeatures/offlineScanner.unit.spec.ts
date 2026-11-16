@@ -744,28 +744,48 @@ describe("collectDatabaseFiles", () => {
 });
 
 describe("collector comparison path lookup", () => {
-    it.each([true, false])("keeps original paths and last colliding entry, case-sensitive=%s", async (caseSensitive) => {
-        const paths = ["Folder/Note.md", "folder/note.md", "__proto__"];
-        const files = paths.map(path => ({ path, name: path, stat: { type: "file", size: 1, ctime: 1, mtime: 1 } }));
-        const docs = paths.map(path => ({ _id: path, path, type: "plain", size: 1, ctime: 1, mtime: 1, children: [] }));
-        const settings = { handleFilenameCaseSensitive: caseSensitive } as ObsidianLiveSyncSettings;
-        const host = {
-            services: {
-                vault: { isTargetFile: async () => true, isValidPath: () => true },
-                database: { localDatabase: { findAllNormalDocs: () => docs } },
-                path: { getPath: (doc: { path: string }) => doc.path, path2id: async (path: string) => path },
-            },
-            serviceModules: { storageAccess: { getFiles: async () => files } },
-        } as unknown as Parameters<typeof collectDatabaseFiles>[0] & Parameters<typeof collectFilesOnStorage>[0];
-        const storage = await collectFilesOnStorage(host, settings, vi.fn());
-        const database = await collectDatabaseFiles(host, settings, vi.fn(), false);
-        const expected = Object.fromEntries(caseSensitive
-            ? paths.map(path => [path, path])
-            : [["folder/note.md", "folder/note.md"], ["__proto__", "__proto__"]]);
-        expect(storage.storageFileNameCI2CS).toEqual(expected);
-        expect(database.databaseFileNameCI2CS).toEqual(expected);
-        expect(Object.hasOwn(storage.storageFileNameCI2CS, "__proto__")).toBe(true);
-    });
+    it.each([true, false])(
+        "keeps original paths and last colliding entry, case-sensitive=%s",
+        async (caseSensitive) => {
+            const paths = ["Folder/Note.md", "folder/note.md", "__proto__"];
+            const files = paths.map((path) => ({
+                path,
+                name: path,
+                stat: { type: "file", size: 1, ctime: 1, mtime: 1 },
+            }));
+            const docs = paths.map((path) => ({
+                _id: path,
+                path,
+                type: "plain",
+                size: 1,
+                ctime: 1,
+                mtime: 1,
+                children: [],
+            }));
+            const settings = { handleFilenameCaseSensitive: caseSensitive } as ObsidianLiveSyncSettings;
+            const host = {
+                services: {
+                    vault: { isTargetFile: async () => true, isValidPath: () => true },
+                    database: { localDatabase: { findAllNormalDocs: () => docs } },
+                    path: { getPath: (doc: { path: string }) => doc.path, path2id: async (path: string) => path },
+                },
+                serviceModules: { storageAccess: { getFiles: async () => files } },
+            } as unknown as Parameters<typeof collectDatabaseFiles>[0] & Parameters<typeof collectFilesOnStorage>[0];
+            const storage = await collectFilesOnStorage(host, settings, vi.fn());
+            const database = await collectDatabaseFiles(host, settings, vi.fn(), false);
+            const expected = Object.fromEntries(
+                caseSensitive
+                    ? paths.map((path) => [path, path])
+                    : [
+                          ["folder/note.md", "folder/note.md"],
+                          ["__proto__", "__proto__"],
+                      ]
+            );
+            expect(storage.storageFileNameCI2CS).toEqual(expected);
+            expect(database.databaseFileNameCI2CS).toEqual(expected);
+            expect(Object.hasOwn(storage.storageFileNameCI2CS, "__proto__")).toBe(true);
+        }
+    );
 });
 
 describe("updateToDatabase", () => {
@@ -816,9 +836,7 @@ describe("updateToDatabase", () => {
         } as any;
         const file = { path: "test.md", stat: { size: 100 } } as UXFileInfoStub;
 
-        await expect(updateToDatabase(host, logger, LOG_LEVEL_INFO, file)).resolves.toBe(
-            FilePairProcessResults.FAILED
-        );
+        await expect(updateToDatabase(host, logger, LOG_LEVEL_INFO, file)).resolves.toBe(FilePairProcessResults.FAILED);
 
         expect(storeFileToDBMock).toHaveBeenCalledWith(file);
         expect(events.emitEvent).not.toHaveBeenCalled();
@@ -1036,9 +1054,7 @@ describe("syncFileBetweenDBandStorage", () => {
         const file = { path: "test.md", stat: { size: 100 } } as UXFileInfoStub;
         const doc = { _id: "test", path: "test.md", size: 90 } as MetaEntry;
 
-        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBe(
-            FilePairProcessResults.FAILED
-        );
+        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBe(FilePairProcessResults.FAILED);
         expect(storeFileToDBMock).toHaveBeenCalledWith(file);
     });
 
@@ -1165,9 +1181,7 @@ describe("syncFileBetweenDBandStorage", () => {
         const file = { path: "test.md", stat: { size: 100 } } as UXFileInfoStub;
         const doc = { _id: "test", _rev: "2-current", path: "test.md", size: 100 } as MetaEntry;
 
-        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBe(
-            FilePairProcessResults.FAILED
-        );
+        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBe(FilePairProcessResults.FAILED);
 
         expect(tryRecordUntrackedFileRevision).toHaveBeenCalledExactlyOnceWith(file, "2-current");
         expect(storeFileToDBMock).toHaveBeenCalledExactlyOnceWith(file, false, false, { revalidateStorage: true });
@@ -1176,37 +1190,42 @@ describe("syncFileBetweenDBandStorage", () => {
     it.each([
         { oversizedSide: "storage", fileSize: 5000, docSize: 100 },
         { oversizedSide: "database", fileSize: 100, docSize: 5000 },
-    ])("skips equal-time reconciliation when the $oversizedSide size exceeds the limit", async ({ fileSize, docSize }) => {
-        const isFileSizeTooLarge = vi.fn((size: number) => size > 1000);
-        const tryRecordUntrackedFileRevision = vi.fn().mockResolvedValue(false);
-        const storeFileToDB = vi.fn().mockResolvedValue(true);
-        const dbToStorage = vi.fn();
-        const host = {
-            services: {
-                context: createServiceContext(),
-                vault: { isFileSizeTooLarge },
-                path: {
-                    compareFileFreshness: vi.fn().mockReturnValue(EVEN),
-                    getPath: vi.fn().mockReturnValue("test.md"),
+    ])(
+        "skips equal-time reconciliation when the $oversizedSide size exceeds the limit",
+        async ({ fileSize, docSize }) => {
+            const isFileSizeTooLarge = vi.fn((size: number) => size > 1000);
+            const tryRecordUntrackedFileRevision = vi.fn().mockResolvedValue(false);
+            const storeFileToDB = vi.fn().mockResolvedValue(true);
+            const dbToStorage = vi.fn();
+            const host = {
+                services: {
+                    context: createServiceContext(),
+                    vault: { isFileSizeTooLarge },
+                    path: {
+                        compareFileFreshness: vi.fn().mockReturnValue(EVEN),
+                        getPath: vi.fn().mockReturnValue("test.md"),
+                    },
                 },
-            },
-            serviceModules: {
-                fileHandler: { tryRecordUntrackedFileRevision, storeFileToDB, dbToStorage },
-            },
-        } as any;
-        const file = { path: "test.md", stat: { size: fileSize } } as UXFileInfoStub;
-        const doc = { _id: "test", _rev: "2-current", path: "test.md", size: docSize } as MetaEntry;
+                serviceModules: {
+                    fileHandler: { tryRecordUntrackedFileRevision, storeFileToDB, dbToStorage },
+                },
+            } as any;
+            const file = { path: "test.md", stat: { size: fileSize } } as UXFileInfoStub;
+            const doc = { _id: "test", _rev: "2-current", path: "test.md", size: docSize } as MetaEntry;
 
-        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBe(
-            FilePairProcessResults.SKIPPED
-        );
+            await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBe(
+                FilePairProcessResults.SKIPPED
+            );
 
-        expect(isFileSizeTooLarge).toHaveBeenCalledWith(fileSize);
-        if (fileSize <= 1000) expect(isFileSizeTooLarge).toHaveBeenCalledWith(docSize);
-        expect(tryRecordUntrackedFileRevision).not.toHaveBeenCalled();
-        expect(storeFileToDB).not.toHaveBeenCalled();
-        expect(dbToStorage).not.toHaveBeenCalled();
-    });
+            expect(isFileSizeTooLarge).toHaveBeenCalledWith(fileSize);
+            if (fileSize <= 1000) {
+                expect(isFileSizeTooLarge).toHaveBeenCalledWith(docSize);
+            }
+            expect(tryRecordUntrackedFileRevision).not.toHaveBeenCalled();
+            expect(storeFileToDB).not.toHaveBeenCalled();
+            expect(dbToStorage).not.toHaveBeenCalled();
+        }
+    );
 
     it("should handle if document cannot be found in database", async () => {
         const storeFileToDBMock = vi.fn();
@@ -3185,5 +3204,121 @@ describe("useOfflineScanner", () => {
 
         useOfflineScanner(host);
         expect(addHandlerMock1).toHaveBeenCalledWith(expect.any(Function));
+    });
+});
+
+describe("offline scanner content-read outcome", () => {
+    it("forwards the startup read-failure observer through the registered scanVault port", async () => {
+        const entry = {
+            _id: "startup.md",
+            _rev: "1-startup",
+            path: "startup.md",
+            type: "plain",
+            size: 10,
+            mtime: 20,
+            ctime: 20,
+            children: [] as string[],
+        };
+        const failure = { documentId: entry._id, revision: entry._rev, reason: "offline" };
+        const onContentReadFailure = vi.fn(async () => undefined);
+        let scan: ((...args: unknown[]) => Promise<unknown>) | undefined;
+        const host = {
+            services: {
+                context: createServiceContext(),
+                API: { addLog: vi.fn() },
+                appLifecycle: { getUnresolvedMessages: { addHandler: vi.fn() } },
+                setting: {
+                    currentSettings: () => ({
+                        isConfigured: true,
+                        suspendFileWatching: false,
+                        maxMTimeForReflectEvents: 0,
+                        handleFilenameCaseSensitive: true,
+                        automaticallyDeleteMetadataOfDeletedFiles: 0,
+                    }),
+                },
+                keyValueDB: {
+                    kvDB: { get: vi.fn(async (key: string) => (key === "initialized" ? false : {})), set: vi.fn() },
+                },
+                vault: {
+                    scanVault: {
+                        addHandler: (handler: typeof scan) => {
+                            scan = handler;
+                        },
+                    },
+                    isTargetFile: async () => true,
+                    isValidPath: () => true,
+                    isFileSizeTooLarge: () => false,
+                },
+                database: {
+                    localDatabase: {
+                        isReady: true,
+                        findAllDocs: async function* () {},
+                        findAllNormalDocs: async function* () {
+                            yield entry;
+                        },
+                    },
+                },
+                path: { getPath: (doc: { path: string }) => doc.path, path2id: async (path: string) => path },
+            },
+            serviceModules: {
+                storageAccess: { getFiles: async (): Promise<UXFileInfoStub[]> => [], restoreState: vi.fn() },
+                fileHandler: {
+                    dbToStorage: vi.fn(async (...args: unknown[]) => {
+                        const observer = args[3];
+                        if (typeof observer === "function") {
+                            observer(failure);
+                        }
+                        return false;
+                    }),
+                },
+            },
+        };
+        useOfflineScanner(host as never);
+        if (!scan) {
+            throw new Error("scanVault handler was not registered");
+        }
+        await expect(scan(false, false, true, { onContentReadFailure })).resolves.toBe("completed-with-file-failures");
+        expect(onContentReadFailure).toHaveBeenCalledExactlyOnceWith(failure);
+    });
+
+    it("awaits reporting a failed database-to-storage read without reporting success", async () => {
+        const doc = { _id: "pending.md", _rev: "2-pending", path: "pending.md", size: 10, mtime: 20 };
+        const failure = { documentId: doc._id, revision: doc._rev, reason: "offline" as const };
+        let reported = false;
+        const onContentReadFailure = vi.fn(async () => {
+            await Promise.resolve();
+            reported = true;
+        });
+        const events = { emitEvent: vi.fn() };
+        const host = {
+            services: {
+                context: { events },
+                vault: { isFileSizeTooLarge: () => false },
+                path: { getPath: (entry: { path: string }) => entry.path },
+            },
+            serviceModules: {
+                fileHandler: {
+                    dbToStorage: vi.fn(async (...args: unknown[]) => {
+                        const observer = args[3];
+                        if (typeof observer === "function") {
+                            observer(failure);
+                        }
+                        return false;
+                    }),
+                },
+            },
+        };
+        const result = await Reflect.apply(updateToStorage, undefined, [
+            host,
+            vi.fn(),
+            LOG_LEVEL_INFO,
+            doc,
+            { onContentReadFailure },
+        ]);
+
+        expect(result).toBe(FilePairProcessResults.FAILED);
+        expect(onContentReadFailure).toHaveBeenCalledExactlyOnceWith(failure);
+        expect(reported).toBe(true);
+        expect(events.emitEvent).not.toHaveBeenCalled();
     });
 });

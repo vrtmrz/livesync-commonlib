@@ -154,6 +154,22 @@ describe("DatabaseReadLayer", () => {
         expect(result).toEqual([false]);
     });
 
+    it("reports an invalid local database read before returning unavailable content", async () => {
+        const id = "chunk-1" as DocumentID;
+        const error = Object.assign(new Error("database context is invalid"), { name: "InvalidStateError" });
+        const errorLayer = new DatabaseReadLayer({ allDocs: vi.fn().mockRejectedValue(error) } as any);
+        const onUnavailable = vi.fn();
+
+        const result = await errorLayer.read([id], { onUnavailable }, vi.fn());
+
+        expect(result).toEqual([false]);
+        expect(onUnavailable).toHaveBeenCalledExactlyOnceWith(
+            id,
+            "local-database",
+            expect.objectContaining({ name: "LocalDatabaseUnavailableError", cause: error })
+        );
+    });
+
     it("should preserve order of requested ids", async () => {
         const leaves = [createMockLeaf("chunk-1"), createMockLeaf("chunk-2"), createMockLeaf("chunk-3")];
         await db.bulkDocs(leaves);

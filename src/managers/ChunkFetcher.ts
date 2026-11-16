@@ -6,7 +6,7 @@ import {
 import { delay, promiseWithResolvers } from "octagonal-wheels/promises";
 import { unique } from "octagonal-wheels/collection";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
-import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf } from "@lib/common/types.ts";
+import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf, type RemoteDBSettings } from "@lib/common/types.ts";
 
 import { type ChunkManager } from "./ChunkManager.ts";
 import type { ChunkFetchSource } from "./chunkFetchSource.ts";
@@ -14,6 +14,7 @@ import type { ChunkFetchSource } from "./chunkFetchSource.ts";
 import type { IReplicatorService, ISettingService } from "@lib/services/base/IService.ts";
 import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
 import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
+import type { ContentReadFailureCause, ChunkReadFailureReason } from "@lib/replication/contentRead.ts";
 import { DEFAULT_CHUNK_DELIVERY_STALL_TIMEOUT_MS, type ChunkDeliveryClaim } from "./ChunkDeliveryCoordinator.ts";
 import { chunkFetchCounts, collectingChunks } from "@lib/mock_and_interop/stores";
 import {
@@ -25,6 +26,7 @@ import {
 export const EVENT_MISSING_CHUNKS = "missingChunks";
 export const EVENT_MISSING_CHUNK_REMOTE = "missingChunkRemote";
 export const EVENT_CHUNK_FETCHED = "chunkFetched"; // Event for chunk arrival
+export const EVENT_CHUNK_FAILED = "chunkFailed";
 export type ChunkFetcherOptions = {
     settingService: ISettingService;
     chunkManager: ChunkManager;
@@ -49,7 +51,12 @@ type PendingChunkFetch = {
 };
 
 interface RemoteChunkReader extends ReplicatorInstance {
-    fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]>;
+    fetchRemoteChunks(
+        missingChunks: string[],
+        showResult: boolean,
+        setting?: RemoteDBSettings,
+        onFailure?: (id: DocumentID, reason: ChunkReadFailureReason, cause?: ContentReadFailureCause) => void
+    ): Promise<false | EntryLeaf[]>;
 }
 
 function canFetchRemoteChunks(replicator: ReplicatorInstance): replicator is RemoteChunkReader {
@@ -427,6 +434,7 @@ export class ChunkFetcher {
             // A lookup begun before the latest finite completion cannot be the final probe.
             const requestCompletionVersion = this.finiteCompletionVersion;
             let fetched: EntryLeaf[] | false;
+            const reportedFailures = new Map<DocumentID, ChunkReadFailureReason>();
             if (this.options.source) {
                 fetched = await this.options.source.fetchChunks(pendingIDs);
             } else {
@@ -442,14 +450,25 @@ export class ChunkFetcher {
                     }
                     return;
                 }
-                fetched = await replicator.fetchRemoteChunks(pendingIDs, false);
+                fetched = await replicator.fetchRemoteChunks(pendingIDs, false, undefined, (id, reason, cause) => {
+                    if (!requestClaims.has(id)) {
+                        return;
+                    }
+                    reportedFailures.set(id, reason);
+                    this.chunkManager.emitEvent(
+                        EVENT_CHUNK_FAILED,
+                        cause ? { id, reason, cause } : { id, reason }
+                    );
+                });
             }
             pendingIDs = this.getActiveClaimIds(pendingIDs, requestClaims);
             this.touchClaims(pendingIDs, requestClaims);
             if (!fetched) {
                 Logger(`No chunks were found for the following IDs: ${pendingIDs.join(", ")}`);
                 for (const chunkID of pendingIDs) {
-                    this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
+                    if (!reportedFailures.has(chunkID)) {
+                        this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
+                    }
                 }
                 return;
             }
@@ -489,6 +508,7 @@ export class ChunkFetcher {
                     this.settleClaim(chunk._id, requestClaims.get(chunk._id));
                 }
                 for (const invalidID of this.getActiveClaimIds(invalidIds, requestClaims)) {
+                    this.chunkManager.emitEvent(EVENT_CHUNK_FAILED, { id: invalidID, reason: "invalid" });
                     this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, invalidID);
                     this.settleClaim(invalidID, requestClaims.get(invalidID));
                 }

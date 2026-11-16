@@ -54,6 +54,7 @@ import type {
     CentralRemoteAdministrationResult,
 } from "@lib/replication/CentralRemoteAdministration.ts";
 import type { HandlerOutcome, MultipleHandlerFunction } from "@lib/services/lib/HandlerUtils.ts";
+import type { ContentReadFailure, ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 import type { VaultScanResult, VaultScanOptions } from "./VaultScanResult.ts";
 import type { UICommandRegistry } from "@lib/uiCommands";
 
@@ -162,6 +163,11 @@ export interface IDatabaseService {
 
     openDatabase(params: openDatabaseParameters): Promise<boolean>;
 
+    reopenDatabase(database: LiveSyncLocalDB, params: openDatabaseParameters): Promise<boolean>;
+    checkDatabaseConnection(): Promise<boolean>;
+    closeDatabase(): Promise<void>;
+    onLocalDatabaseError?(database: LiveSyncLocalDB, error: unknown): Promise<boolean>;
+
     resetDatabase(): Promise<boolean>;
 
     resetDatabaseForCurrentSettings(params: openDatabaseParameters): Promise<boolean>;
@@ -173,11 +179,18 @@ export interface IDatabaseService {
     isDatabaseReady(): boolean;
 }
 export interface IDatabaseEventService {
-    onUnloadDatabase(db: LiveSyncLocalDB): Promise<boolean>;
+    /** Host foreground gate, before pending file work and replication resume. */
+    onBeforeDatabaseResume(): Promise<boolean>;
+    /** Stop dispatch and settle accepted host work before a connection is replaced. */
+    onBeforeDatabaseRecovery(): Promise<boolean>;
+    /** Continue held host work after the connection and pending local edits are ready. */
+    onAfterDatabaseRecovery(): Promise<boolean>;
 
-    onCloseDatabase(db: LiveSyncLocalDB): Promise<boolean>;
+    onUnloadDatabase(db: LiveSyncLocalDB, reason?: "recovery"): Promise<boolean>;
 
-    onDatabaseInitialisation(db: LiveSyncLocalDB): Promise<boolean>;
+    onCloseDatabase(db: LiveSyncLocalDB, reason?: "recovery"): Promise<boolean>;
+
+    onDatabaseInitialisation(db: LiveSyncLocalDB, reason?: "recovery"): Promise<boolean>;
 
     onDatabaseInitialised(showNotice: boolean): Promise<boolean>;
 
@@ -311,11 +324,15 @@ export type ReplicatorFactoryCallback = (
 ) => Promise<ReplicatorInstance | undefined | false>;
 export type ReplicatorFactoryHandler = MultipleHandlerFunction<ReplicatorFactoryCallback>;
 export interface IReplicationService {
-    processSynchroniseResult(doc: MetaEntry): Promise<boolean>;
+    processSynchroniseResult(doc: MetaEntry, onFailure?: ContentReadFailureHandler): Promise<boolean>;
 
     processOptionalSynchroniseResult(doc: LoadedEntry): Promise<boolean>;
     processVirtualDocument(docs: PouchDB.Core.ExistingDocument<EntryDoc>): Promise<boolean>;
     onBeforeReplicate(showMessage: boolean): Promise<boolean>;
+    /** Notify hosts after a successful finite pull or sync, including zero-change completions. */
+    onFiniteReplicationCompleted(): Promise<boolean>;
+    /** Notify the owning startup scan that a file's content could not be read. */
+    onFileReflectionContentReadFailed(failure: ContentReadFailure): Promise<boolean>;
     /** Prepare provider state which exists only for the central remote. */
     onPrepareCentralRemoteReplication(showMessage: boolean): Promise<boolean>;
     checkConnectionFailure(failure: ReplicationAttemptFailure): Promise<boolean | "CHECKAGAIN" | undefined>;

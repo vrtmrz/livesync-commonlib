@@ -1,3 +1,6 @@
+import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
+import { LocalDatabaseUnavailableError } from "@lib/common/LSError.ts";
+import { isInvalidStateError } from "@lib/pouchdb/localDatabaseErrors.ts";
 import type {
     UXFileInfoStub,
     FilePathWithPrefix,
@@ -299,16 +302,16 @@ export class ServiceDatabaseFileAccessBase
             revisionTarget.mode === "independent-root"
                 ? await this.database.localDatabase.putDBEntryAsIndependentRoot(d)
                 : revisionTarget.mode === "live-base"
-                ? await this.database.localDatabase.putDBEntryWithLiveBaseRevision(
-                      d,
-                      revisionTarget.baseRevision,
-                      onlyChunks
-                  )
-                : await this.database.localDatabase.putDBEntry(
-                      d,
-                      onlyChunks,
-                      revisionTarget.mode === "force-base" ? revisionTarget.baseRevision : undefined
-                  );
+                  ? await this.database.localDatabase.putDBEntryWithLiveBaseRevision(
+                        d,
+                        revisionTarget.baseRevision,
+                        onlyChunks
+                    )
+                  : await this.database.localDatabase.putDBEntry(
+                        d,
+                        onlyChunks,
+                        revisionTarget.mode === "force-base" ? revisionTarget.baseRevision : undefined
+                    );
         if (ret !== false) {
             this._log(msg + fullPath);
             this.events.emitEvent(EVENT_FILE_SAVED);
@@ -429,13 +432,25 @@ export class ServiceDatabaseFileAccessBase
      */
     async findLiveContentRevisions(
         file: UXFileInfoStub | FilePathWithPrefix,
-        content: string | string[] | Blob | ArrayBuffer
+        content: string | string[] | Blob | ArrayBuffer,
+        onFailure?: ContentReadFailureHandler
     ): Promise<string[]> {
         if (!(await this.checkIsTargetFile(file))) return [];
         const filename = getDatabasePathFromUXFileInfo(file);
+        let reportedLocalFailure = false;
+        let readDocumentId: DocumentID | undefined;
+        const reportLocalFailure = onFailure
+            ? (failure: Parameters<ContentReadFailureHandler>[0]) => {
+                  reportedLocalFailure = true;
+                  onFailure(failure);
+              }
+            : undefined;
         try {
-            const current = await this.database.localDatabase.getDBEntryMeta(filename, undefined, true);
+            const current = reportLocalFailure
+                ? await this.database.localDatabase.getDBEntryMeta(filename, undefined, true, reportLocalFailure)
+                : await this.database.localDatabase.getDBEntryMeta(filename, undefined, true);
             if (current === false) return [];
+            readDocumentId = current._id;
             type OpenRevision = { ok?: { _rev?: string; deleted?: boolean; _deleted?: boolean } };
             const leaves = (await this.database.localDatabase.getRaw(current._id, {
                 open_revs: "all",
@@ -446,9 +461,23 @@ export class ServiceDatabaseFileAccessBase
                 const rev = leaf.ok?._rev;
                 if (!rev || leaf.ok?.deleted || leaf.ok?._deleted) continue;
                 // The final argument makes this a local-only comparison, even with waitForReady set.
-                const entry = await this.database.localDatabase.getDBEntry(filename, { rev }, false, true, true, true);
-                if (entry !== false && !entry.deleted && !entry._deleted &&
-                    await isDocContentSame(readContent(entry), content)) {
+                const entry = reportLocalFailure
+                    ? await this.database.localDatabase.getDBEntry(
+                          filename,
+                          { rev },
+                          false,
+                          true,
+                          true,
+                          true,
+                          reportLocalFailure
+                      )
+                    : await this.database.localDatabase.getDBEntry(filename, { rev }, false, true, true, true);
+                if (
+                    entry !== false &&
+                    !entry.deleted &&
+                    !entry._deleted &&
+                    (await isDocContentSame(readContent(entry), content))
+                ) {
                     matches.push(rev);
                 }
             }
@@ -456,6 +485,18 @@ export class ServiceDatabaseFileAccessBase
         } catch (ex) {
             // A changing revision tree or unavailable chunk leaves the base
             // unknown; it never proves that a local file was unchanged.
+            if (onFailure && !reportedLocalFailure && readDocumentId && isInvalidStateError(ex)) {
+                try {
+                    onFailure({
+                        documentId: readDocumentId,
+                        reason: "local-database",
+                        cause: LocalDatabaseUnavailableError.fromError(ex),
+                    });
+                } catch (observerError) {
+                    this._log("Could not report a local revision-content read failure", LOG_LEVEL_VERBOSE);
+                    this._log(observerError, LOG_LEVEL_VERBOSE);
+                }
+            }
             this._log(`Could not check live revision content for ${filename}`, LOG_LEVEL_VERBOSE);
             this._log(ex, LOG_LEVEL_VERBOSE);
             return [];
@@ -473,12 +514,17 @@ export class ServiceDatabaseFileAccessBase
         return (await this.findContentRevisionsInternal(file, content, currentRev, true)).length > 0;
     }
 
-    async getConflictedRevs(file: UXFileInfoStub | FilePathWithPrefix): Promise<string[]> {
+    async getConflictedRevs(
+        file: UXFileInfoStub | FilePathWithPrefix,
+        onFailure?: ContentReadFailureHandler
+    ): Promise<string[]> {
         if (!(await this.checkIsTargetFile(file))) {
             return [];
         }
         const filename = getDatabasePathFromUXFileInfo(file);
-        const doc = await this.database.localDatabase.getDBEntryMeta(filename, { conflicts: true }, true);
+        const doc = onFailure
+            ? await this.database.localDatabase.getDBEntryMeta(filename, { conflicts: true }, true, onFailure)
+            : await this.database.localDatabase.getDBEntryMeta(filename, { conflicts: true }, true);
         if (doc === false) {
             return [];
         }
@@ -521,14 +567,20 @@ export class ServiceDatabaseFileAccessBase
     async fetchEntryMeta(
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
-        skipCheck = false
+        skipCheck = false,
+        onFailure?: ContentReadFailureHandler
     ): Promise<MetaEntry | false> {
         const dbFileName = getDatabasePathFromUXFileInfo(file);
         if (skipCheck && !(await this.checkIsTargetFile(file))) {
             return false;
         }
 
-        const doc = await this.database.localDatabase.getDBEntryMeta(dbFileName, rev ? { rev: rev } : undefined, true);
+        const doc = await this.database.localDatabase.getDBEntryMeta(
+            dbFileName,
+            rev ? { rev: rev } : undefined,
+            true,
+            onFailure
+        );
         if (doc === false) {
             return false;
         }
@@ -538,12 +590,15 @@ export class ServiceDatabaseFileAccessBase
         meta: MetaEntry,
         waitForReady: boolean = true,
         skipCheck = false,
-        localOnly = false
+        localOnly = false,
+        onFailure?: ContentReadFailureHandler
     ): Promise<LoadedEntry | false> {
         if (skipCheck && !(await this.checkIsTargetFile(meta.path))) {
             return false;
         }
-        const doc = await this.database.localDatabase.getDBEntryFromMeta(meta, false, waitForReady, localOnly);
+        const doc = onFailure
+            ? await this.database.localDatabase.getDBEntryFromMeta(meta, false, waitForReady, localOnly, onFailure)
+            : await this.database.localDatabase.getDBEntryFromMeta(meta, false, waitForReady, localOnly);
         if (doc === false) {
             return false;
         }
@@ -554,16 +609,21 @@ export class ServiceDatabaseFileAccessBase
         rev?: string,
         waitForReady: boolean = true,
         skipCheck = false,
-        localOnly = false
+        localOnly = false,
+        onFailure?: ContentReadFailureHandler
     ): Promise<LoadedEntry | false> {
         if (skipCheck && !(await this.checkIsTargetFile(file))) {
             return false;
         }
-        const entry = await this.fetchEntryMeta(file, rev, true);
+        const entry = onFailure
+            ? await this.fetchEntryMeta(file, rev, true, onFailure)
+            : await this.fetchEntryMeta(file, rev, true);
         if (entry === false) {
             return false;
         }
-        const doc = await this.fetchEntryFromMeta(entry, waitForReady, true, localOnly);
+        const doc = onFailure
+            ? await this.fetchEntryFromMeta(entry, waitForReady, true, localOnly, onFailure)
+            : await this.fetchEntryFromMeta(entry, waitForReady, true, localOnly);
         return doc;
     }
     async deleteFromDBbyPath(fullPath: FilePath | FilePathWithPrefix, rev?: string): Promise<boolean> {

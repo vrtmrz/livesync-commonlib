@@ -14,6 +14,7 @@ import {
 } from "@lib/common/types";
 import { fireAndForget, throttle } from "@lib/common/utils";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
+import { promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
 import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess";
 import { StorageEventManager, type FileEvent } from "@lib/interfaces/StorageEventManager";
 import type { IAPIService, IVaultService } from "@lib/services/base/IService";
@@ -119,6 +120,9 @@ export abstract class StorageEventManagerBase<
     protected _waitingMap = new Map<string, WaitInfo>();
     protected processingCount = 0;
     private readonly eventState = createStorageEventState();
+    private dispatchPaused = false;
+    private dispatchResumeSignal: PromiseWithResolvers<void> | undefined;
+    private readonly activeDispatches = new Set<Promise<void>>();
     private readonly buffer: StorageEventBuffer = {
         read: () => this.bufferedQueuedItems,
         replace: (events) => {
@@ -192,7 +196,7 @@ export abstract class StorageEventManagerBase<
         takeSnapshot: this.queue.takeSnapshot,
         completeSnapshot: (completion) => this.persistSnapshot(completion),
         semaphore: () => this.concurrentProcessing,
-        requestProcessQueue: (event) => this.requestProcessQueue(event),
+        requestProcessQueue: (event) => this.dispatchFileEvent(event),
         cancelWaiting: (event) => {
             const path = event.args.file.path;
             if (this._waitingMap.get(path)?.event === event) this._cancelWaiting(path);
@@ -351,6 +355,29 @@ export abstract class StorageEventManagerBase<
         await flushStorageEvents(this.eventState, this.queue);
     }
     /**
+     * Pause new file-handler dispatch and wait for dispatches already in progress.
+     * @returns A promise fulfilled after processing that had started at the call settles; queued and not-yet-started work is not awaited.
+     * @remarks Event admission, buffering, and snapshotting continue while paused. Repeated calls are safe.
+     */
+    override async pauseDispatch(): Promise<void> {
+        this.dispatchPaused = true;
+        await Promise.all([...this.activeDispatches]);
+    }
+    /**
+     * Resume file-handler dispatch after a temporary pause.
+     * @returns Nothing; waiting dispatches are released and the existing queue scheduler is asked to continue.
+     * @remarks Repeated calls are safe.
+     */
+    override resumeDispatch(): void {
+        if (!this.dispatchPaused) {
+            return;
+        }
+        this.dispatchPaused = false;
+        this.dispatchResumeSignal?.resolve();
+        this.dispatchResumeSignal = undefined;
+        fireAndForget(() => this.runQueuedEvents().catch((error) => this.reportOperationFailure(error)));
+    }
+    /**
      * Stop accepting events, flush current work, and persist the remaining snapshot.
      * @returns A promise fulfilled after the final snapshot write; a flush failure is logged, while a final snapshot failure rejects it.
      */
@@ -478,6 +505,26 @@ export abstract class StorageEventManagerBase<
      */
     private async processOperation(operation: PendingFileEvent, attempt: FileEventAttempt) {
         await processStorageEventAttempt(this.eventState, operation, attempt, this.attempts);
+    }
+    /**
+     * Hold a file-handler request while dispatch is paused and track requests which have started.
+     * @param event - The event passed to the host processing hook after the pause is released.
+     * @returns A promise fulfilled when the host processing hook completes.
+     * @remarks The pause check and active registration happen synchronously together, preventing a request from starting after a pause.
+     */
+    private async dispatchFileEvent(event: FileEventItem): Promise<void> {
+        while (this.dispatchPaused) {
+            this.dispatchResumeSignal ??= promiseWithResolvers<void>();
+            await this.dispatchResumeSignal.promise;
+        }
+        const activeDispatch = promiseWithResolvers<void>();
+        this.activeDispatches.add(activeDispatch.promise);
+        try {
+            await this.requestProcessQueue(event);
+        } finally {
+            this.activeDispatches.delete(activeDispatch.promise);
+            activeDispatch.resolve();
+        }
     }
     /**
      * Retain an event and await its current processing attempt.

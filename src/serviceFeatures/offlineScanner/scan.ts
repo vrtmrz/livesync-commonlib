@@ -130,7 +130,7 @@ export function resolveFilePairAction(state: FilePairState, options: FullScanOpt
 /**
  * Process a single file pair based on the determined action from the file pair state and scan options.
  */
-async function processFilePair(
+export async function processFilePair(
     host: NecessaryServices<"setting" | "vault" | "path" | "keyValueDB", "storageAccess" | "fileHandler">,
     log: LogFunction,
     pair: FilePair,
@@ -180,7 +180,7 @@ async function processFilePair(
                 if (!doc) {
                     throw new Error(`Missing database entry for ${path}`);
                 }
-                const updateStorageResult = await updateToStorage(host, log, LOG_LEVEL_INFO, doc);
+                const updateStorageResult = await updateToStorage(host, log, LOG_LEVEL_INFO, doc, options);
                 if (updateStorageResult === FilePairProcessResults.COMPLETED) {
                     updateFileMTimeInMap(host, fileMapKey, doc.mtime);
                 }

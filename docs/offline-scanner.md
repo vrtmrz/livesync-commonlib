@@ -201,3 +201,53 @@ bodies or invokes physical deletion. All affected paths are revalidated by their
 handler. See [Deletion recovery](deletion-recovery.md) for completion, error,
 concurrency, and cost contracts. This opt-in extension is published in
 [Commonlib 0.4.2](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.4.2).
+
+
+## Unreleased host recovery integration
+
+The following extension was reviewed against Commonlib 0.5.0 and Self-hosted
+LiveSync 1.0.50. It is implemented on the working branch and is not yet published.
+
+`VaultScanOptions.onContentReadFailure` optionally receives a structured failure
+from an unsuccessful DB-to-Vault content read. The scanner awaits this callback
+before returning that pair's failure; the callback does not turn it into success.
+Vault-to-database failures, policy skips, and successful content reads do not
+invoke it. Omitting it retains the existing call and result contracts.
+
+The `/replication` entry exports `ContentReadFailure` and
+`isTransientContentReadFailure`. Missing content, cancellation, authentication,
+configuration, and unclassified errors remain distinct from offline, typed
+transport, and local-database failure. `local-database` identifies an observed
+`InvalidStateError` during a local Metadata or content read and is transient alongside
+offline and transport failures. The optional runtime `cause` is a typed
+`LocalDatabaseUnavailableError` or `RemoteRequestError`; it is diagnostic only
+and is not written into scanner or receiver snapshots.
+The optional final observer on `getDBEntryFromMeta`, `fetchEntryFromMeta`, and
+`dbToStorage` reports the final failed read of that exact Metadata revision.
+It does not report a temporary failed producer when another observed producer
+ultimately supplies the Chunks. Existing Boolean results and successful-omission
+Chunk retries are preserved. `fetchEntryMeta` can also receive the observer; it
+reports an observed local database failure before preserving the original
+rejection. A normal missing result or a policy skip does not invoke it. No
+diagnostic text is parsed to classify errors.
+
+A host can use `IReplicationService.onFiniteReplicationCompleted` to schedule
+retained work after a successful, uncancelled CouchDB finite pull or bidirectional
+transfer, including the initial pull before continuous replication. Zero changed
+documents still qualify. Push-only operations, continuous events, failed attempts,
+and Chunk fetch completion do not emit this signal. Observer errors are diagnostic
+and do not change a successfully completed replication into a failed transfer.
+The notification runs inside the transfer owner, whose finite delivery activity
+may still be held. Handlers must acknowledge admission without awaiting file or
+Chunk operations which depend on that activity ending. The service itself stores
+no retry records and starts no additional replication.
+
+For one previously selected ordinary content target, `processFilePair` reuses
+existing scan policy without listing the Vault again. The host must supply fresh,
+identity-validated Metadata, a current storage stub or absence, and ordinary scan
+options; existing file-handler locking and revalidation still own writes. Full
+scan deletion-recovery planning remains separate. The optional
+`fileHandler.hasReflectedRevision(path, revision)` checks current bytes against
+existing device-local provenance and current Metadata without retrieving Chunks.
+A missing or unreadable record is inconclusive, rather than proof of failure or
+permission to overwrite. Hosts own retention, retry bounds, and user presentation.

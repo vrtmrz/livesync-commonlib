@@ -2,7 +2,12 @@ import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import type { DocumentID, EntryDoc, EntryLeaf } from "@lib/common/types.ts";
 import type { ChangeManager } from "@lib/managers/ChangeManager.ts";
-import { EVENT_MISSING_CHUNK_REMOTE, EVENT_MISSING_CHUNKS, EVENT_CHUNK_FETCHED } from "@lib/managers/ChunkFetcher.ts";
+import {
+    EVENT_MISSING_CHUNK_REMOTE,
+    EVENT_MISSING_CHUNKS,
+    EVENT_CHUNK_FETCHED,
+    EVENT_CHUNK_FAILED,
+} from "@lib/managers/ChunkFetcher.ts";
 import { DatabaseReadLayer } from "./LayeredChunkManager/DatabaseReadLayer.ts";
 import { CacheLayer } from "./LayeredChunkManager/CacheLayer.ts";
 import { ArrivalWaitLayer } from "./LayeredChunkManager/ArrivalWaitLayer.ts";
@@ -120,6 +125,7 @@ export class LayeredChunkManager {
         this.offChangeHandler = this.changeManager.addCallback(this.onChangeHandler);
         this.addListener(EVENT_CHUNK_FETCHED, this.onChunkArrivedHandler, { signal: this.abort.signal });
         this.addListener(EVENT_MISSING_CHUNK_REMOTE, this.onMissingChunkRemoteHandler, { signal: this.abort.signal });
+        this.addListener(EVENT_CHUNK_FAILED, this.onChunkFailedHandler, { signal: this.abort.signal });
 
         this.initialised = this._initialise();
     }
@@ -283,6 +289,11 @@ export class LayeredChunkManager {
         this.arrivalWaitLayer.onMissingChunk(id);
     }
     protected onMissingChunkRemoteHandler = this.onMissingChunkRemote.bind(this);
+
+    private onChunkFailed({ id, reason, cause }: ChunkManagerEventMap[typeof EVENT_CHUNK_FAILED]): void {
+        this.arrivalWaitLayer.onChunkFailed(id, reason, cause);
+    }
+    protected onChunkFailedHandler = this.onChunkFailed.bind(this);
 
     // Transaction management
     protected concurrentTransactions = 0;

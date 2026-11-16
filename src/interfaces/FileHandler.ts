@@ -1,3 +1,4 @@
+import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 import type { FilePath, FilePathWithPrefix, MetaEntry } from "@lib/common/models/db.type";
 import type { UXFileInfo, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/models/fileaccess.type";
 
@@ -67,6 +68,8 @@ export interface IFileHandler {
 
     /** Metadata-only scan hint; never certifies content equality or changes provenance. */
     canSkipUnchangedFile?(info: UXFileInfoStub, expected: MetaEntry): Promise<boolean>;
+    /** Confirm current bytes and recorded revision without a remote content read. */
+    hasReflectedRevision?(path: FilePathWithPrefix, revision: string): Promise<boolean>;
 
     /**
      * Report whether complete provenance-key discovery is configured.
@@ -138,7 +141,8 @@ export interface IFileHandler {
     dbToStorage(
         entryInfo: MetaEntry | FilePathWithPrefix,
         info: UXFileInfoStub | UXFileInfo | FilePath | null,
-        force?: boolean
+        force?: boolean,
+        onContentReadFailure?: ContentReadFailureHandler
     ): Promise<boolean>;
 
     createAllChunks(showingNotice?: boolean): Promise<void>;

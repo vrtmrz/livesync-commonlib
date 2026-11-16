@@ -1,3 +1,4 @@
+import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 import { withFileEventPaths, queueConflictCheckFor } from "./locking";
 import { infoToStub, isFolderInfo, getParentPath } from "./storage";
 import {
@@ -103,10 +104,13 @@ export async function dbToStorage(
     ctx: FileHandlerContext,
     entryInfo: MetaEntry | FilePathWithPrefix,
     info: UXFileInfoStub | UXFileInfo | FilePath | null,
-    force?: boolean
+    force?: boolean,
+    onContentReadFailure?: ContentReadFailureHandler
 ): Promise<boolean> {
     const pathFromEntryInfo = typeof entryInfo === "string" ? entryInfo : ctx.host.getPath(entryInfo);
-    return await withFileEventPaths(ctx, [pathFromEntryInfo], () => dbToStorageCore(ctx, entryInfo, info, force));
+    return await withFileEventPaths(ctx, [pathFromEntryInfo], () =>
+        dbToStorageCore(ctx, entryInfo, info, force, onContentReadFailure)
+    );
 }
 
 /**
@@ -123,16 +127,19 @@ export async function dbToStorageCore(
     ctx: FileHandlerContext,
     entryInfo: MetaEntry | FilePathWithPrefix,
     info: UXFileInfoStub | UXFileInfo | FilePath | null,
-    force?: boolean
+    force?: boolean,
+    onContentReadFailure?: ContentReadFailureHandler
 ): Promise<boolean> {
     const file = await infoToStub(ctx, info);
     const pathFromEntryInfo = typeof entryInfo === "string" ? entryInfo : ctx.host.getPath(entryInfo);
-    const docEntry = await ctx.host.db().fetchEntryMeta(pathFromEntryInfo, undefined, true);
+    const docEntry = onContentReadFailure
+        ? await ctx.host.db().fetchEntryMeta(pathFromEntryInfo, undefined, true, onContentReadFailure)
+        : await ctx.host.db().fetchEntryMeta(pathFromEntryInfo, undefined, true);
     if (!docEntry) {
         ctx.host.log(`File ${pathFromEntryInfo} is not exist on the database`, LOG_LEVEL_VERBOSE);
         return false;
     }
-    return await applyDatabaseEntryToStorage(ctx, docEntry, file, force);
+    return await applyDatabaseEntryToStorage(ctx, docEntry, file, force, false, 0, onContentReadFailure);
 }
 
 /**
@@ -153,12 +160,15 @@ export async function applyDatabaseEntryToStorage(
     file: UXFileInfoStub | UXFileInfo | null,
     force?: boolean,
     allowExistingConflicts: boolean = false,
-    incomingRetry = 0
+    incomingRetry = 0,
+    onContentReadFailure?: ContentReadFailureHandler
 ): Promise<boolean> {
     const mode = file == null ? "create" : "modify";
     const path = ctx.host.getPath(docEntry);
     const settings = ctx.setting.currentSettings();
-    const revs = await ctx.host.db().getConflictedRevs(path);
+    const revs = onContentReadFailure
+        ? await ctx.host.db().getConflictedRevs(path, onContentReadFailure)
+        : await ctx.host.db().getConflictedRevs(path);
     if (revs.length > 0 && !allowExistingConflicts) {
         // Some conflicts are exist.
         if (settings.writeDocumentsIfConflicted) {
@@ -191,14 +201,17 @@ export async function applyDatabaseEntryToStorage(
             settings,
             force,
             allowExistingConflicts,
-            incomingRetry
+            incomingRetry,
+            onContentReadFailure
         );
     if (existDoc && existDoc.path !== path) {
         const current = await reconcileStoragePath(ctx, existDoc, path, settings);
         if (current === false) return false;
         existDoc = current;
     }
-    const docRead = await ctx.host.db().fetchEntryFromMeta(docEntry);
+    const docRead = onContentReadFailure
+        ? await ctx.host.db().fetchEntryFromMeta(docEntry, true, false, false, onContentReadFailure)
+        : await ctx.host.db().fetchEntryFromMeta(docEntry);
     if (!docRead) {
         ctx.host.log(`File ${path} is not exist on the database`, LOG_LEVEL_VERBOSE);
         return false;
@@ -230,6 +243,7 @@ export async function applyDatabaseEntryToStorage(
         force,
         allowExistingConflicts,
         incomingRetry,
+        onContentReadFailure,
     };
     const preparation = await prepareIncomingStorageWrite(ctx, write);
     if (preparation.kind === "complete") return preparation.result;
@@ -254,12 +268,15 @@ async function reconcileAdvancedIncomingRevision(
     path: FilePathWithPrefix,
     force: boolean | undefined,
     allowExistingConflicts: boolean,
-    incomingRetry: number
+    incomingRetry: number,
+    onContentReadFailure?: ContentReadFailureHandler
 ): Promise<boolean | undefined> {
     if (force || allowExistingConflicts) return undefined;
     // Protection above may await storage work, so the incoming metadata can
     // be stale even though it was current when this reflection began.
-    const current = await ctx.host.db().fetchEntryMeta(path, undefined, true);
+    const current = onContentReadFailure
+        ? await ctx.host.db().fetchEntryMeta(path, undefined, true, onContentReadFailure)
+        : await ctx.host.db().fetchEntryMeta(path, undefined, true);
     if (!current) return false;
     if (current._rev === incomingEntry._rev) return undefined;
     if (incomingRetry >= 2) {
@@ -268,7 +285,15 @@ async function reconcileAdvancedIncomingRevision(
     }
     const storage = await ctx.host.storage().getStub(path);
     if (isFolderInfo(storage)) return false;
-    return await applyDatabaseEntryToStorage(ctx, current, storage, force, allowExistingConflicts, incomingRetry + 1);
+    return await applyDatabaseEntryToStorage(
+        ctx,
+        current,
+        storage,
+        force,
+        allowExistingConflicts,
+        incomingRetry + 1,
+        onContentReadFailure
+    );
 }
 
 /** Captured inputs retained through one incoming-reflection attempt. */
@@ -297,6 +322,8 @@ interface IncomingStorageWrite {
     readonly allowExistingConflicts: boolean;
     /** Existing database-advancement reread count. */
     readonly incomingRetry: number;
+    /** Observer borrowed from this reflection attempt. */
+    readonly onContentReadFailure?: ContentReadFailureHandler;
 }
 /** Candidate overwrite plan; the write stage must revalidate any returned snapshot. */
 type IncomingStoragePreparation =
@@ -323,17 +350,32 @@ async function applyIncomingDeletion(
     settings: ObsidianLiveSyncSettings,
     force: boolean | undefined,
     allowExistingConflicts: boolean,
-    incomingRetry: number
+    incomingRetry: number,
+    onContentReadFailure?: ContentReadFailureHandler
 ): Promise<boolean> {
     let safeDeletionSnapshot: StorageSnapshot | undefined;
     if (!force && !settings.writeDocumentsIfConflicted) {
-        let protection = await preserveUnsyncedStorageAsConflict(ctx, path, existDoc, docEntry);
+        let protection = await preserveUnsyncedStorageAsConflict(
+            ctx,
+            path,
+            existDoc,
+            docEntry,
+            undefined,
+            onContentReadFailure
+        );
         if (protection.preserved) return true;
         if (
             !protection.snapshot ||
             !(await currentStorageSnapshotMatches(ctx, protection.snapshot.file, protection.snapshot.revision))
         ) {
-            protection = await recheckIncomingStorage(ctx, path, docEntry, undefined, allowExistingConflicts);
+            protection = await recheckIncomingStorage(
+                ctx,
+                path,
+                docEntry,
+                undefined,
+                allowExistingConflicts,
+                onContentReadFailure
+            );
             if (protection.preserved) return true;
             if (
                 !protection.snapshot ||
@@ -350,14 +392,22 @@ async function applyIncomingDeletion(
         path,
         force,
         allowExistingConflicts,
-        incomingRetry
+        incomingRetry,
+        onContentReadFailure
     );
     if (latest !== undefined) return latest;
     if (
         safeDeletionSnapshot &&
         !(await currentStorageSnapshotMatches(ctx, safeDeletionSnapshot.file, safeDeletionSnapshot.revision))
     ) {
-        const protection = await recheckIncomingStorage(ctx, path, docEntry, undefined, allowExistingConflicts);
+        const protection = await recheckIncomingStorage(
+            ctx,
+            path,
+            docEntry,
+            undefined,
+            allowExistingConflicts,
+            onContentReadFailure
+        );
         if (protection.preserved) return true;
         if (
             !protection.snapshot ||
@@ -372,7 +422,8 @@ async function applyIncomingDeletion(
             path,
             force,
             allowExistingConflicts,
-            incomingRetry
+            incomingRetry,
+            onContentReadFailure
         );
         if (latest !== undefined) return latest;
         if (!(await currentStorageSnapshotMatches(ctx, safeDeletionSnapshot.file, safeDeletionSnapshot.revision))) {
@@ -483,10 +534,18 @@ async function commitIncomingStorageWrite(
         force,
         allowExistingConflicts,
         incomingRetry,
+        onContentReadFailure,
     } = write;
     await ctx.host.storage().ensureDir(path);
     if (safeSnapshot && !(await currentStorageSnapshotMatches(ctx, safeSnapshot.file, safeSnapshot.revision))) {
-        const protection = await recheckIncomingStorage(ctx, path, docEntry, docData, allowExistingConflicts);
+        const protection = await recheckIncomingStorage(
+            ctx,
+            path,
+            docEntry,
+            docData,
+            allowExistingConflicts,
+            onContentReadFailure
+        );
         if (protection.preserved) return true;
         if (
             !protection.snapshot ||
@@ -502,7 +561,8 @@ async function commitIncomingStorageWrite(
         path,
         force,
         allowExistingConflicts,
-        incomingRetry
+        incomingRetry,
+        onContentReadFailure
     );
     if (latest !== undefined) return latest;
     if (safeSnapshot && !(await currentStorageSnapshotMatches(ctx, safeSnapshot.file, safeSnapshot.revision))) {
@@ -602,14 +662,28 @@ async function prepareIncomingStorageProtection(
     write: IncomingStorageWrite,
     current: UXFileInfoStub
 ): Promise<IncomingStoragePreparation> {
-    const { docEntry, docData, path, settings, force, allowExistingConflicts } = write;
+    const { docEntry, docData, path, settings, force, allowExistingConflicts, onContentReadFailure } = write;
     const existDoc = current;
     if (force || settings.writeDocumentsIfConflicted) return { kind: "write", snapshot: undefined };
 
-    let protection = await preserveUnsyncedStorageAsConflict(ctx, path, existDoc, docEntry, docData);
+    let protection = await preserveUnsyncedStorageAsConflict(
+        ctx,
+        path,
+        existDoc,
+        docEntry,
+        docData,
+        onContentReadFailure
+    );
     if (protection.preserved) return { kind: "complete", result: true };
     if (!protection.snapshot) {
-        protection = await recheckIncomingStorage(ctx, path, docEntry, docData, allowExistingConflicts);
+        protection = await recheckIncomingStorage(
+            ctx,
+            path,
+            docEntry,
+            docData,
+            allowExistingConflicts,
+            onContentReadFailure
+        );
         if (protection.preserved) return { kind: "complete", result: true };
         if (!protection.snapshot) return { kind: "complete", result: false };
     }

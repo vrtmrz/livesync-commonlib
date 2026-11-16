@@ -13,6 +13,7 @@ import type {
 import type { DatabaseFileAccess } from "@lib/interfaces/DatabaseFileAccess";
 import type { StorageAccess } from "@lib/interfaces/StorageAccess";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
+import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 import { ServiceFileHandlerBase, type ServiceFileHandlerDependencies } from "./ServiceFileHandlerBase";
 
 /**
@@ -40,6 +41,7 @@ function fixture() {
     const db = {
         fetchEntry: vi.fn().mockResolvedValue(false),
         fetchEntryMeta: vi.fn().mockResolvedValue(false),
+        fetchEntryFromMeta: vi.fn().mockResolvedValue(false),
         getConflictedRevs: vi.fn().mockResolvedValue([]),
         storeWithBaseRevision: vi.fn().mockResolvedValue("1-local"),
         createChunks: vi.fn().mockResolvedValue(true),
@@ -225,6 +227,24 @@ describe("ServiceFileHandlerBase host facade contracts", () => {
         expect(handler.calls).toBe(1);
         expect(handler.seen).toBe(entry);
         expect(replacement).not.toHaveBeenCalled();
+    });
+
+    it("forwards the per-call content-read observer through incoming reflection database reads", async () => {
+        const f = fixture();
+        const entry = metadata();
+        f.db.fetchEntryMeta.mockResolvedValue(entry);
+        new PlainHandler(f.services);
+        const onFailure = vi.fn();
+        const registered = f.replicationHandler.mock.calls[0][0] as (
+            entry: MetaEntry,
+            onFailure?: ContentReadFailureHandler
+        ) => Promise<boolean>;
+
+        await expect(registered(entry, onFailure)).resolves.toBe(false);
+
+        expect(f.db.fetchEntryMeta).toHaveBeenCalledWith("note.md", undefined, true, onFailure);
+        expect(f.db.getConflictedRevs).toHaveBeenCalledWith("note.md", onFailure);
+        expect(f.db.fetchEntryFromMeta).toHaveBeenCalledWith(entry, true, false, false, onFailure);
     });
 
     it("keeps the operation error authoritative when a deferred conflict callback also fails", async () => {

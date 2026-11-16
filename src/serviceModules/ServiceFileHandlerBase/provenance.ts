@@ -10,6 +10,7 @@ import { computeFileContentHash } from "@lib/common/fileContentHash";
 import { getPathNormalizationVersion, normalisePathForIdentity } from "@lib/common/pathNormalization";
 import type { FileReflectionProvenanceRecord } from "@lib/interfaces/FileReflectionProvenance";
 import type { FileHandlerContext } from "./context";
+import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 
 /**
  * Resolve the device-local provenance key using the current path identity policy.
@@ -212,7 +213,8 @@ export async function classifyStorageContent(
     preferredPath?: FilePathWithPrefix,
     recorded?: FileReflectionProvenanceRecord,
     currentLoaded?: { _rev?: string; data: string | string[] | Blob | ArrayBuffer },
-    requireReadableContent = false
+    requireReadableContent = false,
+    onContentReadFailure?: ContentReadFailureHandler
 ): Promise<StorageContentClassification> {
     const path = (preferredPath ?? file.path) as FilePathWithPrefix;
     const recordedRevision = recorded?.revision;
@@ -224,11 +226,12 @@ export async function classifyStorageContent(
             recorded,
             recordedRevision,
             currentLoaded,
-            requireReadableContent
+            requireReadableContent,
+            onContentReadFailure
         );
         if (classification) return classification;
     }
-    return await classifyLiveStorageContent(ctx, file, currentEntry);
+    return await classifyLiveStorageContent(ctx, file, currentEntry, onContentReadFailure);
 }
 
 /**
@@ -400,7 +403,8 @@ async function classifyRecordedStorageContent(
     recorded: FileReflectionProvenanceRecord | undefined,
     recordedRevision: string,
     currentLoaded: DecodedProvenanceContent | undefined,
-    requireReadableContent: boolean
+    requireReadableContent: boolean,
+    onContentReadFailure?: ContentReadFailureHandler
 ): Promise<RecordedStorageClassification | undefined> {
     if (
         hasContentHash(recorded) &&
@@ -412,7 +416,9 @@ async function classifyRecordedStorageContent(
     const loadedContentIsDecoded = currentLoaded?._rev === recordedRevision;
     const base = loadedContentIsDecoded
         ? currentLoaded
-        : await ctx.host.db().fetchEntry(file, recordedRevision, true, true, !requireReadableContent);
+        : onContentReadFailure
+          ? await ctx.host.db().fetchEntry(file, recordedRevision, true, true, !requireReadableContent, onContentReadFailure)
+          : await ctx.host.db().fetchEntry(file, recordedRevision, true, true, !requireReadableContent);
     if (
         base &&
         base._rev === recordedRevision &&
@@ -425,7 +431,9 @@ async function classifyRecordedStorageContent(
             : { kind: "edited", revision: recordedRevision };
     }
     if (!base) {
-        const meta = await ctx.host.db().fetchEntryMeta(file, recordedRevision, true);
+        const meta = onContentReadFailure
+            ? await ctx.host.db().fetchEntryMeta(file, recordedRevision, true, onContentReadFailure)
+            : await ctx.host.db().fetchEntryMeta(file, recordedRevision, true);
         if (requireReadableContent && meta && !meta.deleted && !meta._deleted) {
             throw new Error(
                 `Could not read the recorded file revision ${displayRev(recordedRevision)} for ${file.path}`
@@ -447,9 +455,14 @@ async function classifyRecordedStorageContent(
 async function classifyLiveStorageContent(
     ctx: FileHandlerContext,
     file: UXFileInfo,
-    currentEntry: { _rev?: string; deleted?: boolean; _deleted?: boolean } | false
+    currentEntry: { _rev?: string; deleted?: boolean; _deleted?: boolean } | false,
+    onContentReadFailure?: ContentReadFailureHandler
 ): Promise<StorageContentClassification> {
-    const matches = currentEntry ? await ctx.host.db().findLiveContentRevisions(file, file.body) : [];
+    const matches = currentEntry
+        ? onContentReadFailure
+            ? await ctx.host.db().findLiveContentRevisions(file, file.body, onContentReadFailure)
+            : await ctx.host.db().findLiveContentRevisions(file, file.body)
+        : [];
     if (matches.length) {
         return { kind: "matching-leaf", revision: matches.length === 1 ? matches[0] : undefined };
     }

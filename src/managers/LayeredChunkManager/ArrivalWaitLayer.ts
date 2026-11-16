@@ -4,6 +4,13 @@ import type { IReadLayer } from "./ChunkLayerInterfaces";
 import type { ChunkReadOptions } from "./types.ts";
 import { ChunkDeliveryCoordinator } from "@lib/managers/ChunkDeliveryCoordinator.ts";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
+import type { ContentReadFailureCause, ChunkReadFailureReason } from "@lib/replication/contentRead.ts";
+
+type ChunkUnavailableObserver = (
+    id: DocumentID,
+    reason: ChunkReadFailureReason,
+    cause?: ContentReadFailureCause
+) => void;
 
 export type ChunkAvailabilityRecheck = (ids: readonly DocumentID[]) => Promise<readonly (EntryLeaf | false)[]>;
 
@@ -18,6 +25,9 @@ export class ArrivalWaitLayer implements IReadLayer {
             resolver: PromiseWithResolvers<EntryLeaf | false>;
             observedActivity: boolean;
             activityVersion: number;
+            failureReason?: ChunkReadFailureReason;
+            failureCause?: ContentReadFailureCause;
+            unavailableObservers: Set<ChunkUnavailableObserver>;
         }
     >();
     private readonly eventEmitter: (eventName: string, data: DocumentID[]) => void;
@@ -36,20 +46,56 @@ export class ArrivalWaitLayer implements IReadLayer {
         this.stopObservingActivity = this.deliveryCoordinator.onChanged((ids) => this.refreshActivity(ids));
     }
 
-    private enqueueWaiting(id: DocumentID): Promise<EntryLeaf | false> {
+    private enqueueWaiting(
+        id: DocumentID,
+        onUnavailable?: ChunkUnavailableObserver
+    ): Promise<EntryLeaf | false> {
         const previous = this.waitingMap.get(id);
-        if (previous) return previous.resolver.promise;
+        if (previous) {
+            if (onUnavailable) {
+                previous.unavailableObservers.add(onUnavailable);
+            }
+            return previous.resolver.promise;
+        }
 
         const resolver = promiseWithResolvers<EntryLeaf | false>();
-        this.waitingMap.set(id, { activityVersion: 0, observedActivity: false, resolver });
+        this.waitingMap.set(id, {
+            activityVersion: 0,
+            observedActivity: false,
+            resolver,
+            unavailableObservers: new Set(onUnavailable ? [onUnavailable] : []),
+        });
         return resolver.promise;
     }
 
-    private settle(id: DocumentID, value: EntryLeaf | false): void {
+    private settle(
+        id: DocumentID,
+        value: EntryLeaf | false,
+        reason?: ChunkReadFailureReason,
+        cause?: ContentReadFailureCause
+    ): void {
         const queue = this.waitingMap.get(id);
         if (!queue) return;
         this.waitingMap.delete(id);
         queue.resolver.resolve(value);
+        if (value) {
+            return;
+        }
+
+        const failureReason = reason ?? queue.failureReason ?? "unavailable";
+        const failureCause = cause ?? (reason === undefined || reason === queue.failureReason ? queue.failureCause : undefined);
+        for (const observer of queue.unavailableObservers) {
+            try {
+                if (failureCause) {
+                    observer(id, failureReason, failureCause);
+                } else {
+                    observer(id, failureReason);
+                }
+            } catch (error) {
+                Logger("A chunk-read unavailability observer failed.", LOG_LEVEL_VERBOSE);
+                Logger(error, LOG_LEVEL_VERBOSE);
+            }
+        }
     }
 
     private async settleAfterObservedActivity(ids: readonly DocumentID[]): Promise<void> {
@@ -82,7 +128,7 @@ export class ArrivalWaitLayer implements IReadLayer {
             } else if (this.deliveryCoordinator.isActivityActiveFor(id)) {
                 this.refreshActivity([id]);
             } else {
-                this.settle(id, false);
+                this.settle(id, false, queue.failureReason, queue.failureCause);
             }
         }
     }
@@ -98,7 +144,7 @@ export class ArrivalWaitLayer implements IReadLayer {
             } else if (queue.observedActivity) {
                 completedActivityIds.push(id);
             } else {
-                this.settle(id, false);
+                this.settle(id, false, queue.failureReason, queue.failureCause);
             }
         }
         if (completedActivityIds.length > 0) {
@@ -111,9 +157,23 @@ export class ArrivalWaitLayer implements IReadLayer {
         this.settle(doc._id, doc._deleted || deleted ? false : doc);
     }
 
+    /** Record a typed producer failure until every observable producer has finished. */
+    onChunkFailed(id: DocumentID, reason: ChunkReadFailureReason, cause?: ContentReadFailureCause): void {
+        const queue = this.waitingMap.get(id);
+        if (!queue) {
+            return;
+        }
+        queue.failureReason ??= reason;
+        queue.failureCause ??= cause;
+        queue.observedActivity = true;
+        queue.activityVersion++;
+        this.refreshActivity([id]);
+    }
+
     /** Handle an explicit remote-missing result. */
     onMissingChunk(id: DocumentID): void {
-        this.settle(id, false);
+        const queue = this.waitingMap.get(id);
+        this.settle(id, false, queue?.failureReason ?? "missing", queue?.failureCause);
     }
 
     async read(
@@ -122,9 +182,31 @@ export class ArrivalWaitLayer implements IReadLayer {
         next: (remaining: DocumentID[]) => Promise<(EntryLeaf | false)[]>
     ): Promise<(EntryLeaf | false)[]> {
         const waitForDelivery = options.waitForDelivery ?? (options.timeout === undefined || options.timeout > 0);
-        if (!waitForDelivery || ids.length === 0) return ids.map(() => false);
+        if (ids.length === 0) {
+            return [];
+        }
+        if (!waitForDelivery) {
+            for (const id of ids) {
+                try {
+                    options.onUnavailable?.(id, "unavailable");
+                } catch (error) {
+                    Logger("A chunk-read unavailability observer failed.", LOG_LEVEL_VERBOSE);
+                    Logger(error, LOG_LEVEL_VERBOSE);
+                }
+            }
+            return ids.map(() => false);
+        }
 
-        const tasks = ids.map((id) => this.enqueueWaiting(id));
+        const observer = options.onUnavailable
+            ? (id: DocumentID, reason: ChunkReadFailureReason, cause?: ContentReadFailureCause) => {
+                  if (cause) {
+                      options.onUnavailable?.(id, reason, cause);
+                  } else {
+                      options.onUnavailable?.(id, reason);
+                  }
+              }
+            : undefined;
+        const tasks = ids.map((id) => this.enqueueWaiting(id, observer));
         if (!options.preventRemoteRequest) {
             // EventTarget dispatch is synchronous. ChunkFetcher claims the identifiers
             // before this call returns, closing the scheduling gap without a timer.
@@ -136,7 +218,7 @@ export class ArrivalWaitLayer implements IReadLayer {
 
     clearWaiting(): void {
         for (const id of [...this.waitingMap.keys()]) {
-            this.settle(id, false);
+            this.settle(id, false, "cancelled");
         }
     }
 

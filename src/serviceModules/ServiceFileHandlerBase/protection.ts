@@ -9,11 +9,29 @@ import { queueConflictCheckFor } from "./locking";
 import { isFolderInfo } from "./storage";
 
 import { LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
+import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 
 import type { FilePathWithPrefix, MetaEntry, UXFileInfoStub } from "@lib/common/types";
 import { isDocContentSame } from "@lib/common/utils";
 
 import type { FileHandlerContext, PreservationResult } from "./context";
+
+/** Bind protection-read failures to the incoming document that owns the reflection attempt. */
+function observeIncomingDocumentReadFailures(
+    incomingEntry: MetaEntry,
+    onContentReadFailure?: ContentReadFailureHandler
+): ContentReadFailureHandler | undefined {
+    if (!onContentReadFailure) {
+        return undefined;
+    }
+    return (failure) => {
+        if (failure.documentId === incomingEntry._id && incomingEntry._rev) {
+            onContentReadFailure({ ...failure, documentId: incomingEntry._id, revision: incomingEntry._rev });
+            return;
+        }
+        onContentReadFailure(failure);
+    };
+}
 
 /**
  * Preserve changed storage before an incoming write can replace its bytes.
@@ -31,12 +49,14 @@ export async function preserveUnsyncedStorageAsConflict(
     path: FilePathWithPrefix,
     existDoc: UXFileInfoStub,
     incomingEntry: MetaEntry,
-    incomingContent?: string | string[] | Blob | ArrayBuffer
+    incomingContent?: string | string[] | Blob | ArrayBuffer,
+    onContentReadFailure?: ContentReadFailureHandler
 ): Promise<PreservationResult> {
     // Capture bytes and branch identity before classifying against database
     // revisions. A later storage change requires a fresh snapshot.
     const observedProvenance = await readProvenanceSnapshot(ctx, path);
     const readFile = await ctx.host.readFileFromStub(existDoc);
+    const observeIncomingReadFailure = observeIncomingDocumentReadFailures(incomingEntry, onContentReadFailure);
     const snapshot = { file: readFile, revision: observedProvenance };
     if (incomingContent && (await isDocContentSame(incomingContent, readFile.body))) {
         return (await currentStorageSnapshotMatches(ctx, readFile, observedProvenance))
@@ -52,7 +72,9 @@ export async function preserveUnsyncedStorageAsConflict(
         incomingEntry,
         undefined,
         observedProvenance,
-        incomingContent ? { _rev: incomingEntry._rev, data: incomingContent } : undefined
+        incomingContent ? { _rev: incomingEntry._rev, data: incomingContent } : undefined,
+        false,
+        observeIncomingReadFailure
     );
     // Classification can await chunk reads or leaf discovery. Revalidate
     // before creating a branch so an edit during that wait is not lost.
@@ -101,16 +123,27 @@ export async function recheckIncomingStorage(
     path: FilePathWithPrefix,
     incomingEntry: MetaEntry,
     incomingContent: string | string[] | Blob | ArrayBuffer | undefined,
-    allowExistingConflicts: boolean
+    allowExistingConflicts: boolean,
+    onContentReadFailure?: ContentReadFailureHandler
 ): Promise<PreservationResult> {
     const current = await ctx.host.storage().getStub(path);
     if (!current || isFolderInfo(current)) return { preserved: false };
-    const protection = await preserveUnsyncedStorageAsConflict(ctx, path, current, incomingEntry, incomingContent);
+    const observeIncomingReadFailure = observeIncomingDocumentReadFailures(incomingEntry, onContentReadFailure);
+    const protection = await preserveUnsyncedStorageAsConflict(
+        ctx,
+        path,
+        current,
+        incomingEntry,
+        incomingContent,
+        onContentReadFailure
+    );
     if (protection.preserved || !protection.snapshot) return protection;
     if (
         !allowExistingConflicts &&
         !ctx.setting.currentSettings().writeDocumentsIfConflicted &&
-        (await ctx.host.db().getConflictedRevs(path)).length > 0
+        (await (observeIncomingReadFailure
+            ? ctx.host.db().getConflictedRevs(path, observeIncomingReadFailure)
+            : ctx.host.db().getConflictedRevs(path))).length > 0
     ) {
         await queueConflictCheckFor(ctx, path, true);
         return { preserved: true };

@@ -1,6 +1,7 @@
 import { Logger, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
-import { LiveSyncError } from "@lib/common/LSError";
+import { LiveSyncError, LocalDatabaseUnavailableError } from "@lib/common/LSError";
 import type { EntryLeaf, DocumentID, EntryDoc } from "@lib/common/types";
+import { isInvalidStateError } from "@lib/pouchdb/localDatabaseErrors";
 import type { IReadLayer } from "./ChunkLayerInterfaces";
 import type { ChunkReadOptions } from "./types.ts";
 
@@ -79,6 +80,21 @@ export class DatabaseReadLayer implements IReadLayer {
             // For other errors, treat as database read failure
             Logger(`Database read error!`, LOG_LEVEL_VERBOSE);
             Logger(error, LOG_LEVEL_VERBOSE);
+            const localDatabaseCause = isInvalidStateError(error)
+                ? LocalDatabaseUnavailableError.fromError(error)
+                : undefined;
+            for (const id of ids) {
+                try {
+                    if (localDatabaseCause) {
+                        options.onUnavailable?.(id, "local-database", localDatabaseCause);
+                    } else {
+                        options.onUnavailable?.(id, "unavailable");
+                    }
+                } catch (observerError) {
+                    Logger("A chunk-read unavailability observer failed.", LOG_LEVEL_VERBOSE);
+                    Logger(observerError, LOG_LEVEL_VERBOSE);
+                }
+            }
             return ids.map(() => false);
         }
 

@@ -119,7 +119,7 @@ describe("chunk arrival quiescence", () => {
             await vi.advanceTimersByTimeAsync(3_000);
             await vi.waitFor(() => expect(fetchRemoteChunks).toHaveBeenCalledTimes(2));
 
-            expect(fetchRemoteChunks).toHaveBeenNthCalledWith(2, [chunk._id], false);
+            expect(fetchRemoteChunks).toHaveBeenNthCalledWith(2, [chunk._id], false, undefined, expect.any(Function));
             await expect(readPromise).resolves.toEqual([expect.objectContaining(chunk)]);
             await vi.waitFor(() => expect(boundedRemoteActivityCount.value).toBe(0));
         } finally {
@@ -170,7 +170,7 @@ describe("chunk arrival quiescence", () => {
             });
 
             const laterRead = chunkManager.read([chunk._id], { skipCache: true, waitForDelivery: true });
-            await vi.waitFor(() => expect(fetchRemoteChunks).toHaveBeenNthCalledWith(2, [chunk._id], false));
+            await vi.waitFor(() => expect(fetchRemoteChunks).toHaveBeenNthCalledWith(2, [chunk._id], false, undefined, expect.any(Function)));
             expect(boundedRemoteActivityCount.value).toBe(2);
 
             await vi.advanceTimersByTimeAsync(3_000);

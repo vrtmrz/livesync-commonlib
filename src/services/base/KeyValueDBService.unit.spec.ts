@@ -183,3 +183,33 @@ describe("KeyValueDBService factory boundary", () => {
         }
     });
 });
+
+
+it("keeps the existing journal writable through a local connection recovery", async () => {
+    const handlers: Record<string, (...args: unknown[]) => Promise<boolean>> = {};
+    const event = (name: string) => ({ addHandler: (handler: typeof handlers[string]) => { handlers[name] = handler; } });
+    const close = vi.fn(async () => undefined);
+    const set = vi.fn(async () => undefined);
+    const openKeyValueDatabase = vi.fn(async () => ({ close, set }));
+    const service = new TestKeyValueDBService(createServiceContext(), {
+        openKeyValueDatabase,
+        vault: { getVaultName: () => "test-vault" },
+        appLifecycle: { onSettingLoaded: event("loaded") },
+        databaseEvents: {
+            onResetDatabase: event("reset"),
+            onDatabaseInitialisation: event("initialise"),
+            onUnloadDatabase: event("unload"),
+            onCloseDatabase: event("close"),
+        },
+    } as unknown as KeyValueDBDependencies);
+    await handlers.loaded();
+    await handlers.close({}, "recovery");
+    await service.openSimpleStore("pending").set("edit", { operation: "create" });
+    await handlers.unload({}, "recovery");
+    await handlers.initialise({}, "recovery");
+    expect(openKeyValueDatabase).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled();
+    expect(set).toHaveBeenCalledOnce();
+    await handlers.close({});
+    expect(close).toHaveBeenCalledOnce();
+});

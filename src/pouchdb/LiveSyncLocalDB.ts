@@ -25,9 +25,12 @@ import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
 import { LiveSyncManagers } from "@lib/managers/LiveSyncManagers.ts";
 import type { ChunkFetchSource } from "@lib/managers/chunkFetchSource.ts";
 import type { AutoMergeResult } from "@lib/managers/ConflictManager.ts";
+import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 import type { IServiceHub } from "@lib/services/base/IService.ts";
 import type { ServiceContext } from "@lib/services/base/ServiceBase.ts";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils.ts";
+import { observeLocalDatabaseErrors } from "./localDatabaseErrors";
+import { LocalDatabaseUnavailableError } from "@lib/common/LSError.ts";
 
 export const REMOTE_CHUNK_FETCHED = "remote-chunk-fetched";
 export type REMOTE_CHUNK_FETCHED = typeof REMOTE_CHUNK_FETCHED;
@@ -135,10 +138,14 @@ export class LiveSyncLocalDB {
     }
 
     /** Notify dependent services at most once for each physical database lifecycle. */
-    private notifyDatabaseUnload(): Promise<void> {
+    private notifyDatabaseUnload(reason?: "recovery"): Promise<void> {
         if (!this.databaseUnloadNotification) {
             this.databaseUnloadNotification = Promise.resolve().then(async () => {
-                await this.env.services.databaseEvents.onUnloadDatabase(this);
+                if (reason === undefined) {
+                    await this.env.services.databaseEvents.onUnloadDatabase(this);
+                } else {
+                    await this.env.services.databaseEvents.onUnloadDatabase(this, reason);
+                }
             });
         }
         return this.databaseUnloadNotification;
@@ -148,7 +155,7 @@ export class LiveSyncLocalDB {
         void this.notifyDatabaseUnload();
     }
 
-    async close() {
+    async close(reason?: "recovery") {
         this._log("Database closed (by close)");
         this.isReady = false;
         this.offRemoteChunkFetchedHandler?.();
@@ -156,7 +163,11 @@ export class LiveSyncLocalDB {
         await this.closeActiveReplication();
         if (this.localDatabase != null) {
             const database = this.localDatabase;
-            await this.env.services.databaseEvents.onCloseDatabase(this);
+            if (reason === undefined) {
+                await this.env.services.databaseEvents.onCloseDatabase(this);
+            } else {
+                await this.env.services.databaseEvents.onCloseDatabase(this, reason);
+            }
             await database.close();
             if (this.databaseCloseCleanup?.database === database) {
                 await this.databaseCloseCleanup.promise;
@@ -166,7 +177,7 @@ export class LiveSyncLocalDB {
             }
         }
         this._managers = undefined;
-        await this.notifyDatabaseUnload();
+        await this.notifyDatabaseUnload(reason);
     }
 
     private async closeActiveReplication(): Promise<boolean> {
@@ -202,7 +213,8 @@ export class LiveSyncLocalDB {
 
     private async rollbackFailedInitialisation(
         database: PouchDB.Database<EntryDoc>,
-        managers: LiveSyncManagers
+        managers: LiveSyncManagers,
+        reason?: "recovery"
     ): Promise<void> {
         this.isReady = false;
         this.offRemoteChunkFetchedHandler?.();
@@ -227,7 +239,7 @@ export class LiveSyncLocalDB {
             this._managers = undefined;
         }
         try {
-            await this.notifyDatabaseUnload();
+            await this.notifyDatabaseUnload(reason);
         } catch (error) {
             this._log("A database unload handler failed after initialisation was rejected.", LOG_LEVEL_VERBOSE);
             this._log(error, LOG_LEVEL_VERBOSE);
@@ -238,7 +250,7 @@ export class LiveSyncLocalDB {
         this.managers.chunkManager?.emitEvent(EVENT_CHUNK_FETCHED, chunk);
     }
 
-    async initializeDatabase(): Promise<boolean> {
+    async initializeDatabase(reason?: "recovery"): Promise<boolean> {
         await this._prepareHashFunctions();
         if (this.localDatabase != null) {
             this.localDatabase.removeAllListeners();
@@ -256,6 +268,30 @@ export class LiveSyncLocalDB {
         );
         this.activeReplicationClose = undefined;
         this.databaseUnloadNotification = undefined;
+        const openedDatabase = this.localDatabase;
+        this.databaseCloseCleanup = undefined;
+        const isCurrentReadyDatabase = () =>
+            this.isReady && this.localDatabase === openedDatabase && this.databaseUnloadNotification === undefined;
+        observeLocalDatabaseErrors(openedDatabase, (error) => {
+            if (!isCurrentReadyDatabase()) {
+                return;
+            }
+            const databaseService = this.env.services.database;
+            const onLocalDatabaseError = databaseService.onLocalDatabaseError;
+            if (typeof onLocalDatabaseError === "function") {
+                return Promise.resolve()
+                    .then(() => {
+                        if (isCurrentReadyDatabase()) {
+                            return onLocalDatabaseError.call(
+                                databaseService,
+                                this,
+                                LocalDatabaseUnavailableError.fromError(error)
+                            );
+                        }
+                    })
+                    .catch((): void => {});
+            }
+        });
 
         const manager = new LiveSyncManagers({
             database: this.localDatabase,
@@ -268,11 +304,13 @@ export class LiveSyncLocalDB {
         });
 
         this._managers = manager;
-        const openedDatabase = this.localDatabase;
-        this.databaseCloseCleanup = undefined;
         try {
-            if (!(await this.env.services.databaseEvents.onDatabaseInitialisation(this))) {
-                await this.rollbackFailedInitialisation(openedDatabase, manager);
+            const initialisationAccepted =
+                reason === undefined
+                    ? await this.env.services.databaseEvents.onDatabaseInitialisation(this)
+                    : await this.env.services.databaseEvents.onDatabaseInitialisation(this, reason);
+            if (!initialisationAccepted) {
+                await this.rollbackFailedInitialisation(openedDatabase, manager, reason);
                 this._log("Database initialisation was rejected by a required module.", LOG_LEVEL_NOTICE);
                 return false;
             }
@@ -281,7 +319,7 @@ export class LiveSyncLocalDB {
             this._log("Database info", LOG_LEVEL_VERBOSE);
             this._log(JSON.stringify(await openedDatabase.info(), null, 2), LOG_LEVEL_VERBOSE);
             await manager.initialise();
-            openedDatabase.on("close", () => {
+            openedDatabase.on("closed", () => {
                 this._log("Database closed.");
                 this.isReady = false;
                 openedDatabase.removeAllListeners();
@@ -303,7 +341,7 @@ export class LiveSyncLocalDB {
             this.isReady = true;
             const readyAccepted = await this.env.services.databaseEvents.onDatabaseHasReady();
             if (!readyAccepted || this.localDatabase !== openedDatabase || !this.isReady) {
-                await this.rollbackFailedInitialisation(openedDatabase, manager);
+                await this.rollbackFailedInitialisation(openedDatabase, manager, reason);
                 this._log(
                     "Some module has prevented the database from being ready. The database is initialised but not ready for use.",
                     LOG_LEVEL_NOTICE
@@ -313,7 +351,7 @@ export class LiveSyncLocalDB {
             this._log("Database is now ready.");
             return true;
         } catch (error) {
-            await this.rollbackFailedInitialisation(openedDatabase, manager);
+            await this.rollbackFailedInitialisation(openedDatabase, manager, reason);
             throw error;
         }
     }
@@ -616,9 +654,10 @@ export class LiveSyncLocalDB {
     async getDBEntryMeta(
         path: FilePathWithPrefix | FilePath,
         opt?: PouchDB.Core.GetOptions,
-        includeDeleted = false
+        includeDeleted = false,
+        onFailure?: ContentReadFailureHandler
     ): Promise<false | LoadedEntry> {
-        return await this.managers.entryManager.getDBEntryMeta(path, opt, includeDeleted);
+        return await this.managers.entryManager.getDBEntryMeta(path, opt, includeDeleted, onFailure);
     }
 
     async getDBEntry(
@@ -627,17 +666,27 @@ export class LiveSyncLocalDB {
         dump = false,
         waitForReady = true,
         includeDeleted = false,
-        localOnly = false
+        localOnly = false,
+        onFailure?: ContentReadFailureHandler
     ): Promise<false | LoadedEntry> {
-        return await this.managers.entryManager.getDBEntry(path, opt, dump, waitForReady, includeDeleted, localOnly);
+        return await this.managers.entryManager.getDBEntry(
+            path,
+            opt,
+            dump,
+            waitForReady,
+            includeDeleted,
+            localOnly,
+            onFailure
+        );
     }
     async getDBEntryFromMeta(
         meta: LoadedEntry | MetaEntry,
         dump = false,
         waitForReady = true,
-        localOnly = false
+        localOnly = false,
+        onFailure?: ContentReadFailureHandler
     ): Promise<false | LoadedEntry> {
-        return await this.managers.entryManager.getDBEntryFromMeta(meta, dump, waitForReady, localOnly);
+        return await this.managers.entryManager.getDBEntryFromMeta(meta, dump, waitForReady, localOnly, onFailure);
     }
     async deleteDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
         return await this.managers.entryManager.deleteDBEntry(path, opt);

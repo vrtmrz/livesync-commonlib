@@ -1,3 +1,4 @@
+import type { ContentReadFailure } from "@lib/replication/contentRead.ts";
 import {
     LOG_LEVEL_DEBUG,
     LOG_LEVEL_INFO,
@@ -8,6 +9,7 @@ import {
     type UXFileInfoStub,
     type ObsidianLiveSyncSettings,
     type FilePathWithPrefix,
+    type FilePath,
     type FilePathWithPrefixLC,
     type LOG_LEVEL,
 } from "@lib/common/types";
@@ -19,6 +21,27 @@ import type { VaultScanOptions } from "@lib/services/base/VaultScanResult";
 import { inspectMetadataDocumentIdentity } from "./metadata";
 import { getPathFromEntry, convertCase } from "./paths";
 import { FilePairProcessResults, MetadataDocumentIdentityStatuses, type FilePairProcessResult } from "./types";
+
+/** Forward failure detail only for a failed reflection, preserving ordinary callers' arity. */
+async function reflectScannedEntry(
+    host: NecessaryServices<never, "fileHandler">,
+    entry: MetaEntry | FilePathWithPrefix,
+    file: FilePath | null,
+    force: boolean,
+    options?: VaultScanOptions
+): Promise<boolean> {
+    if (!options?.onContentReadFailure) {
+        return await host.serviceModules.fileHandler.dbToStorage(entry, file, force);
+    }
+    let failure: ContentReadFailure | undefined;
+    const reflected = await host.serviceModules.fileHandler.dbToStorage(entry, file, force, (value) => {
+        failure = value;
+    });
+    if (!reflected && failure) {
+        await options.onContentReadFailure(failure);
+    }
+    return reflected;
+}
 
 /**
  * Synchronise a single file between database and storage based on freshness comparison.
@@ -58,7 +81,7 @@ export async function syncFileBetweenDBandStorage(
         case TARGET_IS_NEW:
             if (!host.services.vault.isFileSizeTooLarge(doc.size)) {
                 log("STORAGE <- DB :" + docPath);
-                if (await host.serviceModules.fileHandler.dbToStorage(doc, stripAllPrefixes(docPath), false)) {
+                if (await reflectScannedEntry(host, doc, stripAllPrefixes(docPath), false, scanOptions)) {
                     host.services.context.events.emitEvent("event-file-changed", {
                         file: file.path,
                         automated: true,
@@ -263,7 +286,8 @@ export async function updateToStorage(
     host: NecessaryServices<"vault" | "path", "fileHandler">,
     log: LogFunction,
     logLevel: LOG_LEVEL,
-    w: MetaEntry
+    w: MetaEntry,
+    scanOptions?: VaultScanOptions
 ): Promise<FilePairProcessResult> {
     // Exists in database but not in storage.
     const path = getPathFromEntry(host, w);
@@ -274,7 +298,7 @@ export async function updateToStorage(
                 log(`UPDATE STORAGE: ${path} has conflicts. skipped (x)`, LOG_LEVEL_INFO);
                 return FilePairProcessResults.SKIPPED;
             }
-            const reflected = await host.serviceModules.fileHandler.dbToStorage(path, null, true);
+            const reflected = await reflectScannedEntry(host, path, null, true, scanOptions);
             // Keep a failed reflection retryable. Treating it as success would let
             // the caller persist the database mtime as a locally observed file and
             // a later newer-wins scan could misclassify the missing file as deleted.

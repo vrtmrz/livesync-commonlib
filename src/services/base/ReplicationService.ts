@@ -280,6 +280,12 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      */
     readonly onBeforeReplicate = handlers<IReplicationService>().bailFirstFailure("onBeforeReplicate");
 
+    readonly onFiniteReplicationCompleted = handlers<IReplicationService>().allSettled("onFiniteReplicationCompleted");
+
+    readonly onFileReflectionContentReadFailed = handlers<IReplicationService>().allSettled(
+        "onFileReflectionContentReadFailed"
+    );
+
     /** Provider preparation which applies only to the central remote. */
     readonly onPrepareCentralRemoteReplication = handlers<IReplicationService>().bailFirstFailure(
         "onPrepareCentralRemoteReplication"

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import type { DocumentID, EntryLeaf } from "@lib/common/types";
+import { RemoteRequestError } from "@lib/common/LSError.ts";
 import { ChunkDeliveryCoordinator, type ChunkDeliveryClaim } from "@lib/managers/ChunkDeliveryCoordinator";
 import { ArrivalWaitLayer } from "./ArrivalWaitLayer";
 
@@ -37,6 +38,17 @@ describe("ArrivalWaitLayer", () => {
             expect(eventEmitter).not.toHaveBeenCalled();
         }
     );
+
+    it("reports an immediate unavailable result when delivery waiting is disabled", async () => {
+        const onUnavailable = vi.fn();
+        const id = "chunk-1" as DocumentID;
+
+        await expect(arrivalWaitLayer.read([id], { waitForDelivery: false, onUnavailable }, vi.fn())).resolves.toEqual([
+            false,
+        ]);
+
+        expect(onUnavailable).toHaveBeenCalledWith(id, "unavailable");
+    });
 
     it.each([{}, { waitForDelivery: true }, { timeout: 1 }, { timeout: 60_000 }])(
         "does not guess an arrival delay when no producer is observable with $timeout",
@@ -176,6 +188,92 @@ describe("ArrivalWaitLayer", () => {
         coordinator.dispose();
     });
 
+    it("waits for an alternative finite producer after an on-demand transport failure", async () => {
+        const finiteActivity = reactiveSource(1);
+        const coordinator = new ChunkDeliveryCoordinator(finiteActivity);
+        const chunk = createMockLeaf("chunk-1");
+        const recheckAvailability = vi.fn().mockResolvedValue([chunk]);
+        const failureObserver = vi.fn();
+        let claim!: ChunkDeliveryClaim;
+        eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
+            claim = coordinator.claim(ids, { stallTimeoutMs: 0 });
+        });
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator, recheckAvailability);
+        let settled = false;
+
+        const pending = arrivalWaitLayer.read(
+            [chunk._id],
+            { waitForDelivery: true, onUnavailable: failureObserver },
+            vi.fn()
+        );
+        void pending.then(() => {
+            settled = true;
+        });
+        arrivalWaitLayer.onChunkFailed(chunk._id, "transport");
+        claim.release();
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        finiteActivity.value = 0;
+        await expect(pending).resolves.toEqual([chunk]);
+        expect(recheckAvailability).toHaveBeenCalledWith([chunk._id]);
+        expect(failureObserver).not.toHaveBeenCalled();
+        coordinator.dispose();
+    });
+
+    it("notifies every concurrent read after producers finish without the chunk", async () => {
+        const finiteActivity = reactiveSource(1);
+        const coordinator = new ChunkDeliveryCoordinator(finiteActivity);
+        const id = "chunk-1" as DocumentID;
+        const recheckAvailability = vi.fn().mockResolvedValue([false]);
+        const firstObserver = vi.fn();
+        const secondObserver = vi.fn();
+        let claim!: ChunkDeliveryClaim;
+        eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
+            claim ??= coordinator.claim(ids, { stallTimeoutMs: 0 });
+        });
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator, recheckAvailability);
+
+        const first = arrivalWaitLayer.read([id], { waitForDelivery: true, onUnavailable: firstObserver }, vi.fn());
+        const second = arrivalWaitLayer.read([id], { waitForDelivery: true, onUnavailable: secondObserver }, vi.fn());
+        arrivalWaitLayer.onChunkFailed(id, "transport");
+        claim.release();
+        finiteActivity.value = 0;
+
+        await expect(Promise.all([first, second])).resolves.toEqual([[false], [false]]);
+        expect(firstObserver).toHaveBeenCalledOnce();
+        expect(firstObserver).toHaveBeenCalledWith(id, "transport");
+        expect(secondObserver).toHaveBeenCalledOnce();
+        expect(secondObserver).toHaveBeenCalledWith(id, "transport");
+        coordinator.dispose();
+    });
+
+    it("forwards the typed failure cause when an awaited chunk remains unavailable", async () => {
+        const finiteActivity = reactiveSource(1);
+        const coordinator = new ChunkDeliveryCoordinator(finiteActivity);
+        const id = "chunk-typed-failure" as DocumentID;
+        const recheckAvailability = vi.fn().mockResolvedValue([false]);
+        const failureObserver = vi.fn();
+        let claim!: ChunkDeliveryClaim;
+        eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
+            claim = coordinator.claim(ids, { stallTimeoutMs: 0 });
+        });
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator, recheckAvailability);
+        const cause = RemoteRequestError.fromError(new TypeError("network fetch failed"));
+
+        const pending = arrivalWaitLayer.read([id], { waitForDelivery: true, onUnavailable: failureObserver }, vi.fn());
+        arrivalWaitLayer.onChunkFailed(id, "transport", cause);
+        claim.release();
+        finiteActivity.value = 0;
+
+        await expect(pending).resolves.toEqual([false]);
+        expect(failureObserver).toHaveBeenCalledExactlyOnceWith(id, "transport", cause);
+        coordinator.dispose();
+    });
+
     it("discards a stale recheck when finite replication starts again", async () => {
         const finiteActivity = reactiveSource(1);
         const coordinator = new ChunkDeliveryCoordinator(finiteActivity);
@@ -238,6 +336,7 @@ describe("ArrivalWaitLayer", () => {
     it("clears every pending waiter during teardown", async () => {
         const coordinator = new ChunkDeliveryCoordinator();
         let claim!: ChunkDeliveryClaim;
+        const failureObserver = vi.fn();
         eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
             claim = coordinator.claim(ids, { stallTimeoutMs: 0 });
         });
@@ -246,13 +345,15 @@ describe("ArrivalWaitLayer", () => {
 
         const promise = arrivalWaitLayer.read(
             ["chunk-1" as DocumentID, "chunk-2" as DocumentID],
-            { waitForDelivery: true },
+            { waitForDelivery: true, onUnavailable: failureObserver },
             vi.fn()
         );
         arrivalWaitLayer.clearWaiting();
 
         await expect(promise).resolves.toEqual([false, false]);
         expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
+        expect(failureObserver).toHaveBeenNthCalledWith(1, "chunk-1", "cancelled");
+        expect(failureObserver).toHaveBeenNthCalledWith(2, "chunk-2", "cancelled");
         claim.release();
         coordinator.dispose();
     });

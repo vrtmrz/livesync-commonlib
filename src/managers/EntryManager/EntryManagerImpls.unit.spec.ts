@@ -473,11 +473,7 @@ describe("EntryManagerImpls", () => {
         it("recreates a content-addressed chunk after its previous revision was collected", async () => {
             const entry = createSavingEntry("recreated-chunk", "Content which will be written again after collection");
             const host = createHost(mockSettingService, mockPathService);
-            const saved = await putDBEntry(
-                host,
-                { localDatabase: db, chunkManager, hashManager, splitter },
-                entry
-            );
+            const saved = await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
             expect(saved).not.toBe(false);
             if (saved === false) return;
 
@@ -662,7 +658,9 @@ describe("EntryManagerImpls", () => {
             expect(original).not.toBe(false);
             if (original === false) return;
             const advanced = await putDBEntry(host, managers, {
-                ...entry, data: createTextBlob("# Note\nKeep\nRemote addition\n"), mtime: entry.mtime + 1,
+                ...entry,
+                data: createTextBlob("# Note\nKeep\nRemote addition\n"),
+                mtime: entry.mtime + 1,
             });
             expect(advanced).not.toBe(false);
             if (advanced === false) return;
@@ -670,7 +668,8 @@ describe("EntryManagerImpls", () => {
             const independent = await putDBEntryAsIndependentRoot(host, managers, {
                 // Match the historical document's metadata as well as its bytes.
                 // A deterministic hash would otherwise reuse the old root.
-                ...entry, data: createTextBlob("# Note\nKeep\n"),
+                ...entry,
+                data: createTextBlob("# Note\nKeep\n"),
             });
             expect(independent).not.toBe(false);
             if (independent === false) return;
@@ -683,8 +682,12 @@ describe("EntryManagerImpls", () => {
             const root = await db.get(entry._id, { rev: independent.rev, revs: true });
             expect(root._revisions?.ids).toHaveLength(1);
             const entryManager = new EntryManager({
-                database: db, chunkManager, hashManager, splitter,
-                pathService: mockPathService, settingService: mockSettingService,
+                database: db,
+                chunkManager,
+                hashManager,
+                splitter,
+                pathService: mockPathService,
+                settingService: mockSettingService,
             });
             const merger = new ConflictManager({ database: db, entryManager, pathService: mockPathService });
             const merge = await merger.tryAutoMerge(entry.path, true);
@@ -698,7 +701,8 @@ describe("EntryManagerImpls", () => {
                     expect.arrayContaining([advanced.rev, independent.rev])
                 );
                 await expect(replica.get(entry._id, { rev: independent.rev })).resolves.toMatchObject({
-                    _rev: independent.rev, mtime: entry.mtime,
+                    _rev: independent.rev,
+                    mtime: entry.mtime,
                 });
             } finally {
                 await replica.destroy();
@@ -712,8 +716,9 @@ describe("EntryManagerImpls", () => {
             await putDBEntry(host, managers, entry);
             const read = vi.spyOn(chunkManager, "read");
 
-            await expect(getDBEntryByPath(host, managers, entry.path, undefined, false, true, false, true))
-                .resolves.not.toBe(false);
+            await expect(
+                getDBEntryByPath(host, managers, entry.path, undefined, false, true, false, true)
+            ).resolves.not.toBe(false);
 
             expect(read).toHaveBeenCalledWith(
                 expect.any(Array),
@@ -804,7 +809,6 @@ describe("EntryManagerImpls", () => {
                 expect(await db.get(entry._id)).toMatchObject({ path: "invalid:file" });
             }
         });
-
     });
 
     describe("getDBEntryMetaByPath", () => {
@@ -813,11 +817,12 @@ describe("EntryManagerImpls", () => {
             const entry = createSavingEntry("http-metadata.md", "HTTP Metadata content");
             await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
             const stored = await db.get(entry._id);
-            const fetchMetadata = vi.fn(async () =>
-                new Response(JSON.stringify(stored), {
-                    status: 200,
-                    headers: { "content-type": "application/json" },
-                })
+            const fetchMetadata = vi.fn(
+                async () =>
+                    new Response(JSON.stringify(stored), {
+                        status: 200,
+                        headers: { "content-type": "application/json" },
+                    })
             );
             const remote = new PouchDB<EntryDoc>("http://couchdb.test/metadata-options", {
                 skip_setup: true,
@@ -929,9 +934,9 @@ describe("EntryManagerImpls", () => {
 
         it("returns false for a missing document even when deleted metadata is requested", async () => {
             const host = createHost(mockSettingService, mockPathService);
-            await expect(getDBEntryMetaByPath(
-                host, { localDatabase: db }, "missing.md" as FilePathWithPrefix, undefined, true
-            )).resolves.toBe(false);
+            await expect(
+                getDBEntryMetaByPath(host, { localDatabase: db }, "missing.md" as FilePathWithPrefix, undefined, true)
+            ).resolves.toBe(false);
         });
 
         it("honours the PouchDB deletion flag when the logical deletion flag is false", async () => {
@@ -953,9 +958,9 @@ describe("EntryManagerImpls", () => {
             await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
             const allDocs = vi.spyOn(db, "allDocs");
 
-            await expect(getDBEntryMetaByPath(
-                host, { localDatabase: db }, entry.path, { rev: "9-unavailable" }, true
-            )).resolves.toBe(false);
+            await expect(
+                getDBEntryMetaByPath(host, { localDatabase: db }, entry.path, { rev: "9-unavailable" }, true)
+            ).resolves.toBe(false);
             expect(allDocs).not.toHaveBeenCalled();
         });
 
@@ -968,7 +973,11 @@ describe("EntryManagerImpls", () => {
             await deleteDBEntryByPath(host, { localDatabase: db }, entry.path);
 
             const meta = await getDBEntryMetaByPath(
-                host, { localDatabase: db }, entry.path, { revs: true, revs_info: true, conflicts: true }, true
+                host,
+                { localDatabase: db },
+                entry.path,
+                { revs: true, revs_info: true, conflicts: true },
+                true
             );
             expect(meta).toMatchObject({
                 deleted: true,
@@ -1024,10 +1033,30 @@ describe("EntryManagerImpls", () => {
             vi.spyOn(db, "get").mockRejectedValueOnce(error);
             const allDocs = vi.spyOn(db, "allDocs");
 
-            await expect(getDBEntryMetaByPath(
-                host, { localDatabase: db }, "note.md" as FilePathWithPrefix, undefined, true
-            )).rejects.toBe(error);
+            await expect(
+                getDBEntryMetaByPath(host, { localDatabase: db }, "note.md" as FilePathWithPrefix, undefined, true)
+            ).rejects.toBe(error);
             expect(allDocs).not.toHaveBeenCalled();
+        });
+
+        it("reports InvalidStateError with its requested Metadata identity before rethrowing", async () => {
+            const host = createHost(mockSettingService, mockPathService);
+            const path = "metadata-invalid-state.md" as FilePathWithPrefix;
+            const revision = "4-incoming-revision";
+            const error = Object.assign(new Error("database context is invalid"), { name: "InvalidStateError" });
+            vi.spyOn(db, "get").mockRejectedValueOnce(error);
+            const onFailure = vi.fn();
+
+            await expect(
+                getDBEntryMetaByPath(host, { localDatabase: db }, path, { rev: revision }, false, onFailure)
+            ).rejects.toBe(error);
+
+            expect(onFailure).toHaveBeenCalledExactlyOnceWith({
+                documentId: path as unknown as DocumentID,
+                revision,
+                reason: "local-database",
+                cause: expect.objectContaining({ name: "LocalDatabaseUnavailableError", cause: error }),
+            });
         });
 
         it("should include deleted entries when requested", async () => {
@@ -1080,6 +1109,39 @@ describe("EntryManagerImpls", () => {
                     expect(Array.isArray(loaded.data)).toBe(true);
                 }
             }
+        });
+
+        it("treats mixed transient and non-transient child failures as non-transient", async () => {
+            const host = createHost(mockSettingService, mockPathService);
+            const meta: LoadedEntry = {
+                _id: "failed-entry" as DocumentID,
+                _rev: "4-entry-revision",
+                path: "failed-entry.md" as FilePathWithPrefix,
+                type: "plain",
+                datatype: "plain",
+                data: "",
+                ctime: 1,
+                mtime: 1,
+                size: 0,
+                children: ["h:transport" as DocumentID, "h:missing" as DocumentID],
+                eden: {},
+            } as LoadedEntry;
+            const onFailure = vi.fn();
+            vi.spyOn(chunkManager, "read").mockImplementation(async (_ids, options) => {
+                options.onUnavailable?.("h:transport" as DocumentID, "transport");
+                options.onUnavailable?.("h:missing" as DocumentID, "missing");
+                return [false, false];
+            });
+
+            await expect(
+                getDBEntryFromMeta(host, { localDatabase: db, chunkManager }, meta, false, true, false, onFailure)
+            ).resolves.toBe(false);
+
+            expect(onFailure).toHaveBeenCalledWith({
+                documentId: meta._id,
+                revision: meta._rev,
+                reason: "missing",
+            });
         });
 
         it.each([false, true])("reads colon metadata unless explicitly excluded: %s", async (excluded) => {
@@ -1160,11 +1222,7 @@ describe("EntryManagerImpls", () => {
         it("deletes an exact generation-one revision without reading its missing chunk", async () => {
             const entry = createSavingEntry("broken-root.md", "Root content ".repeat(512));
             const host = createHost(mockSettingService, mockPathService);
-            const saved = await putDBEntry(
-                host,
-                { localDatabase: db, chunkManager, hashManager, splitter },
-                entry
-            );
+            const saved = await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
             if (saved === false) {
                 throw new Error("Failed to save generation-one fixture");
             }
@@ -1179,9 +1237,7 @@ describe("EntryManagerImpls", () => {
             await db.remove(chunk);
             chunkManager.clearCaches();
 
-            await expect(
-                getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path)
-            ).resolves.toBe(false);
+            await expect(getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path)).resolves.toBe(false);
             await expect(
                 deleteDBEntryByPath(host, { localDatabase: db }, entry.path, {
                     rev: saved.rev,
@@ -1202,11 +1258,7 @@ describe("EntryManagerImpls", () => {
 
             const replacement = createSavingEntry("broken-root.md", "Confirmed replacement content");
             await expect(
-                putDBEntry(
-                    host,
-                    { localDatabase: db, chunkManager, hashManager, splitter },
-                    replacement
-                )
+                putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, replacement)
             ).resolves.not.toBe(false);
             const loadedReplacement = await getDBEntryByPath(
                 host,
@@ -1217,9 +1269,7 @@ describe("EntryManagerImpls", () => {
             if (loadedReplacement === false) {
                 throw new Error("Replacement content could not be read");
             }
-            await expect(
-                isDocContentSame(loadedReplacement.data, replacement.data)
-            ).resolves.toBe(true);
+            await expect(isDocContentSame(loadedReplacement.data, replacement.data)).resolves.toBe(true);
         });
 
         it("should return false for non-existent entry", async () => {
@@ -1286,15 +1336,16 @@ describe("EntryManagerImpls", () => {
                     [false, true].map((useOnlyLocalChunk) => ({ remoteType, waitForReady, useOnlyLocalChunk }))
                 )
             )
-        )("makes local-only reads immediate for $remoteType, wait=$waitForReady, local=$useOnlyLocalChunk", ({
-            remoteType, waitForReady, useOnlyLocalChunk,
-        }) => {
-            const settings = { ...DEFAULT_SETTINGS, remoteType, useOnlyLocalChunk };
-            expect(computeChunkRetrievalMethod(waitForReady, settings, true)).toEqual({
-                waitForDelivery: false,
-                preventRemoteRequest: true,
-            });
-        });
+        )(
+            "makes local-only reads immediate for $remoteType, wait=$waitForReady, local=$useOnlyLocalChunk",
+            ({ remoteType, waitForReady, useOnlyLocalChunk }) => {
+                const settings = { ...DEFAULT_SETTINGS, remoteType, useOnlyLocalChunk };
+                expect(computeChunkRetrievalMethod(waitForReady, settings, true)).toEqual({
+                    waitForDelivery: false,
+                    preventRemoteRequest: true,
+                });
+            }
+        );
 
         it.each([
             {
@@ -1712,11 +1763,7 @@ describe("EntryManagerImpls", () => {
             const host = createHost(mockSettingService, mockPathService);
             const path = `${prefix}:test.md` as FilePathWithPrefix;
             const entry = createSavingEntry(path, "This entry will be saved");
-            const rawResult = await putDBEntry(
-                host,
-                { localDatabase: db, chunkManager, hashManager, splitter },
-                entry
-            );
+            const rawResult = await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
             expect(rawResult).not.toBe(false);
             expect(await db.get(entry._id)).toMatchObject({ path });
         });

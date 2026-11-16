@@ -2,6 +2,7 @@ import { withFileEventPaths } from "./locking";
 import {
     getProvenancePath,
     sameProvenance,
+    readProvenanceSnapshot,
     contentEvidence,
     currentStorageSnapshotMatches,
     hasContentHash,
@@ -12,7 +13,7 @@ import type { FileReflectionProvenanceRecord } from "@lib/interfaces/FileReflect
 
 import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 
-import type { FilePath, MetaEntry, UXFileInfo, UXFileInfoStub } from "@lib/common/types";
+import type { FilePath, FilePathWithPrefix, MetaEntry, UXFileInfo, UXFileInfoStub } from "@lib/common/types";
 import { isDocContentSame, readContent } from "@lib/common/utils";
 
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
@@ -196,4 +197,49 @@ function storageStatMatchesRecord(
  */
 function canUpgradeScanRecord(observed: FileReflectionProvenanceRecord | undefined, revision: string): boolean {
     return !observed || (observed.revision === revision && !hasContentHash(observed));
+}
+
+/**
+ * Confirm the exact displayed revision from current bytes and device-local evidence.
+ * @param ctx - Borrowed file-handler capabilities and provenance.
+ * @param path - Current Vault path of the retained reflection target.
+ * @param revision - Exact Metadata revision whose reflection is being checked.
+ * @returns True only when current bytes, provenance, and current Metadata agree.
+ * @remarks Uses existing document locking and snapshot validation. It fetches no
+ * Chunks, writes no records, and treats unavailable evidence as inconclusive.
+ */
+export async function hasReflectedRevision(
+    ctx: FileHandlerContext,
+    path: FilePathWithPrefix,
+    revision: string
+): Promise<boolean> {
+    if (!ctx.provenance || !revision) {
+        return false;
+    }
+    try {
+        return await withFileEventPaths(ctx, [path], async () => {
+            const recorded = await readProvenanceSnapshot(ctx, path, true);
+            if (!hasContentHash(recorded) || recorded.revision !== revision) {
+                return false;
+            }
+            const stub = await ctx.host.storage().getStub(path);
+            if (!stub || isFolderInfo(stub)) {
+                return false;
+            }
+            const file = await ctx.host.readFileFromStub(stub);
+            const evidence = await contentEvidence(ctx, file.body);
+            if (evidence.contentHash !== recorded.contentHash || evidence.contentSize !== recorded.contentSize) {
+                return false;
+            }
+            const current = await ctx.host.db().fetchEntryMeta(path, undefined, true);
+            return (
+                isExpectedLiveRevision(current, revision) &&
+                (await currentStorageSnapshotMatches(ctx, file, recorded, true))
+            );
+        });
+    } catch (error) {
+        ctx.host.log(`Could not confirm reflected revision for ${path}`, LOG_LEVEL_VERBOSE);
+        ctx.host.log(error, LOG_LEVEL_VERBOSE);
+        return false;
+    }
 }

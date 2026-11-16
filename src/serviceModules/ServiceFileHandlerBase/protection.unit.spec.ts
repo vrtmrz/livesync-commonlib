@@ -1,5 +1,6 @@
 import type { FilePathWithPrefix, MetaEntry, UXFolderInfo } from "@lib/common/types";
-import { describe, expect, it } from "vitest";
+import { LocalDatabaseUnavailableError } from "@lib/common/LSError.ts";
+import { describe, expect, it, vi } from "vitest";
 
 import { preserveUnsyncedStorageAsConflict, recheckIncomingStorage } from "./protection";
 import {
@@ -30,6 +31,41 @@ describe("incoming storage protection", () => {
         expect(db.storeWithBaseRevision).not.toHaveBeenCalled();
         expect(db.storeIndependentRevision).not.toHaveBeenCalled();
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
+    });
+
+    it("binds a recorded-base failure to the incoming document revision", async () => {
+        const { ctx, db, files, provenance } = createFileHandlerFixture();
+        const file = makeFile(path, "local bytes");
+        files.set(path, file);
+        const previousRevision = "1-recorded";
+        const entry = makeMetaEntry(path, "2-incoming");
+        provenance.get.mockResolvedValue({ revision: previousRevision, observedStorageMtime: file.stat.mtime });
+        const localFailure = LocalDatabaseUnavailableError.fromError(
+            Object.assign(new Error("database is closed"), { name: "InvalidStateError" })
+        );
+        db.fetchEntryMeta.mockImplementation(async (_file, rev, _skipCheck, onFailure) => {
+            if (rev === previousRevision) {
+                onFailure?.({
+                    documentId: entry._id,
+                    revision: previousRevision,
+                    reason: "local-database",
+                    cause: localFailure,
+                });
+            }
+            return false;
+        });
+        const onFailure = vi.fn();
+
+        await preserveUnsyncedStorageAsConflict(ctx, path, makeFileStub(path), entry, undefined, onFailure);
+
+        expect(onFailure).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                documentId: entry._id,
+                revision: entry._rev,
+                reason: "local-database",
+                cause: localFailure,
+            })
+        );
     });
 
     it("does not create a preservation revision without an incoming revision identity", async () => {

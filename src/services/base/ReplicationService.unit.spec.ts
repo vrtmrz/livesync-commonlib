@@ -19,6 +19,7 @@ import {
     type ReplicatorProviderDefinition,
 } from "@lib/replication/ReplicatorProvider.ts";
 import { NO_REMOTE_RESOURCE_CAPABILITIES } from "@lib/replication/RemoteResource.ts";
+import type { ContentReadFailure } from "@lib/replication/contentRead.ts";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, type RemoteDBSettings, type RemoteType } from "@lib/common/types.ts";
 
 class TestReplicationService extends ReplicationService<ServiceContext> {}
@@ -174,6 +175,26 @@ function createReadinessDependencies(kind: RemoteType, typed = true) {
 }
 
 describe("ReplicationService typed provider roles", () => {
+    it("invokes finite-completion and content-read failure observers", async () => {
+        const { dependencies } = createTypedDependencies(true);
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const onFiniteReplicationCompleted = vi.fn().mockResolvedValue(true);
+        const onFileReflectionContentReadFailed = vi.fn().mockResolvedValue(true);
+        service.onFiniteReplicationCompleted.addHandler(onFiniteReplicationCompleted);
+        service.onFileReflectionContentReadFailed.addHandler(onFileReflectionContentReadFailed);
+        const failure = {
+            documentId: "file.md",
+            revision: "4-revision",
+            reason: "transport",
+        } as ContentReadFailure;
+
+        await expect(service.onFiniteReplicationCompleted()).resolves.toBe(true);
+        await expect(service.onFileReflectionContentReadFailed(failure)).resolves.toBe(true);
+
+        expect(onFiniteReplicationCompleted).toHaveBeenCalledOnce();
+        expect(onFileReflectionContentReadFailed).toHaveBeenCalledWith(failure);
+    });
+
     it("dispatches unattended one-shot work without interaction authority", async () => {
         const { dependencies, openReplication } = createTypedDependencies(true);
         const service = new TestReplicationService(new ServiceContext(), dependencies);

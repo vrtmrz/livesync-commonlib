@@ -9,6 +9,10 @@ export abstract class DatabaseEventService<T extends ServiceContext = ServiceCon
     extends ServiceBase<T>
     implements IDatabaseEventService
 {
+    readonly onBeforeDatabaseResume = handlers<IDatabaseEventService>().bailFirstFailure("onBeforeDatabaseResume");
+    readonly onBeforeDatabaseRecovery = handlers<IDatabaseEventService>().bailFirstFailure("onBeforeDatabaseRecovery");
+    readonly onAfterDatabaseRecovery = handlers<IDatabaseEventService>().bailFirstFailure("onAfterDatabaseRecovery");
+
     /**
      * Event triggered when the database is about to be unloaded.
      */
