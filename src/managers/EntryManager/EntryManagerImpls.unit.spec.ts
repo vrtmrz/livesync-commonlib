@@ -1,3 +1,4 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
@@ -1035,7 +1036,7 @@ describe("EntryManagerImpls", () => {
 
             await expect(
                 getDBEntryMetaByPath(host, { localDatabase: db }, "note.md" as FilePathWithPrefix, undefined, true)
-            ).rejects.toBe(error);
+            ).rejects.toMatchObject({ failure: { resources: ["local-database"], cause: error } });
             expect(allDocs).not.toHaveBeenCalled();
         });
 
@@ -1045,17 +1046,8 @@ describe("EntryManagerImpls", () => {
             const revision = "4-incoming-revision";
             const error = Object.assign(new Error("database context is invalid"), { name: "InvalidStateError" });
             vi.spyOn(db, "get").mockRejectedValueOnce(error);
-            const onFailure = vi.fn();
-
-            await expect(
-                getDBEntryMetaByPath(host, { localDatabase: db }, path, { rev: revision }, false, onFailure)
-            ).rejects.toBe(error);
-
-            expect(onFailure).toHaveBeenCalledExactlyOnceWith({
-                documentId: path as unknown as DocumentID,
-                revision,
-                reason: "local-database",
-                cause: expect.objectContaining({ name: "LocalDatabaseUnavailableError", cause: error }),
+            await expect(getDBEntryMetaByPath(host, { localDatabase: db }, path, { rev: revision }, false)).rejects.toMatchObject({
+                failure: { documentId: path, revision, resources: ["local-database"], cause: error },
             });
         });
 
@@ -1111,7 +1103,7 @@ describe("EntryManagerImpls", () => {
             }
         });
 
-        it("treats mixed transient and non-transient child failures as non-transient", async () => {
+        it("preserves the failed resource while binding a Chunk read to its requested Metadata revision", async () => {
             const host = createHost(mockSettingService, mockPathService);
             const meta: LoadedEntry = {
                 _id: "failed-entry" as DocumentID,
@@ -1126,21 +1118,10 @@ describe("EntryManagerImpls", () => {
                 children: ["h:transport" as DocumentID, "h:missing" as DocumentID],
                 eden: {},
             } as LoadedEntry;
-            const onFailure = vi.fn();
-            vi.spyOn(chunkManager, "read").mockImplementation(async (_ids, options) => {
-                options.onUnavailable?.("h:transport" as DocumentID, "transport");
-                options.onUnavailable?.("h:missing" as DocumentID, "missing");
-                return [false, false];
-            });
-
-            await expect(
-                getDBEntryFromMeta(host, { localDatabase: db, chunkManager }, meta, false, true, false, onFailure)
-            ).resolves.toBe(false);
-
-            expect(onFailure).toHaveBeenCalledWith({
-                documentId: meta._id,
-                revision: meta._rev,
-                reason: "missing",
+            const remoteFailure = new Error("request failed");
+            vi.spyOn(chunkManager, "read").mockRejectedValue(new ContentReadError({ documentId: "h:transport" as DocumentID, resources: ["remote"], cause: remoteFailure }));
+            await expect(getDBEntryFromMeta(host, { localDatabase: db, chunkManager }, meta, false, true, false)).rejects.toMatchObject({
+                failure: { documentId: meta._id, revision: meta._rev, resources: ["remote"] },
             });
         });
 
@@ -1237,7 +1218,7 @@ describe("EntryManagerImpls", () => {
             await db.remove(chunk);
             chunkManager.clearCaches();
 
-            await expect(getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path)).resolves.toBe(false);
+            await expect(getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path)).rejects.toBeInstanceOf(ContentReadError);
             await expect(
                 deleteDBEntryByPath(host, { localDatabase: db }, entry.path, {
                     rev: saved.rev,

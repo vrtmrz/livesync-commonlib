@@ -9,7 +9,8 @@ import type {
     EVENT_MISSING_CHUNKS,
 } from "@lib/managers/ChunkFetcher";
 import type { ActivityCountSource } from "@lib/managers/ChunkDeliveryCoordinator";
-import type { ContentReadFailureCause, ChunkReadFailureReason } from "@lib/replication/contentRead.ts";
+import type { ContentReadResource } from "@lib/interfaces/DatabaseFileAccess.ts";
+export type ChunkDeliveryFailure = { resources: readonly ContentReadResource[]; cause: unknown };
 
 export type ChunkManagerOptions = {
     database: PouchDB.Database<EntryDoc>;
@@ -26,8 +27,6 @@ export type ChunkReadOptions = {
     /** @deprecated Use `waitForDelivery`. Positive values no longer represent an arrival duration. */
     timeout?: number;
     preventRemoteRequest?: boolean; // Prevent dispatching missing chunk event
-    /** Reports a chunk only after this read finishes without making it available. */
-    onUnavailable?: (id: DocumentID, reason: ChunkReadFailureReason, cause?: ContentReadFailureCause) => void;
 };
 export type ChunkWriteOptions = {
     skipCache?: boolean; // Skip cache when writing
@@ -47,5 +46,5 @@ export type ChunkManagerEventMap = {
     [EVENT_MISSING_CHUNK_REMOTE]: DocumentID; // Event for missing chunk
     [EVENT_MISSING_CHUNKS]: DocumentID[]; // Event for multiple missing chunks
     [EVENT_CHUNK_FETCHED]: EntryLeaf; // Event for chunk arrival
-    [EVENT_CHUNK_FAILED]: { id: DocumentID; reason: ChunkReadFailureReason; cause?: ContentReadFailureCause };
+    [EVENT_CHUNK_FAILED]: { id: DocumentID; failure: ChunkDeliveryFailure };
 };

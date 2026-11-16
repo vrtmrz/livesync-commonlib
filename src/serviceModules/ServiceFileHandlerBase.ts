@@ -1,12 +1,9 @@
-import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
+import type { FileReflectionResult, ReflectionOperationContext } from "@lib/interfaces/FileHandler";
 import { createFileHandlerContext } from "./ServiceFileHandlerBase/context";
+import { inspectCurrentFileProvenance } from "./ServiceFileHandlerBase/provenance";
 import { processFileEvent, processReplicatedDocument } from "./ServiceFileHandlerBase/events";
 import { getFileEntryPath, getFileStoragePath, readStorageFile } from "./ServiceFileHandlerBase/storage";
-import {
-    canSkipUnchangedFile,
-    tryRecordUntrackedFileRevision,
-    hasReflectedRevision,
-} from "./ServiceFileHandlerBase/scanning";
+import { canSkipUnchangedFile, tryRecordUntrackedFileRevision } from "./ServiceFileHandlerBase/scanning";
 import { storeFileToDB, storeFileToDBWithBaseRevision } from "./ServiceFileHandlerBase/saving";
 import {
     deleteFileFromDB,
@@ -14,7 +11,7 @@ import {
     resolveConflictedByDeletingRevision,
 } from "./ServiceFileHandlerBase/deletion";
 import { renameFileInDB } from "./ServiceFileHandlerBase/renaming";
-import { dbToStorageWithSpecificRev, dbToStorage } from "./ServiceFileHandlerBase/reflection";
+import { dbToStorageWithSpecificRev, dbToStorage, reflectDatabaseEntry } from "./ServiceFileHandlerBase/reflection";
 import { recoverDatabaseDeletion } from "./ServiceFileHandlerBase/deletionRecovery";
 import { createAllChunks } from "./ServiceFileHandlerBase/chunks";
 
@@ -163,8 +160,8 @@ export abstract class ServiceFileHandlerBase
      * @remarks Acquire the document lock while checking a metadata-only hint. No revision or file content is written; inspection failures are logged and return false.
      */
     /** Confirm current bytes against existing provenance without retrieving Chunks. */
-    async hasReflectedRevision(path: FilePathWithPrefix, revision: string): Promise<boolean> {
-        return await hasReflectedRevision(this.context, path, revision);
+    async inspectCurrentFileProvenance(path: FilePathWithPrefix, revision: string): Promise<boolean> {
+        return await inspectCurrentFileProvenance(this.context, path, revision);
     }
 
     async canSkipUnchangedFile(info: UXFileInfoStub, expected: MetaEntry): Promise<boolean> {
@@ -326,23 +323,32 @@ export abstract class ServiceFileHandlerBase
     async dbToStorage(
         entryInfo: MetaEntry | FilePathWithPrefix,
         info: UXFileInfoStub | UXFileInfo | FilePath | null,
-        force?: boolean,
-        onContentReadFailure?: ContentReadFailureHandler
+        force?: boolean
     ): Promise<boolean> {
-        return await dbToStorage(this.context, entryInfo, info, force, onContentReadFailure);
+        return await dbToStorage(this.context, entryInfo, info, force);
     }
 
     /**
      * Select and reflect a replicated document while retaining host override dispatch.
      * @param entry - The database metadata being processed.
-     * @returns Whether replication reflection completed; excluded or unsafe documents retain a false result.
+     * @returns Completion or a policy hand-off; unsuccessful reads and effects reject to the target owner.
      * @remarks Acquire the related document lock before selection and reflection. Constructor registration captures the current subclass override with bind; internal public seams remain live at use time.
      */
     async _anyProcessReplicatedDoc(
         entry: MetaEntry,
-        onContentReadFailure?: ContentReadFailureHandler
-    ): Promise<boolean> {
-        return await processReplicatedDocument(this.context, entry, onContentReadFailure);
+        operation?: ReflectionOperationContext
+    ): Promise<FileReflectionResult> {
+        return await processReplicatedDocument(this.context, entry, operation);
+    }
+
+    /** Reflect an owner's selected target without converting terminal failures to false. */
+    async reflectDatabaseEntry(
+        entry: MetaEntry,
+        info: UXFileInfoStub | UXFileInfo | FilePath | null,
+        force?: boolean,
+        operation?: ReflectionOperationContext
+    ): Promise<FileReflectionResult> {
+        return await reflectDatabaseEntry(this.context, entry, info, force, operation);
     }
 
     /**

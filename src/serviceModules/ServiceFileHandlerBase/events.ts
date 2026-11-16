@@ -1,3 +1,4 @@
+import type { FileReflectionResult, ReflectionOperationContext } from "@lib/interfaces/FileHandler";
 import { withFileEventPaths } from "./locking";
 import {
     isCurrentPathSelected,
@@ -12,7 +13,6 @@ import { deleteFileFromDBIfPresent } from "./deletion";
 import { renameFileInDBCore } from "./renaming";
 import { isFolderInfo } from "./storage";
 import { dbToStorageCore } from "./reflection";
-import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 
 import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 
@@ -205,26 +205,26 @@ async function planRestoredRename(
  *
  * @param ctx - The captured services, per-instance state, and dynamic host seams.
  * @param entry - The database metadata being processed.
- * @returns Whether replication reflection completed; excluded or unsafe documents retain a false result.
+ * @returns Completion or a policy hand-off; unsuccessful reads and effects reject to the target owner.
  * @remarks Operation intent is revalidated under related document locks. Policy skips, retained failures, and conservative conflict handling retain their original meanings.
  */
 export async function processReplicatedDocument(
     ctx: FileHandlerContext,
     entry: MetaEntry,
-    onContentReadFailure?: ContentReadFailureHandler
-): Promise<boolean> {
+    operation?: ReflectionOperationContext
+): Promise<FileReflectionResult> {
     return await withFileEventPaths(ctx, [ctx.host.getPath(entry)], async () => {
         if (!(await ctx.vault.isTargetFile(entry.path))) {
             ctx.host.log(`File ${entry.path} is not the target file`, LOG_LEVEL_VERBOSE);
-            return false;
+            return { status: "policy" };
         }
         if (ctx.vault.isFileSizeTooLarge(entry.size)) {
             ctx.host.log(`File ${entry.path} is too large (on database) to be processed`, LOG_LEVEL_VERBOSE);
-            return false;
+            return { status: "policy" };
         }
         if (shouldBeIgnored(entry.path)) {
             ctx.host.log(`File ${entry.path} should be ignored`, LOG_LEVEL_VERBOSE);
-            return false;
+            return { status: "policy" };
         }
         const path = ctx.host.getPath(entry);
 
@@ -232,11 +232,11 @@ export async function processReplicatedDocument(
         if (isFolderInfo(targetFile)) {
             ctx.host.log(`${path} is already exist as the folder`);
             // Nothing to do and other modules should also nothing to do.
-            return true;
+            return { status: "policy" };
         } else {
             if (targetFile && ctx.vault.isFileSizeTooLarge(targetFile.stat.size)) {
                 ctx.host.log(`File ${targetFile.path} is too large (on storage) to be processed`, LOG_LEVEL_VERBOSE);
-                return false;
+                return { status: "policy" };
             }
             ctx.host.log(
                 `Processing ${path} (${entry._id.substring(0, 8)} :${entry._rev?.substring(0, 5)}) : Started...`,
@@ -244,7 +244,7 @@ export async function processReplicatedDocument(
             );
             // Before writing (or skipped ), merging dialogue should be cancelled.
             ctx.events.emitEvent(EVENT_CONFLICT_CANCELLED, path);
-            const ret = await dbToStorageCore(ctx, entry, targetFile, undefined, onContentReadFailure);
+            const ret = await dbToStorageCore(ctx, entry, targetFile, undefined, operation);
             ctx.host.log(`Processing ${path} (${entry._id.substring(0, 8)} :${entry._rev?.substring(0, 5)}) : Done`);
             return ret;
         }
@@ -268,7 +268,7 @@ async function planSameDocumentRename(
     if (!currentTarget || !(await isCurrentFileSelected(ctx, currentTarget))) {
         return { kind: "none" };
     }
-    const entry = await ctx.host.db().fetchEntryMeta(newPath, undefined, true);
+    const entry = await ctx.host.db().readEntryMeta(newPath, undefined, true);
     if (
         entry &&
         !entry.deleted &&
@@ -310,7 +310,7 @@ async function planCrossDocumentRename(
         if (!sourceWasInspected || currentSourceItem !== null || !(await canApplyRestoredDeletion(ctx, oldPath))) {
             return { kind: "store", file: currentTarget, complete: sourceWasInspected };
         }
-        const sourceEntry = await ctx.host.db().fetchEntryMeta(oldPath, undefined, true);
+        const sourceEntry = await ctx.host.db().readEntryMeta(oldPath, undefined, true);
         if (!sourceEntry || sourceEntry.deleted || sourceEntry._deleted) {
             // The source deletion is already represented. Reconcile the
             // current target without forcing another rename revision.

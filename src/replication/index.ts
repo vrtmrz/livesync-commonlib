@@ -22,13 +22,13 @@ export {
     supportedCapability,
 } from "./ReplicatorProvider.ts";
 export type { ReplicatorInstance } from "./ReplicatorInstance.ts";
-export { isTransientContentReadFailure } from "./contentRead.ts";
+export { ContentReadError } from "./contentRead.ts";
+export type { ContentReadFailure, ContentReadResource } from "./contentRead.ts";
 export type {
-    ChunkReadFailureReason,
-    ContentReadFailure,
-    ContentReadFailureCause,
-    ContentReadFailureHandler,
-} from "./contentRead.ts";
+    FileReflectionResult,
+    ReflectionTarget,
+    ReflectionOperationContext,
+} from "@lib/interfaces/FileHandler.ts";
 export {
     isUnencryptedContentRejectedError,
     UnencryptedContentRejectedError,

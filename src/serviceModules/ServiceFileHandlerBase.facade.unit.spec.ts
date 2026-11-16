@@ -1,3 +1,4 @@
+import type { FileReflectionResult } from "@lib/interfaces/FileHandler";
 import { describe, expect, it, vi } from "vitest";
 import type {
     AnyEntry,
@@ -13,7 +14,7 @@ import type {
 import type { DatabaseFileAccess } from "@lib/interfaces/DatabaseFileAccess";
 import type { StorageAccess } from "@lib/interfaces/StorageAccess";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
-import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
+import { ContentReadError } from "@lib/common/LSError.ts";
 import { ServiceFileHandlerBase, type ServiceFileHandlerDependencies } from "./ServiceFileHandlerBase";
 
 /**
@@ -39,6 +40,10 @@ function fileAt(path = "note.md"): UXFileInfo {
 function fixture() {
     const file = fileAt();
     const db = {
+        get readEntryMeta() { return this.fetchEntryMeta; },
+        get readEntryFromMeta() { return this.fetchEntryFromMeta; },
+        get readEntry() { return this.fetchEntry; },
+        get readConflictedRevs() { return this.getConflictedRevs; },
         fetchEntry: vi.fn().mockResolvedValue(false),
         fetchEntryMeta: vi.fn().mockResolvedValue(false),
         fetchEntryFromMeta: vi.fn().mockResolvedValue(false),
@@ -108,10 +113,10 @@ class ReplicationHandler extends ServiceFileHandlerBase {
      * @param entry - Replicated metadata passed by the host service.
      * @returns True after the host accepts the entry.
      */
-    override async _anyProcessReplicatedDoc(entry: MetaEntry): Promise<boolean> {
+    override async _anyProcessReplicatedDoc(entry: MetaEntry): Promise<FileReflectionResult> {
         this.calls++;
         this.seen = entry;
-        return true;
+        return { status: "completed" };
     }
 }
 
@@ -204,7 +209,7 @@ describe("ServiceFileHandlerBase host facade contracts", () => {
         const log = vi.fn();
         handler._log = log;
 
-        await expect(handler._anyProcessReplicatedDoc(entry)).resolves.toBe(true);
+        await expect(handler._anyProcessReplicatedDoc(entry)).resolves.toEqual({ status: "policy" });
 
         expect(f.path.path2id).toHaveBeenCalledWith("canonical.md");
         expect(f.storage.getStub).toHaveBeenCalledWith("physical.md");
@@ -217,11 +222,11 @@ describe("ServiceFileHandlerBase host facade contracts", () => {
         const f = fixture();
         const handler = new ReplicationHandler(f.services);
         const entry = metadata();
-        const registered = f.replicationHandler.mock.calls[0][0] as (entry: MetaEntry) => Promise<boolean>;
-        const replacement = vi.fn().mockResolvedValue(false);
+        const registered = f.replicationHandler.mock.calls[0][0] as (entry: MetaEntry) => Promise<FileReflectionResult>;
+        const replacement = vi.fn().mockResolvedValue({ status: "policy" });
         handler._anyProcessReplicatedDoc = replacement;
 
-        await expect(registered(entry)).resolves.toBe(true);
+        await expect(registered(entry)).resolves.toEqual({ status: "completed" });
 
         expect(f.replicationHandler).toHaveBeenCalledWith(expect.any(Function), 100);
         expect(handler.calls).toBe(1);
@@ -229,22 +234,18 @@ describe("ServiceFileHandlerBase host facade contracts", () => {
         expect(replacement).not.toHaveBeenCalled();
     });
 
-    it("forwards the per-call content-read observer through incoming reflection database reads", async () => {
+    it("propagates the strict content-read failure through the registered owner port", async () => {
         const f = fixture();
         const entry = metadata();
+        const error = new ContentReadError({ documentId: entry._id, revision: entry._rev, resources: ["remote"], cause: new Error("failed request") });
         f.db.fetchEntryMeta.mockResolvedValue(entry);
+        f.db.fetchEntryFromMeta.mockRejectedValue(error);
         new PlainHandler(f.services);
-        const onFailure = vi.fn();
-        const registered = f.replicationHandler.mock.calls[0][0] as (
-            entry: MetaEntry,
-            onFailure?: ContentReadFailureHandler
-        ) => Promise<boolean>;
-
-        await expect(registered(entry, onFailure)).resolves.toBe(false);
-
-        expect(f.db.fetchEntryMeta).toHaveBeenCalledWith("note.md", undefined, true, onFailure);
-        expect(f.db.getConflictedRevs).toHaveBeenCalledWith("note.md", onFailure);
-        expect(f.db.fetchEntryFromMeta).toHaveBeenCalledWith(entry, true, false, false, onFailure);
+        const registered = f.replicationHandler.mock.calls[0][0] as (entry: MetaEntry) => Promise<unknown>;
+        await expect(registered(entry)).rejects.toBe(error);
+        expect(f.db.fetchEntryMeta).toHaveBeenCalledWith("note.md", undefined, true);
+        expect(f.db.getConflictedRevs).toHaveBeenCalledWith("note.md");
+        expect(f.db.fetchEntryFromMeta).toHaveBeenCalledWith(entry);
     });
 
     it("keeps the operation error authoritative when a deferred conflict callback also fails", async () => {

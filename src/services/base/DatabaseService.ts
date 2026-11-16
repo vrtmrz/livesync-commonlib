@@ -6,11 +6,17 @@ import { handlers } from "@lib/services/lib/HandlerUtils";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils.ts";
 import type PouchDB from "pouchdb-core";
 import type { PouchDBConstructor } from "@lib/pouchdb/PouchDBConstructor.ts";
-import { ExtraSuffixIndexedDB } from "@lib/common/models/shared.const.ts";
+import { ExtraSuffixIndexedDB, SuffixDatabaseName } from "@lib/common/models/shared.const.ts";
 import type { SettingService } from "./SettingService";
 import type { APIService } from "./APIService";
 import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 import { LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+
+type DatabaseSelection = {
+    vaultName: string;
+    name: string;
+    options: PouchDB.Configuration.DatabaseConfiguration;
+};
 
 export type DatabaseServiceDependencies = {
     /** PouchDB with the adapters required by the host runtime already registered. */
@@ -38,6 +44,7 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
     protected _localDatabase: LiveSyncLocalDB | null = null;
     private readonly databaseLock = Symbol("local-database-lifecycle");
     private closingRequested = false;
+    private databaseSelection: DatabaseSelection | undefined;
 
     /** Observes a failed local operation; handlers must not retry that operation. */
     readonly onLocalDatabaseError = handlers<IDatabaseService>().allSettled("onLocalDatabaseError");
@@ -93,6 +100,21 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
         return new this.services.pouchDB(optionPass.name, optionPass.options);
     }
 
+    private selectDatabase(): DatabaseSelection {
+        const vaultName = this.services.vault.getVaultName();
+        const resolved = this.modifyDatabaseOptions(
+            this.services.setting.currentSettings(),
+            vaultName + SuffixDatabaseName,
+            {}
+        );
+        return { vaultName, ...resolved };
+    }
+
+    private isSelectedDatabase(selection: DatabaseSelection): boolean {
+        const current = this.selectDatabase();
+        return current.name === selection.name && current.options.adapter === selection.options.adapter;
+    }
+
     async openDatabase(params: openDatabaseParameters): Promise<boolean> {
         return await withLock(this.databaseLock, async () => {
             this.closingRequested = false;
@@ -106,27 +128,26 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
             if (this.closingRequested || this._localDatabase !== database) {
                 return false;
             }
-            if (database.dbname !== this.services.vault.getVaultName()) {
-                return false;
-            }
-            const adapter = (database.localDatabase as PouchDB.Database & { adapter?: string })?.adapter;
-            const selectedAdapter = this.services.setting.currentSettings().useIndexedDBAdapter ? "indexeddb" : "idb";
-            if (adapter && adapter !== selectedAdapter) {
+            const selection = this.databaseSelection;
+            if (!selection || !this.isSelectedDatabase(selection)) {
                 return false;
             }
             database.isReady = false;
-            if (params.databaseEvents?.onBeforeDatabaseRecovery && !(await params.databaseEvents.onBeforeDatabaseRecovery())) {
+            if (
+                params.databaseEvents?.onBeforeDatabaseRecovery &&
+                !(await params.databaseEvents.onBeforeDatabaseRecovery())
+            ) {
                 return false;
             }
-            if (this.closingRequested || this._localDatabase !== database) {
+            if (this.closingRequested || this._localDatabase !== database || !this.isSelectedDatabase(selection)) {
                 return false;
             }
-            return await this.openDatabaseUnlocked(params, "recovery");
+            return await this.openDatabaseUnlocked(params, selection);
         });
     }
 
     /** Check only an initialised, currently owned Pouch. This does not construct a Pouch instance. */
-    async checkDatabaseConnection(): Promise<boolean> {
+    async canReadCurrentDatabaseInfo(): Promise<boolean> {
         const database = this._localDatabase;
         if (this.closingRequested || !database?.isReady || !database.localDatabase) {
             return false;
@@ -150,11 +171,14 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
         });
     }
 
-    private async openDatabaseUnlocked(params: openDatabaseParameters, reason?: "recovery"): Promise<boolean> {
+    private async openDatabaseUnlocked(
+        params: openDatabaseParameters,
+        selection = this.selectDatabase()
+    ): Promise<boolean> {
         if (this._localDatabase != null) {
-            await this._localDatabase.close(reason);
+            await this._localDatabase.close();
         }
-        const vaultName = this.services.vault.getVaultName();
+        const { vaultName } = selection;
         this._log(this.context.translate("moduleLocalDatabase.logWaitingForReady"));
         const env = {
             services: {
@@ -164,11 +188,17 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
                 database: this,
             },
         };
-        const selectedDatabase = new LiveSyncLocalDB(vaultName, env);
+        const selectedDatabase = new LiveSyncLocalDB(vaultName, env, {
+            createPouchDBInstance: <T extends object>(
+                _name?: string,
+                options?: PouchDB.Configuration.DatabaseConfiguration
+            ) => new this.services.pouchDB<T>(selection.name, { ...options, ...selection.options }),
+        });
+        this.databaseSelection = selection;
         this._localDatabase = selectedDatabase;
         try {
             await this.onOpenDatabase(vaultName);
-            const initialised = await selectedDatabase.initializeDatabase(reason);
+            const initialised = await selectedDatabase.initializeDatabase();
             if (!initialised && this._localDatabase === selectedDatabase) {
                 this._localDatabase = null;
             }
@@ -249,5 +279,3 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
         return await this.resetDatabase();
     }
 }
-
-export { isInvalidStateError } from "../../pouchdb/localDatabaseErrors";

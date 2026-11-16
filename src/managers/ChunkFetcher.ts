@@ -1,8 +1,10 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
 import { getUnencryptedContentRejectionMessage } from "@lib/replication/unencryptedContentMessages.ts";
 import {
     getUnencryptedContentRejection,
     isUnencryptedContentRejectedError,
 } from "@lib/replication/UnencryptedContentRejectedError.ts";
+import { withScope } from "octagonal-wheels/resource/scope";
 import { delay, promiseWithResolvers } from "octagonal-wheels/promises";
 import { unique } from "octagonal-wheels/collection";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
@@ -14,7 +16,6 @@ import type { ChunkFetchSource } from "./chunkFetchSource.ts";
 import type { IReplicatorService, ISettingService } from "@lib/services/base/IService.ts";
 import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
 import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
-import type { ContentReadFailureCause, ChunkReadFailureReason } from "@lib/replication/contentRead.ts";
 import { DEFAULT_CHUNK_DELIVERY_STALL_TIMEOUT_MS, type ChunkDeliveryClaim } from "./ChunkDeliveryCoordinator.ts";
 import { chunkFetchCounts, collectingChunks } from "@lib/mock_and_interop/stores";
 import {
@@ -54,8 +55,7 @@ interface RemoteChunkReader extends ReplicatorInstance {
     fetchRemoteChunks(
         missingChunks: string[],
         showResult: boolean,
-        setting?: RemoteDBSettings,
-        onFailure?: (id: DocumentID, reason: ChunkReadFailureReason, cause?: ContentReadFailureCause) => void
+        setting?: RemoteDBSettings
     ): Promise<false | EntryLeaf[]>;
 }
 
@@ -409,136 +409,167 @@ export class ChunkFetcher {
         }
         let requestIDs: DocumentID[] = [];
         const requestClaims = new Map<DocumentID, PendingChunkFetch>();
-        try {
+        await withScope(requestClaims, async (scope) => {
             this.currentProcessing++;
-            requestIDs = unique(this.queue.filter((id) => this.isReady(id))).slice(0, BATCH_SIZE);
-            const selectedIds = new Set(requestIDs);
-            this.queue = this.queue.filter((id) => !selectedIds.has(id));
-            this.ensureClaims(requestIDs);
-            for (const id of requestIDs) {
-                const pending = this.pendingClaims.get(id);
-                if (pending) {
-                    pending.inFlight = true;
-                    requestClaims.set(id, pending);
-                }
-            }
-            this.scheduleRequest();
-            requestIDs = await this.waitForActivityBoundary(requestClaims);
-            if (requestIDs.length === 0) return;
-
-            const localCheckCompletionVersion = this.finiteCompletionVersion;
-            await this.resolveLocallyAvailableRetries(requestClaims);
-            let pendingIDs = await this.waitBeforeRemoteRequest(requestIDs, requestClaims, localCheckCompletionVersion);
-            if (pendingIDs.length === 0) return;
-
-            // A lookup begun before the latest finite completion cannot be the final probe.
-            const requestCompletionVersion = this.finiteCompletionVersion;
-            let fetched: EntryLeaf[] | false;
-            const reportedFailures = new Map<DocumentID, ChunkReadFailureReason>();
-            if (this.options.source) {
-                fetched = await this.options.source.fetchChunks(pendingIDs);
-            } else {
-                const replicator = this.options.replicatorService.getActiveReplicator();
-                if (!replicator) {
-                    Logger("No active replicator was found to request missing chunks.");
-                    return;
-                }
-                if (!canFetchRemoteChunks(replicator)) {
-                    Logger("The active replicator does not support fetching individual remote chunks.");
-                    for (const chunkID of pendingIDs) {
-                        this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
+            scope.defer(() => {
+                for (const [id, pending] of requestClaims) {
+                    if (pending.inFlight) {
+                        this.settleClaim(id, pending);
                     }
+                }
+                this.currentProcessing--;
+                this.previousRequestTime = Date.now();
+                this.scheduleRequest();
+            });
+            try {
+                requestIDs = unique(this.queue.filter((id) => this.isReady(id))).slice(0, BATCH_SIZE);
+                const selectedIds = new Set(requestIDs);
+                this.queue = this.queue.filter((id) => !selectedIds.has(id));
+                this.ensureClaims(requestIDs);
+                for (const id of requestIDs) {
+                    const pending = this.pendingClaims.get(id);
+                    if (pending) {
+                        pending.inFlight = true;
+                        requestClaims.set(id, pending);
+                    }
+                }
+                this.scheduleRequest();
+                requestIDs = await this.waitForActivityBoundary(requestClaims);
+                if (requestIDs.length === 0) {
                     return;
                 }
-                fetched = await replicator.fetchRemoteChunks(pendingIDs, false, undefined, (id, reason, cause) => {
-                    if (!requestClaims.has(id)) {
+
+                const localCheckCompletionVersion = this.finiteCompletionVersion;
+                await this.resolveLocallyAvailableRetries(requestClaims);
+                let pendingIDs = await this.waitBeforeRemoteRequest(
+                    requestIDs,
+                    requestClaims,
+                    localCheckCompletionVersion
+                );
+                if (pendingIDs.length === 0) {
+                    return;
+                }
+
+                // A lookup begun before the latest finite completion cannot be the final probe.
+                const requestCompletionVersion = this.finiteCompletionVersion;
+                let fetched: EntryLeaf[] | false;
+                if (this.options.source) {
+                    try {
+                        fetched = await this.options.source.fetchChunks(pendingIDs);
+                    } catch (error) {
+                        if (isUnencryptedContentRejectedError(error)) {
+                            throw error;
+                        }
+                        throw new ContentReadError({ documentId: pendingIDs[0], resources: ["remote"], cause: error });
+                    }
+                } else {
+                    const replicator = this.options.replicatorService.getActiveReplicator();
+                    if (!replicator) {
+                        Logger("No active replicator was found to request missing chunks.");
                         return;
                     }
-                    reportedFailures.set(id, reason);
-                    this.chunkManager.emitEvent(
-                        EVENT_CHUNK_FAILED,
-                        cause ? { id, reason, cause } : { id, reason }
-                    );
-                });
-            }
-            pendingIDs = this.getActiveClaimIds(pendingIDs, requestClaims);
-            this.touchClaims(pendingIDs, requestClaims);
-            if (!fetched) {
-                Logger(`No chunks were found for the following IDs: ${pendingIDs.join(", ")}`);
-                for (const chunkID of pendingIDs) {
-                    if (!reportedFailures.has(chunkID)) {
-                        this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
+                    if (!canFetchRemoteChunks(replicator)) {
+                        Logger("The active replicator does not support fetching individual remote chunks.");
+                        for (const chunkID of pendingIDs) {
+                            this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
+                        }
+                        return;
+                    }
+                    try {
+                        fetched = await replicator.fetchRemoteChunks(pendingIDs, false);
+                    } catch (error) {
+                        if (isUnencryptedContentRejectedError(error)) {
+                            throw error;
+                        }
+                        throw new ContentReadError({ documentId: pendingIDs[0], resources: ["remote"], cause: error });
                     }
                 }
-                return;
-            }
-            const classification = classifyFetchedChunks(pendingIDs, fetched);
-            this.logFetchedChunks(pendingIDs, classification);
-            const { chunks, missingIds, invalidIds } = classification;
-            try {
-                if (chunks.length > 0 && this.options.source) {
-                    await this.options.source.storeChunks(chunks);
-                } else if (chunks.length > 0) {
-                    Logger(`Writing fetched chunks (${chunks.length}) to the database...`);
-                    const result = await this.chunkManager.write(
-                        chunks,
-                        {
-                            skipCache: true,
-                            force: true, // Force writing to ensure the chunks with existing _rev.
-                        },
-                        "ChunkFetcher" as DocumentID
-                    );
-                    this.touchClaims(pendingIDs, requestClaims);
-                    if (result.result === true) {
-                        Logger(`Fetched chunks were stored successfully: ${chunks.length}`, LOG_LEVEL_VERBOSE);
-                    } else {
-                        Logger(
-                            `Fetched chunks could not be stored: ${chunks.map((chunk) => chunk._id).join(", ")}`,
-                            LOG_LEVEL_VERBOSE
-                        );
-                    }
-                }
-            } catch (error) {
-                Logger(`An error occurred while storing fetched chunks!`, LOG_LEVEL_VERBOSE);
-                Logger(error, LOG_LEVEL_VERBOSE);
-            } finally {
-                // Emitting fetched chunks regardless of storage success preserves the existing refetch behaviour.
-                for (const chunk of chunks) {
-                    this.chunkManager.emitEvent(EVENT_CHUNK_FETCHED, chunk);
-                    this.settleClaim(chunk._id, requestClaims.get(chunk._id));
-                }
-                for (const invalidID of this.getActiveClaimIds(invalidIds, requestClaims)) {
-                    this.chunkManager.emitEvent(EVENT_CHUNK_FAILED, { id: invalidID, reason: "invalid" });
-                    this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, invalidID);
-                    this.settleClaim(invalidID, requestClaims.get(invalidID));
-                }
-            }
 
-            this.applyMissingChunkResults(missingIds, requestClaims, requestCompletionVersion);
-        } catch (error) {
-            if (isUnencryptedContentRejectedError(error)) {
-                Logger(
-                    getUnencryptedContentRejectionMessage("on-demand"),
-                    LOG_LEVEL_NOTICE,
-                    "unencrypted-content-rejected"
-                );
-                const rejection = getUnencryptedContentRejection(error);
-                const identifiers = rejection ? [rejection.documentId] : requestIDs;
-                Logger(
-                    `On-demand retrieval rejected unencrypted content: ${identifiers.join(", ")}`,
-                    LOG_LEVEL_VERBOSE
-                );
-            } else {
-                Logger("An error occurred while fetching remote chunks.", LOG_LEVEL_VERBOSE);
-                Logger(error, LOG_LEVEL_VERBOSE);
+                pendingIDs = this.getActiveClaimIds(pendingIDs, requestClaims);
+                this.touchClaims(pendingIDs, requestClaims);
+                if (!fetched) {
+                    Logger(`No chunks were found for the following IDs: ${pendingIDs.join(", ")}`);
+                    for (const chunkID of pendingIDs) {
+                        this.chunkManager.emitEvent(EVENT_CHUNK_FAILED, {
+                            id: chunkID,
+                            failure: { resources: ["remote"], cause: false },
+                        });
+                    }
+                    return;
+                }
+                const classification = classifyFetchedChunks(pendingIDs, fetched);
+                this.logFetchedChunks(pendingIDs, classification);
+                const { chunks, missingIds, invalidIds } = classification;
+                try {
+                    if (chunks.length > 0 && this.options.source) {
+                        await this.options.source.storeChunks(chunks);
+                    } else if (chunks.length > 0) {
+                        Logger(`Writing fetched chunks (${chunks.length}) to the database...`);
+                        const result = await this.chunkManager.write(
+                            chunks,
+                            {
+                                skipCache: true,
+                                force: true, // Force writing to ensure the chunks with existing _rev.
+                            },
+                            "ChunkFetcher" as DocumentID
+                        );
+                        this.touchClaims(pendingIDs, requestClaims);
+                        if (result.result === true) {
+                            Logger(`Fetched chunks were stored successfully: ${chunks.length}`, LOG_LEVEL_VERBOSE);
+                        } else {
+                            Logger(
+                                `Fetched chunks could not be stored: ${chunks.map((chunk) => chunk._id).join(", ")}`,
+                                LOG_LEVEL_VERBOSE
+                            );
+                        }
+                    }
+                } catch (error) {
+                    Logger(`An error occurred while storing fetched chunks!`, LOG_LEVEL_VERBOSE);
+                    Logger(error, LOG_LEVEL_VERBOSE);
+                } finally {
+                    // Emitting fetched chunks regardless of storage success preserves the existing refetch behaviour.
+                    for (const chunk of chunks) {
+                        this.chunkManager.emitEvent(EVENT_CHUNK_FETCHED, chunk);
+                        this.settleClaim(chunk._id, requestClaims.get(chunk._id));
+                    }
+                    for (const invalidID of this.getActiveClaimIds(invalidIds, requestClaims)) {
+                        this.chunkManager.emitEvent(EVENT_CHUNK_FAILED, {
+                            id: invalidID,
+                            failure: { resources: [], cause: new Error("Invalid remote Chunk") },
+                        });
+                        this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, invalidID);
+                        this.settleClaim(invalidID, requestClaims.get(invalidID));
+                    }
+                }
+
+                this.applyMissingChunkResults(missingIds, requestClaims, requestCompletionVersion);
+            } catch (error) {
+                for (const id of this.getActiveClaimIds(requestIDs, requestClaims)) {
+                    this.chunkManager.emitEvent(EVENT_CHUNK_FAILED, {
+                        id,
+                        failure:
+                            error instanceof ContentReadError
+                                ? { resources: error.failure.resources, cause: error.failure.cause }
+                                : { resources: [], cause: error },
+                    });
+                }
+                if (isUnencryptedContentRejectedError(error)) {
+                    Logger(
+                        getUnencryptedContentRejectionMessage("on-demand"),
+                        LOG_LEVEL_NOTICE,
+                        "unencrypted-content-rejected"
+                    );
+                    const rejection = getUnencryptedContentRejection(error);
+                    const identifiers = rejection ? [rejection.documentId] : requestIDs;
+                    Logger(
+                        `On-demand retrieval rejected unencrypted content: ${identifiers.join(", ")}`,
+                        LOG_LEVEL_VERBOSE
+                    );
+                } else {
+                    Logger("An error occurred while fetching remote chunks.", LOG_LEVEL_VERBOSE);
+                    Logger(error, LOG_LEVEL_VERBOSE);
+                }
             }
-        } finally {
-            for (const [id, pending] of requestClaims) {
-                if (pending.inFlight) this.settleClaim(id, pending);
-            }
-            this.currentProcessing--;
-            this.previousRequestTime = Date.now();
-            this.scheduleRequest();
-        }
+        });
     }
 }

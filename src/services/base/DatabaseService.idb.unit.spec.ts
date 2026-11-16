@@ -52,20 +52,22 @@ describe("DatabaseService with the PouchDB 9 idb adapter", () => {
         const pouch = original.localDatabase as typeof original.localDatabase & { id(): Promise<string> };
         const written = await pouch.put(document);
         const databaseId = await pouch.id();
-        expect(await service.checkDatabaseConnection()).toBe(true);
+        expect(await service.canReadCurrentDatabaseInfo()).toBe(true);
         expect(nativeHandles).toHaveLength(1);
         nativeHandles[0].close();
         try {
             await expect(original.localDatabase.get(document._id)).rejects.toMatchObject({ name: "InvalidStateError" });
-            await expect(service.checkDatabaseConnection()).rejects.toMatchObject({ name: "InvalidStateError" });
-            await vi.waitFor(() => expect(observed).toHaveBeenCalled());
+            await expect(service.canReadCurrentDatabaseInfo()).rejects.toMatchObject({ name: "InvalidStateError" });
+            expect(observed).not.toHaveBeenCalled();
+            // Raw Pouch is not intercepted. The owner explicitly requests its usability check.
             expect(await service.reopenDatabase(original, params)).toBe(true);
             expect(nativeHandles).toHaveLength(2);
             expect(await (service.localDatabase.localDatabase as typeof pouch).id()).toBe(databaseId);
             expect(await service.localDatabase.localDatabase.get(document._id)).toMatchObject({
-                ...document, _rev: written.rev,
+                ...document,
+                _rev: written.rev,
             });
-            expect(await service.checkDatabaseConnection()).toBe(true);
+            expect(await service.canReadCurrentDatabaseInfo()).toBe(true);
         } finally {
             const name = service.localDatabaseDirect?.localDatabase?.name;
             await service.closeDatabase();

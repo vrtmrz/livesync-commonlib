@@ -1,4 +1,4 @@
-import type { ContentReadFailure } from "@lib/replication/contentRead.ts";
+import type { FileReflectionResult } from "@lib/interfaces/FileHandler";
 import {
     LOG_LEVEL_DEBUG,
     LOG_LEVEL_INFO,
@@ -22,25 +22,31 @@ import { inspectMetadataDocumentIdentity } from "./metadata";
 import { getPathFromEntry, convertCase } from "./paths";
 import { FilePairProcessResults, MetadataDocumentIdentityStatuses, type FilePairProcessResult } from "./types";
 
-/** Forward failure detail only for a failed reflection, preserving ordinary callers' arity. */
+/** Finalise one selected scan reflection, including failures which reject. */
 async function reflectScannedEntry(
     host: NecessaryServices<never, "fileHandler">,
-    entry: MetaEntry | FilePathWithPrefix,
+    entry: MetaEntry,
     file: FilePath | null,
     force: boolean,
     options?: VaultScanOptions
-): Promise<boolean> {
-    if (!options?.onContentReadFailure) {
-        return await host.serviceModules.fileHandler.dbToStorage(entry, file, force);
+): Promise<FileReflectionResult | { status: "failed" }> {
+    const target = entry._rev ? { documentId: entry._id, revision: entry._rev } : undefined;
+    try {
+        const result = await host.serviceModules.fileHandler.reflectDatabaseEntry(
+            entry,
+            file,
+            force,
+            options?.reflectionOperation ?? (target ? { target, source: "scan" } : undefined)
+        );
+        return result;
+    } catch (error) {
+        // The owner notification is awaited after the reflection operation fails.
+        // Its rejection must remain a persistence failure, not another read failure.
+        if (target && options?.onReflectionFailed) {
+            await options.onReflectionFailed(target, error);
+        }
+        return { status: "failed" };
     }
-    let failure: ContentReadFailure | undefined;
-    const reflected = await host.serviceModules.fileHandler.dbToStorage(entry, file, force, (value) => {
-        failure = value;
-    });
-    if (!reflected && failure) {
-        await options.onContentReadFailure(failure);
-    }
-    return reflected;
 }
 
 /**
@@ -81,7 +87,11 @@ export async function syncFileBetweenDBandStorage(
         case TARGET_IS_NEW:
             if (!host.services.vault.isFileSizeTooLarge(doc.size)) {
                 log("STORAGE <- DB :" + docPath);
-                if (await reflectScannedEntry(host, doc, stripAllPrefixes(docPath), false, scanOptions)) {
+                const reflection = await reflectScannedEntry(host, doc, stripAllPrefixes(docPath), false, scanOptions);
+                if (reflection.status === "policy" || reflection.status === "cancelled") {
+                    return FilePairProcessResults.SKIPPED;
+                }
+                if (reflection.status === "completed") {
                     host.services.context.events.emitEvent("event-file-changed", {
                         file: file.path,
                         automated: true,
@@ -298,11 +308,16 @@ export async function updateToStorage(
                 log(`UPDATE STORAGE: ${path} has conflicts. skipped (x)`, LOG_LEVEL_INFO);
                 return FilePairProcessResults.SKIPPED;
             }
-            const reflected = await reflectScannedEntry(host, path, null, true, scanOptions);
+            const reflected = await reflectScannedEntry(host, w, null, true, scanOptions);
             // Keep a failed reflection retryable. Treating it as success would let
             // the caller persist the database mtime as a locally observed file and
             // a later newer-wins scan could misclassify the missing file as deleted.
-            if (!reflected) return FilePairProcessResults.FAILED;
+            if (reflected.status === "policy" || reflected.status === "cancelled") {
+                return FilePairProcessResults.SKIPPED;
+            }
+            if (reflected.status !== "completed") {
+                return FilePairProcessResults.FAILED;
+            }
             host.services.context.events.emitEvent("event-file-changed", {
                 file: path,
                 automated: true,

@@ -1,3 +1,4 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
 import { isFolderInfo, infoToStub } from "./storage";
 import { withFileEventPaths, queueConflictCheckFor } from "./locking";
 import {
@@ -298,8 +299,21 @@ async function saveClassifiedStorage(
         );
         return false;
     }
-    const details = await observeClassifiedStorage(ctx, save, preferredBasePath, retryIfStorageChanges);
     const recovery: StorageSaveRecovery = { preferredBasePath, retryIfStorageChanges, snapshotRetry };
+    let details: Awaited<ReturnType<typeof observeClassifiedStorage>>;
+    try {
+        details = await observeClassifiedStorage(ctx, save, preferredBasePath, retryIfStorageChanges);
+    } catch (error) {
+        if (retryIfStorageChanges || !(error instanceof ContentReadError)) {
+            throw error;
+        }
+        // Ordinary saving can still preserve unknown ancestry as an independent branch.
+        const preserved = await storeClassifiedStorageEdit(ctx, save, { kind: "unknown" }, recovery);
+        if (!preserved) {
+            throw error;
+        }
+        return true;
+    }
     const classification = details.classification;
     if (classification.kind === "unchanged")
         return await finishUnchangedStorageSave(ctx, save, classification.revision, details, recovery);
@@ -545,7 +559,7 @@ async function finishUnchangedStorageSave(
         await queueConflictCheckFor(ctx, file.path);
     } else if (!currentEntry || currentEntry.deleted || currentEntry._deleted || revision !== currentEntry._rev) {
         if (!currentEntry) return false;
-        return await dbToStorageCore(ctx, file.path as FilePathWithPrefix, file);
+        return (await dbToStorageCore(ctx, file.path as FilePathWithPrefix, file)).status !== "cancelled";
     } else {
         if (upgradeCurrentRecord && snapshotMatches) {
             await setProvenance(ctx, file.path, revision, readFile.stat.mtime, readFile.body, evidence);

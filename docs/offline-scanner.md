@@ -208,28 +208,11 @@ concurrency, and cost contracts. This opt-in extension is published in
 The following extension was reviewed against Commonlib 0.5.0 and Self-hosted
 LiveSync 1.0.50. It is implemented on the working branch and is not yet published.
 
-`VaultScanOptions.onContentReadFailure` optionally receives a structured failure
-from an unsuccessful DB-to-Vault content read. The scanner awaits this callback
-before returning that pair's failure; the callback does not turn it into success.
-Vault-to-database failures, policy skips, and successful content reads do not
-invoke it. Omitting it retains the existing call and result contracts.
+`VaultScanOptions.onReflectionFailed(target, error)` receives a terminal ordinary DB-to-Vault reflection failure. The target is the selected input document ID and revision; a content error can separately identify the historical revision which could not be read. The scanner awaits the owner callback once. A callback rejection propagates as a persistence failure and is not converted into another content failure. Completed reflection, normal absence, and policy skips do not create failed work.
 
-The `/replication` entry exports `ContentReadFailure` and
-`isTransientContentReadFailure`. Missing content, cancellation, authentication,
-configuration, and unclassified errors remain distinct from offline, typed
-transport, and local-database failure. `local-database` identifies an observed
-`InvalidStateError` during a local Metadata or content read and is transient alongside
-offline and transport failures. The optional runtime `cause` is a typed
-`LocalDatabaseUnavailableError` or `RemoteRequestError`; it is diagnostic only
-and is not written into scanner or receiver snapshots.
-The optional final observer on `getDBEntryFromMeta`, `fetchEntryFromMeta`, and
-`dbToStorage` reports the final failed read of that exact Metadata revision.
-It does not report a temporary failed producer when another observed producer
-ultimately supplies the Chunks. Existing Boolean results and successful-omission
-Chunk retries are preserved. `fetchEntryMeta` can also receive the observer; it
-reports an observed local database failure before preserving the original
-rejection. A normal missing result or a policy skip does not invoke it. No
-diagnostic text is parsed to classify errors.
+Strict internal reads propagate `ContentReadError` with directly observed `local-database` or `remote` resources and the original `cause`. An empty resource list conveys no automatic recovery prerequisite. The contract does not classify transient failures from names, messages, status defaults, or cause chains. Local Chunk absence is ordinary while a fallback or finite producer can still supply the content. A terminal error is reported after the existing recheck and retry rules finish; a successful fallback discards intermediate failure evidence.
+
+`ReflectionOperationContext` carries the target, source policy, and optional checkpoint. `reflectDatabaseEntry` and `processSynchroniseResult` return `completed`, `policy`, or `cancelled`; uncontinuable failures reject the operation. Existing Boolean retrieval and `dbToStorage` facades retain their compatibility conversion at the outside boundary. They are not used to recover a lost cause from a second callback channel. `/replication` re-exports the neutral content and reflection contracts for consumers.
 
 A host can use `IReplicationService.onFiniteReplicationCompleted` to schedule
 retained work after a successful, uncancelled CouchDB finite pull or bidirectional
@@ -245,9 +228,8 @@ no retry records and starts no additional replication.
 For one previously selected ordinary content target, `processFilePair` reuses
 existing scan policy without listing the Vault again. The host must supply fresh,
 identity-validated Metadata, a current storage stub or absence, and ordinary scan
-options; existing file-handler locking and revalidation still own writes. Full
+options; existing file-handler locking and revalidation still own writes. A retained retry passes its existing context through `VaultScanOptions.reflectionOperation`, including its pre-write checkpoint. Full
 scan deletion-recovery planning remains separate. The optional
-`fileHandler.hasReflectedRevision(path, revision)` checks current bytes against
+`fileHandler.inspectCurrentFileProvenance(path, revision)` checks current bytes against
 existing device-local provenance and current Metadata without retrieving Chunks.
-A missing or unreadable record is inconclusive, rather than proof of failure or
-permission to overwrite. Hosts own retention, retry bounds, and user presentation.
+A missing or mismatched record is inconclusive; a failed inspection rejects instead of becoming a mismatch. Neither permits an overwrite. Hosts own retention, retry bounds, and user presentation.

@@ -299,7 +299,7 @@ describe("optional startup content checks", () => {
         try {
             fixture.setStorage(makeFile(original, originalMtime - 10_000));
             fixture.provenance.get(path)!.observedStorageMtime = originalMtime - 10_000;
-            const reflect = vi.spyOn(fixture.handler, "dbToStorage");
+            const reflect = vi.spyOn(fixture.handler, "reflectDatabaseEntry");
             const result = await syncStorageAndDatabase(
                 fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, fixture.previousMetadata,
                 { strictContentCheck: false }
@@ -391,8 +391,8 @@ describe("equal-time scan and later incoming revision", () => {
         const latestRevision = await advanceDatabase(fixture, [incoming]);
         const latestMetadata = await fixture.access.fetchEntryMeta(path, undefined, true);
         if (!latestMetadata) throw new Error("Latest database Metadata is missing");
-        const fetchEntry = fixture.access.fetchEntry.bind(fixture.access);
-        const unavailableBase = vi.spyOn(fixture.access, "fetchEntry").mockImplementation(
+        const fetchEntry = fixture.access.readEntry.bind(fixture.access);
+        const unavailableBase = vi.spyOn(fixture.access, "readEntry").mockImplementation(
             async (file, revision, waitForReady, skipCheck, localOnly) => {
                 if (revision === fixture.baseRevision) return false;
                 return await fetchEntry(file, revision, waitForReady, skipCheck, localOnly);
@@ -781,7 +781,7 @@ describe("strict scans with on-demand chunks", () => {
             await expect(fixture.handler.storeFileToDB(
                 fixture.getStorage(), false, false, { revalidateStorage: true }
             )).rejects.toMatchObject({
-                message: `Could not read the recorded file revision ${displayRev(fixture.baseRevision)} for ${path}`,
+                failure: { documentId: path, revision: fixture.baseRevision, resources: [] },
             });
             expect((await liveLeaves(fixture)).map((leaf) => leaf._rev)).toEqual([latestRevision]);
             expect(fixture.provenance.get(path)?.revision).toBe(fixture.baseRevision);

@@ -485,7 +485,7 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
         expect(onUnloadDatabase).toHaveBeenCalledOnce();
     });
 
-    it("reports InvalidStateError from a ready local database to the database service", async () => {
+    it("leaves raw Pouch errors with the caller without replacing its methods", async () => {
         const error = Object.assign(new Error("database context is invalid"), { name: "InvalidStateError" });
         const { database, onLocalDatabaseError, subject } = createSubject(async () => true);
         const get = database.get;
@@ -493,12 +493,9 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
 
         get.mockRejectedValueOnce(error);
         await expect(database.get("note.md")).rejects.toBe(error);
-        await vi.waitFor(() => expect(onLocalDatabaseError).toHaveBeenCalledOnce());
+        expect(onLocalDatabaseError).not.toHaveBeenCalled();
 
-        expect(onLocalDatabaseError).toHaveBeenCalledWith(
-            subject,
-            expect.objectContaining({ name: "LocalDatabaseUnavailableError", cause: error })
-        );
+        expect(onLocalDatabaseError).not.toHaveBeenCalled();
     });
 
     it("does not report database inspection errors before readiness", async () => {
@@ -560,35 +557,32 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
 
         currentGet.mockRejectedValueOnce(error);
         await expect(currentDatabase.get("note.md")).rejects.toBe(error);
-        await vi.waitFor(() => expect(onLocalDatabaseError).toHaveBeenCalledOnce());
-        expect(onLocalDatabaseError).toHaveBeenCalledWith(
-            subject,
-            expect.objectContaining({ name: "LocalDatabaseUnavailableError", cause: error })
-        );
+        expect(onLocalDatabaseError).not.toHaveBeenCalled();
+        expect(onLocalDatabaseError).not.toHaveBeenCalled();
     });
 
-    it("forwards the recovery reason through initialisation, close, and unload", async () => {
+    it("runs physical lifecycle hooks without logical-store lifetime reasons", async () => {
         const { onCloseDatabase, onDatabaseInitialisation, onUnloadDatabase, subject } = createSubject(
             async () => true
         );
 
-        await expect(subject.initializeDatabase("recovery")).resolves.toBe(true);
-        await subject.close("recovery");
+        await expect(subject.initializeDatabase()).resolves.toBe(true);
+        await subject.close();
 
-        expect(onDatabaseInitialisation).toHaveBeenCalledWith(subject, "recovery");
-        expect(onCloseDatabase).toHaveBeenCalledWith(subject, "recovery");
-        expect(onUnloadDatabase).toHaveBeenCalledWith(subject, "recovery");
+        expect(onDatabaseInitialisation).toHaveBeenCalledWith(subject);
+        expect(onCloseDatabase).toHaveBeenCalledWith(subject);
+        expect(onUnloadDatabase).toHaveBeenCalledWith(subject);
     });
 
-    it("preserves the recovery reason during failed-initialisation rollback", async () => {
+    it("notifies physical unload during failed-initialisation rollback", async () => {
         const error = new Error("manager initialisation failed");
         managerLifecycle.initialise.mockRejectedValueOnce(error);
         const { onUnloadDatabase, subject } = createSubject(async () => true);
 
-        await expect(subject.initializeDatabase("recovery")).rejects.toBe(error);
+        await expect(subject.initializeDatabase()).rejects.toBe(error);
 
         expect(managerLifecycle.teardown).toHaveBeenCalledOnce();
-        expect(onUnloadDatabase).toHaveBeenCalledWith(subject, "recovery");
+        expect(onUnloadDatabase).toHaveBeenCalledWith(subject);
     });
 
     it("rolls back physical readiness before propagating a required ready-handler error", async () => {
@@ -718,6 +712,24 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
         await subject.close();
 
         expect(order).toEqual(["handler", "database"]);
+    });
+
+    it("waits for the physical close Promise after the closed event and manager cleanup", async () => {
+        const { database, subject } = createSubject(async () => true);
+        await subject.initializeDatabase();
+        const closed = database.on.mock.calls.find(([event]) => event === "closed")?.[1];
+        let finishClose!: () => void;
+        database.close.mockImplementationOnce(() => {
+            closed?.();
+            return new Promise<void>((resolve) => { finishClose = resolve; });
+        });
+        let finished = false;
+        const closing = subject.close().then(() => { finished = true; });
+        await vi.waitFor(() => expect(managerLifecycle.teardown).toHaveBeenCalledOnce());
+        expect(finished).toBe(false);
+        finishClose();
+        await closing;
+        expect(finished).toBe(true);
     });
 
     it("awaits manager cleanup from PouchDB's closed event during normal close", async () => {

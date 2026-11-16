@@ -1,5 +1,5 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
 import type { FilePathWithPrefix, MetaEntry, UXFolderInfo } from "@lib/common/types";
-import { LocalDatabaseUnavailableError } from "@lib/common/LSError.ts";
 import { describe, expect, it, vi } from "vitest";
 
 import { preserveUnsyncedStorageAsConflict, recheckIncomingStorage } from "./protection";
@@ -33,39 +33,17 @@ describe("incoming storage protection", () => {
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
     });
 
-    it("binds a recorded-base failure to the incoming document revision", async () => {
-        const { ctx, db, files, provenance } = createFileHandlerFixture();
-        const file = makeFile(path, "local bytes");
+    it("completes independent preservation after an unreadable historical base without retaining failure", async () => {
+        const { ctx, db, files, provenanceRecords, storage } = createFileHandlerFixture();
+        const file = makeFile(path, "only local bytes");
         files.set(path, file);
-        const previousRevision = "1-recorded";
-        const entry = makeMetaEntry(path, "2-incoming");
-        provenance.get.mockResolvedValue({ revision: previousRevision, observedStorageMtime: file.stat.mtime });
-        const localFailure = LocalDatabaseUnavailableError.fromError(
-            Object.assign(new Error("database is closed"), { name: "InvalidStateError" })
-        );
-        db.fetchEntryMeta.mockImplementation(async (_file, rev, _skipCheck, onFailure) => {
-            if (rev === previousRevision) {
-                onFailure?.({
-                    documentId: entry._id,
-                    revision: previousRevision,
-                    reason: "local-database",
-                    cause: localFailure,
-                });
-            }
-            return false;
-        });
-        const onFailure = vi.fn();
-
-        await preserveUnsyncedStorageAsConflict(ctx, path, makeFileStub(path), entry, undefined, onFailure);
-
-        expect(onFailure).toHaveBeenCalledExactlyOnceWith(
-            expect.objectContaining({
-                documentId: entry._id,
-                revision: entry._rev,
-                reason: "local-database",
-                cause: localFailure,
-            })
-        );
+        provenanceRecords.set(path, { revision: "1-history" });
+        const entry = makeMetaEntry(path, "3-incoming");
+        const error = new ContentReadError({ documentId: entry._id, revision: "1-history", resources: ["local-database"], cause: new Error("unreadable history") });
+        db.fetchEntry.mockRejectedValue(error);
+        await expect(preserveUnsyncedStorageAsConflict(ctx, path, makeFileStub(path), entry)).resolves.toEqual({ preserved: true });
+        expect(db.storeIndependentRevision).toHaveBeenCalledOnce();
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
     });
 
     it("does not create a preservation revision without an incoming revision identity", async () => {

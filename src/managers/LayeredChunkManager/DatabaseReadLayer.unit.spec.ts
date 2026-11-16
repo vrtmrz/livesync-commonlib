@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import { DatabaseReadLayer } from "./DatabaseReadLayer";
-import { LiveSyncError } from "@lib/common/LSError";
+import { ContentReadError } from "@lib/common/LSError";
 import type { DocumentID, EntryLeaf } from "@lib/common/types";
 
 // Set up PouchDB with memory adapter
@@ -133,41 +133,30 @@ describe("DatabaseReadLayer", () => {
         const wrongDoc = { _id: "wrong", type: "NOTE", data: "data" };
         await db.put(wrongDoc);
 
-        await expect(readLayer.read(["wrong" as DocumentID], {}, vi.fn())).rejects.toThrow(LiveSyncError);
+        await expect(readLayer.read(["wrong" as DocumentID], {}, vi.fn())).rejects.toThrow(ContentReadError);
     });
 
     it("should throw error for missing type", async () => {
         const noTypeDoc = { _id: "no-type", data: "data" };
         await db.put(noTypeDoc);
 
-        await expect(readLayer.read(["no-type" as DocumentID], {}, vi.fn())).rejects.toThrow(LiveSyncError);
+        await expect(readLayer.read(["no-type" as DocumentID], {}, vi.fn())).rejects.toThrow(ContentReadError);
     });
 
-    it("should handle database errors gracefully", async () => {
-        const errorDb = {
-            allDocs: vi.fn().mockRejectedValue(new Error("DB error")),
-        } as any;
-        const errorLayer = new DatabaseReadLayer(errorDb);
-
-        const result = await errorLayer.read(["chunk-1" as DocumentID], {}, vi.fn());
-
-        expect(result).toEqual([false]);
-    });
-
-    it("reports an invalid local database read before returning unavailable content", async () => {
+    it.each([new Error("DB error"), { name: "InvalidStateError" }])("rejects failed local I/O after fallback is exhausted: %o", async (error) => {
         const id = "chunk-1" as DocumentID;
-        const error = Object.assign(new Error("database context is invalid"), { name: "InvalidStateError" });
-        const errorLayer = new DatabaseReadLayer({ allDocs: vi.fn().mockRejectedValue(error) } as any);
-        const onUnavailable = vi.fn();
+        const errorLayer = new DatabaseReadLayer({ allDocs: vi.fn().mockRejectedValue(error) } as never);
+        const fallback = vi.fn().mockResolvedValue([false]);
+        await expect(errorLayer.read([id], {}, fallback)).rejects.toMatchObject({
+            failure: { documentId: id, resources: ["local-database"], cause: error },
+        });
+        expect(fallback).toHaveBeenCalledExactlyOnceWith([id]);
+    });
 
-        const result = await errorLayer.read([id], { onUnavailable }, vi.fn());
-
-        expect(result).toEqual([false]);
-        expect(onUnavailable).toHaveBeenCalledExactlyOnceWith(
-            id,
-            "local-database",
-            expect.objectContaining({ name: "LocalDatabaseUnavailableError", cause: error })
-        );
+    it("discards a failed local attempt when fallback supplies all requested Chunks", async () => {
+        const errorLayer = new DatabaseReadLayer({ allDocs: vi.fn().mockRejectedValue(new Error("local failure")) } as never);
+        const chunk = createMockLeaf("chunk-1");
+        await expect(errorLayer.read([chunk._id], {}, vi.fn().mockResolvedValue([chunk]))).resolves.toEqual([chunk]);
     });
 
     it("should preserve order of requested ids", async () => {

@@ -1,4 +1,4 @@
-import type { ContentReadFailure } from "@lib/replication/contentRead.ts";
+import type { ReflectionOperationContext, ReflectionTarget } from "@lib/interfaces/FileHandler.ts";
 
 /**
  * Outcome of scanning the Vault against the local database.
@@ -17,8 +17,10 @@ export const VaultScanResults = {
 export interface VaultScanOptions {
     /** False permits unchanged tracked files to be skipped using storage and revision metadata. */
     strictContentCheck?: boolean;
+    /** Existing target scope borrowed by a retained scan retry, including its write checkpoint. */
+    reflectionOperation?: ReflectionOperationContext;
     /** Await the owning host's response to an unsuccessful database-to-Vault content read. */
-    onContentReadFailure?: (failure: ContentReadFailure) => void | Promise<void>;
+    onReflectionFailed?: (target: ReflectionTarget, error: unknown) => void | Promise<void>;
 }
 
 export type VaultScanResult = (typeof VaultScanResults)[keyof typeof VaultScanResults];

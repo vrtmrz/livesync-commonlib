@@ -216,7 +216,7 @@ it("flushes a previous mode's pending observation before the next scan reloads i
     f.doc.deleted = false;
     const deleteFileFromDB = vi.fn(async () => true);
     Object.assign(f.host.serviceModules.fileHandler, {
-        dbToStorage: vi.fn(async () => true),
+        reflectDatabaseEntry: vi.fn(async () => ({ status: "completed" })),
         deleteFileFromDB,
     });
     await synchroniseAllFilesBetweenDBandStorage(f.host as any, vi.fn(), {} as any, { mode: FullScanModes.DB_APPLY });

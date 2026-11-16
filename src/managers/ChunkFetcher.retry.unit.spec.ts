@@ -111,7 +111,7 @@ describe("ChunkFetcher retry queue", () => {
         fetcher.onEvent([secondId]);
         await vi.advanceTimersByTimeAsync(100);
 
-        expect(fetchRemoteChunks).toHaveBeenNthCalledWith(2, [secondId], false, undefined, expect.any(Function));
+        expect(fetchRemoteChunks).toHaveBeenNthCalledWith(2, [secondId], false);
         expect(coordinator.isClaimActiveFor(firstId)).toBe(true);
         expect(coordinator.isClaimActiveFor(secondId)).toBe(false);
         expect(collectingChunks.value).toBe(initialCount + 1);
@@ -418,7 +418,7 @@ describe("ChunkFetcher retry queue", () => {
 
         await vi.advanceTimersByTimeAsync(1_501);
 
-        expect(fetchRemoteChunks).toHaveBeenNthCalledWith(3, [secondId], false, undefined, expect.any(Function));
+        expect(fetchRemoteChunks).toHaveBeenNthCalledWith(3, [secondId], false);
         expect(coordinator.isClaimActiveFor(secondId)).toBe(false);
         expect(collectingChunks.value).toBe(initialCount);
     });

@@ -125,80 +125,16 @@ A destructive workflow must use `resetDatabaseForCurrentSettings()` after applyi
 
 ## Recovering a lost local connection
 
-`openDatabase()`, `reopenDatabase()`, `closeDatabase()`, and `resetDatabase()` serialise their physical transitions through the same per-service lock. Recovery supplies the failed `LiveSyncLocalDB` instance to `reopenDatabase()`. A different current instance, a requested close, or changed name or adapter prevents recovery from replacing it. Ordinary opens remain separate ordered requests rather than sharing an earlier request's result.
+This unreleased extension was reviewed against Commonlib 0.5.0 and Self-hosted LiveSync 1.0.50. The revised implementation replaces public-method interception with explicit operation-owner notifications.
 
-`checkDatabaseConnection()` inspects `info()` on the existing, ready local Pouch instance. It returns `false` without constructing a database when no usable owner is available, and preserves an inspection error. This is an adapter-neutral diagnostic, not a guarantee that every adapter performs a native transaction or avoids its own lazy-open behaviour.
+`openDatabase()`, `reopenDatabase()`, `closeDatabase()`, and `resetDatabase()` serialise physical transitions through the same per-service `withLock`. Normal opens are separate ordered requests. `DatabaseService` resolves the physical name and adapter options when opening, and supplies that selection to the new local database. A recovery request names its failed owner; a requested close, replacement owner, or changed selection prevents it from closing another store. Once admitted, recovery retains that physical selection across the asynchronous drain and close.
 
-Local public Pouch I/O reports `InvalidStateError` to the internal `onLocalDatabaseError` handler as `LocalDatabaseUnavailableError`, retaining the original cause. `isInvalidStateError()` also recognises this typed cause. The public Pouch promise, callback, and changes feed retain their original error and completion behaviour; observation does not await recovery or retry a write. A host can use the typed signal to inspect the existing connection before deciding to recover. Remote errors and other local error names do not trigger this observer. Pouch's `closed` event clears physical readiness and starts manager teardown; an explicit close waits for that teardown.
+`canReadCurrentDatabaseInfo()` calls `info()` on the existing, initialised current Pouch. It returns `false` without creating a database when there is no ready owner, and propagates a rejected operation unchanged. Success establishes only that this operation succeeded. It does not establish native-connection health, all-operation availability, or data integrity; adapters may cache information or open their own handles lazily.
 
-Hosts which opt into recovery must hold new local dispatch, settle already dispatched work, and stop replication before replacing the failed lifetime. `onBeforeDatabaseRecovery()` holds and settles dependent work before physical close. The `'recovery'` reason is passed to close, unload, and initialisation hooks so the key-value journal stays available across replacement. Normal close and shutdown still release it.
+Managed operation owners can request an inspection through `onLocalDatabaseError`. They preserve their own failed work and original error, and do not await recovery from work which recovery must drain. Individual errors do not authorise reopening. Hosts first inspect the current Pouch; a rejected inspection can justify one same-database reopen without inferring connection loss from an exception name, message, status, or nested cause. Raw Pouch methods are not replaced or intercepted. Pouch's public `closed` event clears readiness and starts manager teardown; explicit `close()` awaits physical closure and teardown. A native IndexedDB close is not guaranteed to emit a Pouch event.
 
-The recovery path closes the stale handle and opens the same settings-selected physical database; it does not reset or destroy that database. Its existing contents remain in place when the reopen succeeds. After a successful reopen, the host reconciles accepted local file work, dispatches `onAfterDatabaseRecovery()`, and resumes permitted replication. If another explicit open won the lock, the host must check that replacement and release its own dispatch hold when it becomes usable. Failed completion must not advertise successful recovery. `onBeforeDatabaseResume()` allows the foreground host to perform this check before its usual pending-file flush.
+Hosts hold new dispatch, stop replication, and settle started work, including retention and persistence, before replacing the connection. `onBeforeDatabaseRecovery()` settles dependent work before physical close. After opening, the host completes captured local file work, calls `onAfterDatabaseRecovery()`, and resumes permitted replication. If an explicit open won the lock, recovery checks the replacement before releasing its hold. Failed completion does not advertise successful recovery. `onBeforeDatabaseResume()` gates foreground work before the usual pending-file flush.
 
-These hooks do not retain or retry a failed receiver item. A host's receiver-retry contract must preserve that item separately before automatic recovery can provide end-to-end convergence. The local owner must never reset or destroy the database as connection recovery.
+`KeyValueDBService` owns a separate logical store. Settings selection and initialisation select that store; same-name Pouch replacement does not close it. Application unload releases its handle after shutdown preparation, and an explicit reset destroys its records. A retained handle is not evidence that writes succeed: each snapshot write must be awaited, and a rejected write does not establish durability. Data lifetime and connection lifetime are distinct, and no recovery reason is passed through Pouch close/unload/initialisation to bypass KV cleanup.
 
-## Settings-selected reset sequence
-
-When a rebuild or fetch assigns a new database suffix, the sequence is:
-
-1. suspend synchronisation and reflection as required by the workflow;
-2. persist or apply the new suffix;
-3. resolve the settings-selected database name;
-4. close, but do not destroy, a differently named active database;
-5. open the settings-selected database without scanning the Vault;
-6. run `onResetDatabase` and stop if any preparation handler fails;
-7. destroy and reinitialise the selected physical database;
-8. run `onDatabaseReset` and stop if any completion handler fails; and
-9. emit `EVENT_DATABASE_REBUILT` before the workflow continues to reflection or remote mutation.
-
-Opening the selected database before destruction initialises its in-memory managers, but it does not scan the Vault. Rebuild and fetch workflows already suspend ordinary synchronisation across this boundary. This keeps the existing `LiveSyncLocalDB.resetDatabase()` destruction path, including its dependent-service hooks, while ensuring that it acts on the intended identity.
-
-`DatabaseService` rechecks the active identity after opening. If another settings transition selected a different database during the operation, the reset fails without destroying that unexpected database.
-
-If reset preparation, physical reinitialisation, or a post-reset dependency fails, `DatabaseService` closes and clears the active wrapper. The legacy reset-handler sequence is not transactional, so retry begins by reopening the settings-selected database through a controlled restart or owning workflow rather than continuing with partly released dependencies.
-
-## Rebuild and application readiness
-
-A local fetch or rebuild is a controlled maintenance workflow, not an application-ready state. During the workflow, the local database may be empty or only partly populated, file reflection is normally suspended, and the remote may be locked, reset, or still converging. Advertising application readiness during that interval can admit ordinary replication requests and host actions against an intentionally incomplete state. File watching is governed separately by `suspendFileWatching`.
-
-Standard Fetch, Fast Fetch, and Rebuild Everything separate these responsibilities:
-
-1. entering a destructive local fetch or rebuild clears application readiness, including when the command began in an already ready host;
-2. opening and initialising the selected local database establishes only physical database readiness;
-3. the owning rebuild workflow uses the explicitly named rebuild transfer API to perform its bounded import or export when the local database, selected replicator, and suspension policy satisfy that operation's prerequisites, without claiming wider application readiness;
-4. workflow-specific preparation hooks and final reflection run at their existing boundaries without adding a duplicate open, scan, or remote pass; and
-5. application readiness is set only after the owning workflow has completed those phases successfully.
-
-When a fetch deliberately leaves reflection suspended, application readiness remains clear until the host performs the explicit completion step. This is particularly important for Fast Setup, where Commonlib completes the streaming database import before the LiveSync host performs its selected storage reflection and removes the setup flag.
-
-Fetches which must preserve existing local files first run a preparation scan, dispatch `onDatabaseInitialised()`, and complete accepted local file operations before their remote transfer. In remediation mode no fetch runs that preparation, because staging the current files would publish the state being replaced and the scan is refused in any case. A remote-first Fetch and Fast Fetch skip that preparation hook, matching their earlier lifecycle. Their final reflection scan is a distinct post-transfer phase.
-
-`finishRebuild()` is the Commonlib fetch-completion boundary. It clears application readiness before attempting finalisation. When the workflow controls reflection, it then resumes file watching provisionally in memory before the existing final scan. This allows storage changes made while the scan is running to enter the event queue and narrows the hand-off gap between scanning and ordinary watching. Its later finite local completion request captures operations accepted up to that point; events admitted after it remain later work.
-
-After the applicable final scan and replication pre-check, `finishRebuild()` completes the finite set of accepted local file operations, persists the resumed reflection settings, and marks application readiness last. It does not synthesise an ordinary `onDatabaseInitialised()` event for workflows which did not previously dispatch one. A `false` result or error leaves the application unready, and so does a successful finalisation while remediation mode is active: that mode refuses reconciliation scanning, so readiness cannot be claimed, and a host which gates document application on readiness needs its own allowance for the mode. When finalisation fails, Commonlib restores the previous reflection settings in memory; the host retains responsibility for its setup flag and restart policy. Setting-store atomicity remains a host contract, so Commonlib cannot guarantee rollback if a host store writes a value and then reports an error.
-
-Rebuild Everything has no inbound document phase after its preparation scan. It therefore retains the existing single scan and completion-hook pass before upload, verifies finite local completion again after the final upload, and marks application readiness without adding a second scan.
-
-## Failure boundary
-
-The reset result is a workflow gate. A failed open, vetoed reset, failed reinitialisation, or failed completion hook must prevent:
-
-- `EVENT_DATABASE_REBUILT`;
-- remote database reset;
-- upload of local documents; and
-- marking a fetch or rebuild as resolved.
-
-The previously active physical database is deliberately preserved during a suffix transition. Removing inactive databases is a separate, explicit maintenance operation; suffix selection alone is not deletion authority.
-
-## Deferred lifecycle clean-up
-
-The compatibility surface still contains lifecycle ambiguities which are outside this readiness correction:
-
-- `onCloseDatabase` fences an explicit `LiveSyncLocalDB.close()`, while reset, adapter-originated closure, and rollback retain their separate compatibility paths;
-- `onunload()` and `close()` remain separate compatibility entry points, although their `onUnloadDatabase` notification is idempotent for one physical lifecycle;
-- `onOpenDatabase` does not yet enforce its boolean result;
-- `onResetDatabase` handlers can mutate dependent state before a later handler rejects the reset, so the sequence is not a transactional veto;
-- the `onReady()` lifecycle notification does not define or update the application readiness flag; and
-- the command-shaped `initialiseDatabase` dispatcher remains on `DatabaseEventService`.
-
-These should be changed only with focused ordering and failure-cleanup tests.
+Connection recovery does not replay an arbitrary failed operation or destroy a database. The host's receiver owns retention, guarded reprocessing, and retry allowances. Successful reopening preserves the same store's contents; it is not a reset, rebuild, or guarantee that the original platform failure cannot recur.

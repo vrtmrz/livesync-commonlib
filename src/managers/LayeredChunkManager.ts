@@ -290,8 +290,8 @@ export class LayeredChunkManager {
     }
     protected onMissingChunkRemoteHandler = this.onMissingChunkRemote.bind(this);
 
-    private onChunkFailed({ id, reason, cause }: ChunkManagerEventMap[typeof EVENT_CHUNK_FAILED]): void {
-        this.arrivalWaitLayer.onChunkFailed(id, reason, cause);
+    private onChunkFailed({ id, failure }: ChunkManagerEventMap[typeof EVENT_CHUNK_FAILED]): void {
+        this.arrivalWaitLayer.onChunkFailed(id, failure);
     }
     protected onChunkFailedHandler = this.onChunkFailed.bind(this);
 

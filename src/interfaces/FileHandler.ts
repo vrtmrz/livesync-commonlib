@@ -1,4 +1,3 @@
-import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 import type { FilePath, FilePathWithPrefix, MetaEntry } from "@lib/common/models/db.type";
 import type { UXFileInfo, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/models/fileaccess.type";
 
@@ -56,7 +55,30 @@ export type DeletionRecoveryResult =
     | DeletionRecoveryRemovalUnconfirmedResult
     | DeletionRecoveryClearedResult;
 
+export interface ReflectionTarget {
+    documentId: import("@lib/common/types").DocumentID;
+    revision: string;
+}
+
+/** Premises supplied by the target owner; no failure state is retained here. */
+export interface ReflectionOperationContext {
+    readonly target: ReflectionTarget;
+    readonly source: "scan" | "received";
+    /** The owner may return false or throw its own scope-cancellation value. */
+    readonly checkpoint?: () => boolean | void;
+}
+
+export type FileReflectionResult = { status: "completed" | "policy" | "cancelled" };
+
 export interface IFileHandler {
+    /** Strict reflection; failures reject to the target owner. */
+    reflectDatabaseEntry(
+        entry: MetaEntry,
+        info: UXFileInfoStub | UXFileInfo | FilePath | null,
+        force?: boolean,
+        operation?: ReflectionOperationContext
+    ): Promise<FileReflectionResult>;
+
     readFileFromStub(file: UXFileInfoStub | UXFileInfo): Promise<UXFileInfo>;
 
     /**
@@ -69,7 +91,7 @@ export interface IFileHandler {
     /** Metadata-only scan hint; never certifies content equality or changes provenance. */
     canSkipUnchangedFile?(info: UXFileInfoStub, expected: MetaEntry): Promise<boolean>;
     /** Confirm current bytes and recorded revision without a remote content read. */
-    hasReflectedRevision?(path: FilePathWithPrefix, revision: string): Promise<boolean>;
+    inspectCurrentFileProvenance?(path: FilePathWithPrefix, revision: string): Promise<boolean>;
 
     /**
      * Report whether complete provenance-key discovery is configured.
@@ -141,8 +163,7 @@ export interface IFileHandler {
     dbToStorage(
         entryInfo: MetaEntry | FilePathWithPrefix,
         info: UXFileInfoStub | UXFileInfo | FilePath | null,
-        force?: boolean,
-        onContentReadFailure?: ContentReadFailureHandler
+        force?: boolean
     ): Promise<boolean>;
 
     createAllChunks(showingNotice?: boolean): Promise<void>;

@@ -214,7 +214,8 @@ export function useOfflineScanner(
             ignoreSuspending,
             continueOnFileFailure,
             strictContentCheck: scanOptions?.strictContentCheck,
-            onContentReadFailure: scanOptions?.onContentReadFailure,
+            onReflectionFailed: scanOptions?.onReflectionFailed,
+            reflectionOperation: scanOptions?.reflectionOperation,
         });
     };
     // Bind handlers to lifecycle events

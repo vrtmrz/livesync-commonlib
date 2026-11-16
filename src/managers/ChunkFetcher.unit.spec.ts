@@ -1,6 +1,6 @@
 import { defaultLogger, LOG_LEVEL_NOTICE, setGlobalLogFunction } from "@lib/common/logger.ts";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { ChunkFetcher, EVENT_MISSING_CHUNKS, EVENT_CHUNK_FETCHED, EVENT_MISSING_CHUNK_REMOTE } from "./ChunkFetcher";
+import { ChunkFetcher, EVENT_CHUNK_FAILED, EVENT_MISSING_CHUNKS, EVENT_CHUNK_FETCHED, EVENT_MISSING_CHUNK_REMOTE } from "./ChunkFetcher";
 import type { ChunkFetcherOptions } from "./ChunkFetcher";
 import type { DocumentID, EntryLeaf } from "@lib/common/types";
 import type { ChunkManager } from "./ChunkManager";
@@ -256,7 +256,7 @@ describe("ChunkFetcher", () => {
             await chunkFetcher.requestMissingChunks();
 
             expect(mockReplicatorService.getActiveReplicator).toHaveBeenCalled();
-            expect(mockReplicator.fetchRemoteChunks).toHaveBeenCalledWith(["chunk-1"], false, undefined, expect.any(Function));
+            expect(mockReplicator.fetchRemoteChunks).toHaveBeenCalledWith(["chunk-1"], false);
         });
 
         it("should run each remote chunk request through the bounded remote activity boundary", async () => {
@@ -490,7 +490,7 @@ describe("ChunkFetcher", () => {
                 await request;
 
                 expect(collectingChunks.value).toBe(initialCollectingChunks);
-                expect(mockReplicator.fetchRemoteChunks).toHaveBeenNthCalledWith(2, ["chunk-2"], false, undefined, expect.any(Function));
+                expect(mockReplicator.fetchRemoteChunks).toHaveBeenNthCalledWith(2, ["chunk-2"], false);
                 expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(
                     EVENT_MISSING_CHUNK_REMOTE,
                     "chunk-2" as DocumentID
@@ -645,7 +645,7 @@ describe("ChunkFetcher", () => {
 
                 await vi.advanceTimersByTimeAsync(50);
                 await first;
-                expect(fetchRemoteChunks).toHaveBeenNthCalledWith(3, ["chunk-1"], false, undefined, expect.any(Function));
+                expect(fetchRemoteChunks).toHaveBeenNthCalledWith(3, ["chunk-1"], false);
                 expect(starts).toEqual([100_000, 101_950, 102_050]);
             } finally {
                 vi.useRealTimers();
@@ -742,16 +742,14 @@ describe("ChunkFetcher", () => {
             // Should request only 100 chunks (BATCH_SIZE)
             expect(mockReplicator.fetchRemoteChunks).toHaveBeenCalledWith(
                 expect.arrayContaining(chunks.slice(0, 100).map((c) => c._id)),
-                false,
-                undefined,
-                expect.any(Function)
+                false
             );
             expect(mockReplicator.fetchRemoteChunks.mock.calls[0][0]).toHaveLength(100);
             // Remaining 50 chunks should still be in queue
             expect(chunkFetcher.queue).toHaveLength(50);
         });
 
-        it("should emit EVENT_MISSING_CHUNK_REMOTE when no chunks are fetched", async () => {
+        it("reports a rejected legacy remote-read result without treating it as confirmed absence", async () => {
             const mockReplicator = {
                 fetchRemoteChunks: vi.fn().mockResolvedValue(false),
             };
@@ -762,8 +760,8 @@ describe("ChunkFetcher", () => {
 
             await chunkFetcher.requestMissingChunks();
 
-            expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(EVENT_MISSING_CHUNK_REMOTE, "chunk-1");
-            expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(EVENT_MISSING_CHUNK_REMOTE, "chunk-2");
+            expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(EVENT_CHUNK_FAILED, { id: "chunk-1", failure: { resources: ["remote"], cause: false } });
+            expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(EVENT_CHUNK_FAILED, { id: "chunk-2", failure: { resources: ["remote"], cause: false } });
         });
     });
 });

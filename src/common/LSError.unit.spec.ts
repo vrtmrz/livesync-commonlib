@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
     LiveSyncError,
     LiveSyncFatalError,
-    LocalDatabaseUnavailableError,
     RemoteRequestError,
 } from "./LSError";
 
@@ -142,21 +141,13 @@ describe("LiveSyncError", () => {
 describe("typed boundary errors", () => {
     it("preserves the original remote request cause", () => {
         const cause = new TypeError("network fetch failed");
-        const error = RemoteRequestError.fromError(cause);
+        const error = new RemoteRequestError("Remote request failed", { cause });
 
         expect(error).toBeInstanceOf(RemoteRequestError);
         expect(error.name).toBe("RemoteRequestError");
         expect(error.cause).toBe(cause);
-        expect(LiveSyncError.isCausedBy(error, RemoteRequestError)).toBe(true);
+        expect(error).not.toBeInstanceOf(LiveSyncError);
+        expect("status" in error).toBe(false);
     });
 
-    it("preserves a structured local InvalidStateError cause", () => {
-        const cause = { name: "InvalidStateError", message: "database context is invalid" };
-        const error = LocalDatabaseUnavailableError.fromError(cause);
-
-        expect(error).toBeInstanceOf(LocalDatabaseUnavailableError);
-        expect(error.name).toBe("LocalDatabaseUnavailableError");
-        expect(error.cause).toBe(cause);
-        expect(LiveSyncError.isCausedBy(error, LocalDatabaseUnavailableError)).toBe(true);
-    });
 });

@@ -1,3 +1,4 @@
+import { inspectCurrentFileProvenance } from "./provenance";
 import { computeFileContentHash } from "@lib/common/fileContentHash";
 import { describe, expect, it } from "vitest";
 
@@ -9,7 +10,7 @@ import {
     makeFileStub,
     makeMetaEntry,
 } from "../../../_tools/fixtures/file-handler-context";
-import { canSkipUnchangedFile, tryRecordUntrackedFileRevision, hasReflectedRevision } from "./scanning";
+import { canSkipUnchangedFile, tryRecordUntrackedFileRevision } from "./scanning";
 
 const filePath = "notes/scanning.md" as FilePathWithPrefix;
 
@@ -195,7 +196,7 @@ describe("confirmed reflection without Chunk retrieval", () => {
             contentSize: new Blob(["known bytes"]).size,
         });
 
-        await expect(hasReflectedRevision(fixture.ctx, filePath, "2-target")).resolves.toBe(matching);
+        await expect(inspectCurrentFileProvenance(fixture.ctx, filePath, "2-target")).resolves.toBe(matching);
 
         expect(fixture.db.fetchEntryFromMeta).not.toHaveBeenCalled();
         expect(fixture.provenance.set).not.toHaveBeenCalled();
@@ -205,7 +206,14 @@ describe("confirmed reflection without Chunk retrieval", () => {
     it("keeps absent or superseded evidence inconclusive", async () => {
         const fixture = createFileHandlerFixture();
         fixture.provenance.get.mockResolvedValue(undefined);
-        await expect(hasReflectedRevision(fixture.ctx, filePath, "2-target")).resolves.toBe(false);
+        await expect(inspectCurrentFileProvenance(fixture.ctx, filePath, "2-target")).resolves.toBe(false);
         expect(fixture.db.fetchEntryFromMeta).not.toHaveBeenCalled();
     });
+    it("propagates a provenance inspection failure instead of reporting a mismatch", async () => {
+        const fixture = createFileHandlerFixture();
+        const error = new Error("provenance unavailable");
+        fixture.provenance.get.mockRejectedValue(error);
+        await expect(inspectCurrentFileProvenance(fixture.ctx, filePath, "2-target")).rejects.toBe(error);
+    });
+
 });

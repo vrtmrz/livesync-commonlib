@@ -73,7 +73,7 @@ describe("file-handler storage events", () => {
         if (reason === "large") vault.isFileSizeTooLarge.mockReturnValue(true);
         const emitEvent = vi.spyOn(ctx.events, "emitEvent");
 
-        await expect(processReplicatedDocument(ctx, metadata)).resolves.toBe(false);
+        await expect(processReplicatedDocument(ctx, metadata)).resolves.toEqual({ status: "policy" });
 
         expect(storage.getStub).not.toHaveBeenCalled();
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
@@ -92,7 +92,7 @@ describe("file-handler storage events", () => {
         storage.getStub.mockResolvedValue(folder);
         const emitEvent = vi.spyOn(ctx.events, "emitEvent");
 
-        await expect(processReplicatedDocument(ctx, makeMetaEntry(path, "2-replicated"))).resolves.toBe(true);
+        await expect(processReplicatedDocument(ctx, makeMetaEntry(path, "2-replicated"))).resolves.toEqual({ status: "policy" });
 
         expect(storage.getStub).toHaveBeenCalledExactlyOnceWith(path);
         expect(storage.writeFileAuto).not.toHaveBeenCalled();

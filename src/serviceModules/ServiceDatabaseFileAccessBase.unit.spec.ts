@@ -3,7 +3,6 @@ import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import replication from "pouchdb-replication";
 import type { DocumentID, EntryDoc, FilePathWithPrefix, LoadedEntry, MetaEntry, UXFileInfo } from "@lib/common/types";
-import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import {
     ServiceDatabaseFileAccessBase,
@@ -38,14 +37,12 @@ type RevisionReader = (
     dump?: boolean,
     waitForReady?: boolean,
     includeDeleted?: boolean,
-    localOnly?: boolean,
-    onFailure?: ContentReadFailureHandler
+    localOnly?: boolean
 ) => Promise<LoadedEntry | false>;
 type MetadataReader = (
     path: FilePathWithPrefix,
     options?: PouchDB.Core.GetOptions,
-    includeDeleted?: boolean,
-    onFailure?: ContentReadFailureHandler
+    includeDeleted?: boolean
 ) => Promise<MetaEntry | false>;
 type RawReader = (id: DocumentID, options?: PouchDB.Core.GetOptions) => Promise<unknown>;
 
@@ -73,6 +70,7 @@ function createService(
             localDatabase: {
                 getDBEntryMeta: readMetadata ?? getEntry,
                 getDBEntry: readRevision ?? getEntry,
+                readDBEntry: readRevision ?? getEntry,
                 getRaw: readRaw ?? ((documentId: DocumentID, options?: PouchDB.Core.GetOptions) =>
                     database.get(documentId, options)),
             },
@@ -103,18 +101,11 @@ describe("ServiceDatabaseFileAccessBase local database observers", () => {
         const failure = Object.assign(new Error("database is closed"), { name: "InvalidStateError" });
         const readRaw = vi.fn().mockRejectedValue(failure);
         const service = createService(database, id, undefined, async () => metadata, readRaw);
-        const onFailure = vi.fn();
-
-        await expect(service.findLiveContentRevisions(path, "local bytes", onFailure)).resolves.toEqual([]);
-
+        await expect(service.readLiveContentRevisions(path, "local bytes")).rejects.toMatchObject({
+            failure: { documentId: id, resources: ["local-database"], cause: failure },
+        });
         expect(readRaw).toHaveBeenCalledExactlyOnceWith(id, { open_revs: "all" });
-        expect(onFailure).toHaveBeenCalledExactlyOnceWith(
-            expect.objectContaining({
-                documentId: id,
-                reason: "local-database",
-                cause: expect.objectContaining({ name: "LocalDatabaseUnavailableError", cause: failure }),
-            })
-        );
+        await expect(service.findLiveContentRevisions(path, "local bytes")).resolves.toEqual([]);
     });
 
     it("passes the per-call observer to conflicted-revision metadata reads", async () => {
@@ -125,11 +116,8 @@ describe("ServiceDatabaseFileAccessBase local database observers", () => {
         const metadata = { _id: id, _conflicts: ["2-other"] } as unknown as MetaEntry;
         const readMetadata = vi.fn().mockResolvedValue(metadata);
         const service = createService(database, id, undefined, readMetadata);
-        const onFailure = vi.fn();
-
-        await expect(service.getConflictedRevs(path, onFailure)).resolves.toEqual(["2-other"]);
-
-        expect(readMetadata).toHaveBeenCalledExactlyOnceWith(id, { conflicts: true }, true, onFailure);
+        await expect(service.readConflictedRevs(path)).resolves.toEqual(["2-other"]);
+        expect(readMetadata).toHaveBeenCalledExactlyOnceWith(id, { conflicts: true }, true);
     });
 });
 

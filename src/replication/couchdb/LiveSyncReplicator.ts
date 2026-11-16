@@ -1,3 +1,4 @@
+import type { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB.ts";
 import { getUnencryptedContentRejectionMessage } from "@lib/replication/unencryptedContentMessages.ts";
 import {
     getUnencryptedContentRejection,
@@ -52,8 +53,7 @@ import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";
 import { prepareInitialFetchFastForward } from "./fastForward.ts";
 import type { InitialFetchFastForwardResource } from "../RemoteResource.ts";
-import type { ContentReadFailureCause, ChunkReadFailureReason } from "../contentRead.ts";
-import { LiveSyncError, RemoteRequestError } from "@lib/common/LSError.ts";
+import { ContentReadError, LiveSyncError, RemoteRequestError } from "@lib/common/LSError.ts";
 
 import { ensureDatabaseIsCompatible, getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import {
@@ -118,92 +118,6 @@ class OneShotConnectivityPreflightTimeoutError extends Error {
         super(`Remote connectivity preflight exceeded ${timeoutMs} ms.`);
         this.name = "OneShotConnectivityPreflightTimeoutError";
     }
-}
-
-function getErrorCauseChain(error: unknown): unknown[] {
-    const chain: unknown[] = [];
-    const seen = new Set<object>();
-    let current = error;
-    while (current !== null && (typeof current === "object" || typeof current === "function")) {
-        if (seen.has(current)) {
-            break;
-        }
-        seen.add(current);
-        chain.push(current);
-        try {
-            current = "cause" in current ? (current as { cause?: unknown }).cause : undefined;
-        } catch {
-            break;
-        }
-    }
-    return chain;
-}
-
-function getErrorName(error: unknown): unknown {
-    if (error === null || (typeof error !== "object" && typeof error !== "function")) {
-        return undefined;
-    }
-    try {
-        return "name" in error ? (error as { name?: unknown }).name : undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-function getErrorStatus(error: unknown): number | undefined {
-    if (error === null || (typeof error !== "object" && typeof error !== "function")) {
-        return undefined;
-    }
-    try {
-        return "status" in error && typeof (error as { status?: unknown }).status === "number"
-            ? (error as { status: number }).status
-            : undefined;
-    } catch {
-        return undefined;
-    }
-}
-
-function classifyOnDemandChunkReadFailure(error: unknown, isOnline: boolean): ChunkReadFailureReason {
-    const chain = getErrorCauseChain(error);
-    if (chain.some((candidate) => getErrorName(candidate) === "AbortError")) {
-        return "cancelled";
-    }
-
-    const hasTypedRequest = LiveSyncError.isCausedBy(error, RemoteRequestError);
-    const typedRequest = hasTypedRequest ? chain.find((candidate) => candidate instanceof RemoteRequestError) : undefined;
-    // LiveSyncError.status defaults to 500. For a typed request rejection, classify
-    // its original cause instead of allowing that synthetic status to hide transport.
-    const evidenceChain = typedRequest
-        ? getErrorCauseChain((typedRequest as RemoteRequestError).cause)
-        : chain;
-    const status = evidenceChain.map(getErrorStatus).find((value) => value !== undefined);
-    if (status === 401 || status === 403) {
-        return "authentication";
-    }
-    if (status === 404 || evidenceChain.some((candidate) => getErrorName(candidate) === "not_found")) {
-        return "missing";
-    }
-    if (status !== undefined && status >= 400 && status < 500) {
-        return "configuration";
-    }
-    if (!isOnline) {
-        return "offline";
-    }
-    if (typedRequest !== undefined && status === undefined) {
-        return "transport";
-    }
-    if (
-        status === 0 ||
-        evidenceChain.some(
-            (candidate) =>
-                candidate instanceof TypeError ||
-                getErrorName(candidate) === "TypeError" ||
-                getErrorName(candidate) === "NetworkError"
-        )
-    ) {
-        return "transport";
-    }
-    return "unavailable";
 }
 
 // eslint-disable-next-line
@@ -614,7 +528,32 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         Logger("Replication denied", LOG_LEVEL_NOTICE, "sync");
         Logger(e, LOG_LEVEL_VERBOSE);
     }
-    replicationErrored(e: unknown) {
+    /** Ask the current owner to inspect ambiguous managed-operation failures without joining its drain. */
+    private requestCurrentDatabaseInspection(error: unknown, database: LiveSyncLocalDB | null | undefined): void {
+        if (
+            error instanceof RemoteRequestError ||
+            (error instanceof ContentReadError && !error.failure.resources.includes("local-database"))
+        ) {
+            return;
+        }
+        const service = this.env.services.database;
+        if (!database || service?.localDatabaseDirect !== database || !service.onLocalDatabaseError) {
+            return;
+        }
+        // The failed replication must settle before recovery can drain it.
+        void Promise.resolve()
+            .then(() => {
+                if (service.localDatabaseDirect === database) {
+                    return service.onLocalDatabaseError(database, error);
+                }
+            })
+            .catch((failure: unknown) => {
+                Logger("Could not request current database inspection after replication failed.", LOG_LEVEL_VERBOSE);
+                Logger(failure, LOG_LEVEL_VERBOSE);
+            });
+    }
+
+    replicationErrored(e: unknown, database?: LiveSyncLocalDB | null) {
         this.syncStatus = "ERRORED";
         this.abortController();
         this.updateInfo();
@@ -629,6 +568,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             }
             return;
         }
+        this.requestCurrentDatabaseInspection(e, database);
         Logger("Replication error", LOG_LEVEL_NOTICE, "sync");
         Logger(e, LOG_LEVEL_VERBOSE);
     }
@@ -647,6 +587,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         retrying: boolean,
         reportCancelledAsDone = true
     ): Promise<"DONE" | "NEED_RETRY" | "NEED_RESURRECT" | "FAILED" | "CANCELLED"> {
+        const databaseOwner = this.env.services.database?.localDatabaseDirect;
         const controller = new AbortController();
         if (this.controller) {
             this.controller.abort();
@@ -722,7 +663,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         this.replicationDenied(e);
                         return "FAILED";
                     case "error":
-                        this.replicationErrored(e);
+                        this.replicationErrored(e, databaseOwner);
                         if (isUnencryptedContentRejectedError(e)) return "FAILED";
                         Logger("Replication stopped.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
                         if (this.env.services.remote.hadLastPostFailedBySize) {
@@ -755,9 +696,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return "CANCELLED";
         } catch (ex) {
             if (isUnencryptedContentRejectedError(ex)) {
-                this.replicationErrored(ex);
+                this.replicationErrored(ex, databaseOwner);
                 return "FAILED";
             }
+            this.requestCurrentDatabaseInspection(ex, databaseOwner);
             Logger(`Unexpected synchronization exception`);
             Logger(ex, LOG_LEVEL_VERBOSE);
             return "FAILED";
@@ -1991,65 +1933,23 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     async fetchRemoteChunks(
         missingChunks: string[],
         showResult: boolean,
-        setting: RemoteDBSettings = this.currentSettings,
-        onFailure?: (id: DocumentID, reason: ChunkReadFailureReason, cause?: ContentReadFailureCause) => void
+        setting: RemoteDBSettings = this.currentSettings
     ): Promise<false | EntryLeaf[]> {
-        const reportFailure = (reason: ChunkReadFailureReason, cause?: ContentReadFailureCause) => {
-            for (const id of missingChunks) {
-                try {
-                    if (cause) {
-                        onFailure?.(id as DocumentID, reason, cause);
-                    } else {
-                        onFailure?.(id as DocumentID, reason);
-                    }
-                } catch (error) {
-                    Logger("A remote chunk-read failure observer failed.", LOG_LEVEL_VERBOSE);
-                    Logger(error, LOG_LEVEL_VERBOSE);
-                }
-            }
-        };
-        const reportError = (error: unknown, online: boolean) => {
-            const cause = LiveSyncError.isCausedBy(error, RemoteRequestError)
-                ? RemoteRequestError.fromError(error)
-                : undefined;
-            reportFailure(classifyOnDemandChunkReadFailure(error, online), cause);
-        };
-        const isOnline = this.env.services.API.isOnline !== false;
-        let ret: string | OwnedCouchDBConnection<EntryDoc>;
-        try {
-            ret = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), false, true);
-        } catch (error) {
-            reportError(error, isOnline);
-            throw error;
-        }
+        const ret = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), false, true);
         if (typeof ret === "string") {
-            reportFailure(this.env.services.API.isOnline === false ? "offline" : "configuration");
             Logger(
                 `${this.translate("liveSyncReplicator.couldNotConnectToServer")} ${ret} `,
                 showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
                 "fetch"
             );
-            return false;
+            throw new RemoteRequestError(ret);
         }
         return await this.withRemoteConnection(ret, async (db) => {
-            let compatible: boolean;
-            try {
-                compatible = await checkRemoteVersion(db, this.migrate.bind(this), VER);
-            } catch (error) {
-                reportError(error, this.env.services.API.isOnline !== false);
-                throw error;
-            }
+            const compatible = await checkRemoteVersion(db, this.migrate.bind(this), VER);
             if (!compatible) {
-                reportFailure("configuration");
-                return false;
+                throw new RemoteRequestError("Remote database version is incompatible");
             }
-            let remoteChunks: PouchDB.Core.AllDocsWithKeysResponse<EntryDoc>;
-            try {
-                remoteChunks = await db.allDocs({ keys: missingChunks, include_docs: true });
-            } catch (error) {
-                reportError(error, this.env.services.API.isOnline !== false);
-                throw error;
-            }
+            const remoteChunks = await db.allDocs({ keys: missingChunks, include_docs: true });
             const errorRows = remoteChunks.rows.filter((e) => "error" in e);
             if (errorRows.length > 0) {
                 Logger(

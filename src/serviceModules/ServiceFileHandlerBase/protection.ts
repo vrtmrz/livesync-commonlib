@@ -1,3 +1,5 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
+import type { StorageContentClassification } from "./provenance";
 import {
     readProvenanceSnapshot,
     currentStorageSnapshotMatches,
@@ -9,29 +11,11 @@ import { queueConflictCheckFor } from "./locking";
 import { isFolderInfo } from "./storage";
 
 import { LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
-import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 
 import type { FilePathWithPrefix, MetaEntry, UXFileInfoStub } from "@lib/common/types";
 import { isDocContentSame } from "@lib/common/utils";
 
 import type { FileHandlerContext, PreservationResult } from "./context";
-
-/** Bind protection-read failures to the incoming document that owns the reflection attempt. */
-function observeIncomingDocumentReadFailures(
-    incomingEntry: MetaEntry,
-    onContentReadFailure?: ContentReadFailureHandler
-): ContentReadFailureHandler | undefined {
-    if (!onContentReadFailure) {
-        return undefined;
-    }
-    return (failure) => {
-        if (failure.documentId === incomingEntry._id && incomingEntry._rev) {
-            onContentReadFailure({ ...failure, documentId: incomingEntry._id, revision: incomingEntry._rev });
-            return;
-        }
-        onContentReadFailure(failure);
-    };
-}
 
 /**
  * Preserve changed storage before an incoming write can replace its bytes.
@@ -49,14 +33,12 @@ export async function preserveUnsyncedStorageAsConflict(
     path: FilePathWithPrefix,
     existDoc: UXFileInfoStub,
     incomingEntry: MetaEntry,
-    incomingContent?: string | string[] | Blob | ArrayBuffer,
-    onContentReadFailure?: ContentReadFailureHandler
+    incomingContent?: string | string[] | Blob | ArrayBuffer
 ): Promise<PreservationResult> {
     // Capture bytes and branch identity before classifying against database
     // revisions. A later storage change requires a fresh snapshot.
     const observedProvenance = await readProvenanceSnapshot(ctx, path);
     const readFile = await ctx.host.readFileFromStub(existDoc);
-    const observeIncomingReadFailure = observeIncomingDocumentReadFailures(incomingEntry, onContentReadFailure);
     const snapshot = { file: readFile, revision: observedProvenance };
     if (incomingContent && (await isDocContentSame(incomingContent, readFile.body))) {
         return (await currentStorageSnapshotMatches(ctx, readFile, observedProvenance))
@@ -66,16 +48,26 @@ export async function preserveUnsyncedStorageAsConflict(
     if (!incomingEntry._rev) {
         return { preserved: false };
     }
-    const classification = await classifyStorageContent(
-        ctx,
-        readFile,
-        incomingEntry,
-        undefined,
-        observedProvenance,
-        incomingContent ? { _rev: incomingEntry._rev, data: incomingContent } : undefined,
-        false,
-        observeIncomingReadFailure
-    );
+    let classification: StorageContentClassification;
+    let unavailableRead: ContentReadError | undefined;
+    try {
+        classification = await classifyStorageContent(
+            ctx,
+            readFile,
+            incomingEntry,
+            undefined,
+            observedProvenance,
+            incomingContent ? { _rev: incomingEntry._rev, data: incomingContent } : undefined,
+            false
+        );
+    } catch (error) {
+        if (!(error instanceof ContentReadError)) {
+            throw error;
+        }
+        // Independent preservation remains safe without ancestry or a readable leaf.
+        unavailableRead = error;
+        classification = { kind: "unknown" };
+    }
     // Classification can await chunk reads or leaf discovery. Revalidate
     // before creating a branch so an edit during that wait is not lost.
     if (!(await currentStorageSnapshotMatches(ctx, readFile, observedProvenance))) {
@@ -94,6 +86,9 @@ export async function preserveUnsyncedStorageAsConflict(
             ? await ctx.host.db().storeWithBaseRevision(readFile, classification.revision, true)
             : await ctx.host.db().storeIndependentRevision(readFile, true);
     if (storedRevision === false) {
+        if (unavailableRead) {
+            throw unavailableRead;
+        }
         ctx.host.log(`Prevented overwriting unsynchronised local changes for ${path}`, LOG_LEVEL_NOTICE);
         return { preserved: true };
     }
@@ -123,27 +118,16 @@ export async function recheckIncomingStorage(
     path: FilePathWithPrefix,
     incomingEntry: MetaEntry,
     incomingContent: string | string[] | Blob | ArrayBuffer | undefined,
-    allowExistingConflicts: boolean,
-    onContentReadFailure?: ContentReadFailureHandler
+    allowExistingConflicts: boolean
 ): Promise<PreservationResult> {
     const current = await ctx.host.storage().getStub(path);
     if (!current || isFolderInfo(current)) return { preserved: false };
-    const observeIncomingReadFailure = observeIncomingDocumentReadFailures(incomingEntry, onContentReadFailure);
-    const protection = await preserveUnsyncedStorageAsConflict(
-        ctx,
-        path,
-        current,
-        incomingEntry,
-        incomingContent,
-        onContentReadFailure
-    );
+    const protection = await preserveUnsyncedStorageAsConflict(ctx, path, current, incomingEntry, incomingContent);
     if (protection.preserved || !protection.snapshot) return protection;
     if (
         !allowExistingConflicts &&
         !ctx.setting.currentSettings().writeDocumentsIfConflicted &&
-        (await (observeIncomingReadFailure
-            ? ctx.host.db().getConflictedRevs(path, observeIncomingReadFailure)
-            : ctx.host.db().getConflictedRevs(path))).length > 0
+        (await ctx.host.db().readConflictedRevs(path)).length > 0
     ) {
         await queueConflictCheckFor(ctx, path, true);
         return { preserved: true };

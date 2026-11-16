@@ -81,8 +81,10 @@ async function fixture(usePathObfuscation: boolean) {
     // The host database normally forwards these calls to EntryManager.
     const localDatabase = {
         getDBEntry: entries.getDBEntry.bind(entries),
+                readDBEntry: entries.getDBEntry.bind(entries),
         getDBEntryMeta: entries.getDBEntryMeta.bind(entries),
         getDBEntryFromMeta: entries.getDBEntryFromMeta.bind(entries),
+                readDBEntryFromMeta: entries.getDBEntryFromMeta.bind(entries),
         putDBEntry: entries.putDBEntry.bind(entries),
         putDBEntryAsIndependentRoot: entries.putDBEntryAsIndependentRoot.bind(entries),
         getRaw: db.get.bind(db),

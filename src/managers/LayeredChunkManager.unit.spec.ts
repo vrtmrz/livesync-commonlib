@@ -346,6 +346,7 @@ describe("LayeredChunkManager Integration Tests", () => {
             // Emit missing chunk remote event
             await requestDispatched;
             chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, id);
+            claim.release();
 
             const results = await promise;
 

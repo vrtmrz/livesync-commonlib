@@ -31,15 +31,7 @@ import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb";
 import { stripAllPrefixes } from "@lib/string_and_binary/path";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
 import type { GeneratedChunk } from "@lib/pouchdb/LiveSyncLocalDB";
-import { LocalDatabaseUnavailableError } from "@lib/common/LSError.ts";
-import { isInvalidStateError } from "@lib/pouchdb/localDatabaseErrors.ts";
-import {
-    isTransientContentReadFailure,
-    type ChunkReadFailureReason,
-    type ContentReadFailure,
-    type ContentReadFailureCause,
-    type ContentReadFailureHandler,
-} from "@lib/replication/contentRead.ts";
+import { ContentReadError } from "@lib/common/LSError.ts";
 
 type Managers = {
     hashManager: HashManager;
@@ -382,8 +374,7 @@ export async function getDBEntryMetaByPath(
     { localDatabase }: NecessaryManagers<"localDatabase">,
     path: FilePathWithPrefix | FilePath,
     opt?: PouchDB.Core.GetOptions,
-    includeDeleted = false,
-    onFailure?: ContentReadFailureHandler
+    includeDeleted = false
 ): Promise<false | LoadedEntry> {
     if (!isTargetFile(host, path)) {
         return false;
@@ -459,20 +450,7 @@ export async function getDBEntryMetaByPath(
         if (isErrorOfMissingDoc(ex)) {
             return false;
         }
-        if (isInvalidStateError(ex) && onFailure) {
-            try {
-                onFailure({
-                    documentId: id as DocumentID,
-                    ...(typeof opt?.rev === "string" ? { revision: opt.rev } : {}),
-                    reason: "local-database",
-                    cause: LocalDatabaseUnavailableError.fromError(ex),
-                });
-            } catch (error) {
-                Logger("A content-read failure observer failed.", LOG_LEVEL_VERBOSE);
-                Logger(error, LOG_LEVEL_VERBOSE);
-            }
-        }
-        throw ex;
+        throw new ContentReadError({ documentId: id, revision: opt?.rev, resources: ["local-database"], cause: ex });
     }
     return false;
 }
@@ -574,55 +552,9 @@ async function respondEntryFromMeta(
     meta: NewEntry | PlainEntry,
     dump: boolean,
     waitForReady: boolean,
-    localOnly = false,
-    onFailure?: ContentReadFailureHandler
+    localOnly = false
 ) {
-    const dispFilename = stripAllPrefixes(filename);
     const deleted = meta.deleted ?? meta._deleted ?? undefined;
-    const chunkFailures: Array<{ id: DocumentID; reason: ChunkReadFailureReason; cause?: ContentReadFailureCause }> = [];
-    let failureReported = false;
-    const reportContentReadFailure = (
-        unavailableCount: number,
-        fallbackReason: ChunkReadFailureReason,
-        fallbackCause?: ContentReadFailureCause
-    ) => {
-        if (!onFailure || failureReported) {
-            return;
-        }
-        failureReported = true;
-
-        const observedFailures = chunkFailures.map(({ id, reason, cause }) => ({ documentId: id, reason, cause }));
-        let reason = fallbackReason;
-        let cause = fallbackCause;
-        if (observedFailures.length === unavailableCount && observedFailures.length > 0) {
-            if (observedFailures.every(isTransientContentReadFailure)) {
-                const allSameReason = observedFailures.every(({ reason: itemReason }) => itemReason === observedFailures[0].reason);
-                reason = allSameReason
-                    ? observedFailures[0].reason
-                    : observedFailures.every(({ reason: itemReason }) => itemReason === "offline")
-                      ? "offline"
-                      : "transport";
-                cause = allSameReason ? observedFailures[0].cause : undefined;
-            } else {
-                const nonTransientFailure = observedFailures.find((failure) => !isTransientContentReadFailure(failure))!;
-                reason = nonTransientFailure.reason;
-                cause = nonTransientFailure.cause;
-            }
-        }
-
-        const failure: ContentReadFailure = {
-            documentId: meta._id,
-            ...(typeof meta._rev === "string" ? { revision: meta._rev } : {}),
-            reason,
-            ...(cause ? { cause } : {}),
-        };
-        try {
-            onFailure(failure);
-        } catch (error) {
-            Logger("A content-read failure observer failed.", LOG_LEVEL_VERBOSE);
-            Logger(error, LOG_LEVEL_VERBOSE);
-        }
-    };
     if (dump) {
         let conflicts: EntryDocResponse;
         try {
@@ -632,10 +564,12 @@ async function respondEntryFromMeta(
                 revs_info: true,
             });
         } catch (error) {
-            if (isInvalidStateError(error)) {
-                reportContentReadFailure(1, "local-database", LocalDatabaseUnavailableError.fromError(error));
-            }
-            throw error;
+            throw new ContentReadError({
+                documentId: meta._id,
+                revision: meta._rev,
+                resources: ["local-database"],
+                cause: error,
+            });
         }
         Logger("-- Conflicts --");
         Logger(conflicts._conflicts ?? "No conflicts");
@@ -674,16 +608,18 @@ async function respondEntryFromMeta(
                 skipCache: false,
                 waitForDelivery,
                 preventRemoteRequest: preventRemoteRequest,
-                onUnavailable: (id, reason, cause) => chunkFailures.push({ id, reason, cause }),
             },
             edenChunks
         );
 
         const unavailableCount = chunks.filter((entry) => entry === false).length;
         if (unavailableCount > 0) {
-            reportContentReadFailure(unavailableCount, "unavailable");
-            // TODO EXACT MESSAGE
-            throw new Error("Load failed");
+            throw new ContentReadError({
+                documentId: meta._id,
+                revision: meta._rev,
+                resources: [],
+                cause: new Error("Required Chunks are unavailable"),
+            });
         }
 
         const doc: LoadedEntry & PouchDB.Core.IdMeta = {
@@ -706,25 +642,20 @@ async function respondEntryFromMeta(
             Logger(doc);
         }
         return doc;
-    } catch (ex) {
-        reportContentReadFailure(
-            Math.max(1, chunkFailures.length),
-            isErrorOfMissingDoc(ex) ? "missing" : "unavailable"
-        );
-        if (isErrorOfMissingDoc(ex)) {
-            Logger(
-                `Missing document content!, could not read ${dispFilename}(${meta._id.substring(0, 8)}) from database.`,
-                LOG_LEVEL_NOTICE
-            );
-            return false;
+    } catch (error) {
+        if (error instanceof ContentReadError) {
+            if (error.failure.documentId === meta._id && error.failure.revision === meta._rev) {
+                throw error;
+            }
+            throw new ContentReadError({
+                documentId: meta._id,
+                revision: meta._rev,
+                resources: error.failure.resources,
+                cause: error,
+            });
         }
-        Logger(
-            `Something went wrong on reading ${dispFilename}(${meta._id.substring(0, 8)}) from database:`,
-            LOG_LEVEL_NOTICE
-        );
-        Logger(ex);
+        throw new ContentReadError({ documentId: meta._id, revision: meta._rev, resources: [], cause: error });
     }
-    return false;
 }
 
 export async function getDBEntryFromMeta(
@@ -733,8 +664,7 @@ export async function getDBEntryFromMeta(
     meta: LoadedEntry | MetaEntry,
     dump = false,
     waitForReady = true,
-    localOnly = false,
-    onFailure?: ContentReadFailureHandler
+    localOnly = false
 ) {
     const filename = host.services.path.id2path(meta._id, meta);
     if (!isTargetFile(host, filename)) {
@@ -756,8 +686,7 @@ export async function getDBEntryFromMeta(
             meta,
             dump,
             waitForReady,
-            localOnly,
-            onFailure
+            localOnly
         );
     }
     return false;
@@ -770,12 +699,11 @@ export async function getDBEntryByPath(
     dump = false,
     waitForReady = true,
     includeDeleted = false,
-    localOnly = false,
-    onFailure?: ContentReadFailureHandler
+    localOnly = false
 ) {
-    const meta = await getDBEntryMetaByPath(host, managers, path, opt, includeDeleted, onFailure);
+    const meta = await getDBEntryMetaByPath(host, managers, path, opt, includeDeleted);
     if (meta) {
-        return await getDBEntryFromMeta(host, managers, meta, dump, waitForReady, localOnly, onFailure);
+        return await getDBEntryFromMeta(host, managers, meta, dump, waitForReady, localOnly);
     } else {
         return false;
     }

@@ -27,7 +27,7 @@ describe("KeyValueDBService factory boundary", () => {
         const dependencies = {
             openKeyValueDatabase: vi.fn(),
             vault: { getVaultName: () => "test-vault" },
-            appLifecycle: { onSettingLoaded: { addHandler: onSettingLoaded } },
+            appLifecycle: { onSettingLoaded: { addHandler: onSettingLoaded }, onUnload: { addHandler: vi.fn() } },
             databaseEvents: {
                 onResetDatabase: { addHandler: onResetDatabase },
                 onDatabaseInitialisation: { addHandler: onDatabaseInitialisation },
@@ -50,7 +50,7 @@ describe("KeyValueDBService factory boundary", () => {
         const dependencies = {
             openKeyValueDatabase: vi.fn(),
             vault: { getVaultName: () => "test-vault" },
-            appLifecycle: { onSettingLoaded: { addHandler: vi.fn() } },
+            appLifecycle: { onSettingLoaded: { addHandler: vi.fn() }, onUnload: { addHandler: vi.fn() } },
             databaseEvents: {
                 onResetDatabase: { addHandler: vi.fn() },
                 onDatabaseInitialisation: { addHandler: vi.fn() },
@@ -67,7 +67,7 @@ describe("KeyValueDBService factory boundary", () => {
         const dependencies = {
             openKeyValueDatabase: vi.fn(),
             vault: { getVaultName: () => "test-vault" },
-            appLifecycle: { onSettingLoaded: { addHandler: vi.fn() } },
+            appLifecycle: { onSettingLoaded: { addHandler: vi.fn() }, onUnload: { addHandler: vi.fn() } },
             databaseEvents: {
                 onResetDatabase: { addHandler: vi.fn() },
                 onDatabaseInitialisation: { addHandler: vi.fn() },
@@ -99,6 +99,7 @@ describe("KeyValueDBService factory boundary", () => {
             openKeyValueDatabase,
             vault: { getVaultName: () => "test-vault" },
             appLifecycle: {
+                onUnload: { addHandler: vi.fn() },
                 onSettingLoaded: {
                     addHandler: (handler: () => Promise<boolean>) => {
                         onSettingLoaded = handler;
@@ -133,6 +134,7 @@ describe("KeyValueDBService factory boundary", () => {
             openKeyValueDatabase,
             vault: { getVaultName: () => vaultName },
             appLifecycle: {
+                onUnload: { addHandler: vi.fn() },
                 onSettingLoaded: {
                     addHandler: (handler: () => Promise<boolean>) => {
                         onSettingLoaded = handler;
@@ -184,17 +186,20 @@ describe("KeyValueDBService factory boundary", () => {
     });
 });
 
-
-it("keeps the existing journal writable through a local connection recovery", async () => {
+it("keeps pending records through Pouch replacement and closes KV at application unload", async () => {
     const handlers: Record<string, (...args: unknown[]) => Promise<boolean>> = {};
-    const event = (name: string) => ({ addHandler: (handler: typeof handlers[string]) => { handlers[name] = handler; } });
+    const event = (name: string) => ({
+        addHandler: (handler: (typeof handlers)[string]) => {
+            handlers[name] = handler;
+        },
+    });
     const close = vi.fn(async () => undefined);
     const set = vi.fn(async () => undefined);
     const openKeyValueDatabase = vi.fn(async () => ({ close, set }));
     const service = new TestKeyValueDBService(createServiceContext(), {
         openKeyValueDatabase,
         vault: { getVaultName: () => "test-vault" },
-        appLifecycle: { onSettingLoaded: event("loaded") },
+        appLifecycle: { onSettingLoaded: event("loaded"), onUnload: event("appUnload") },
         databaseEvents: {
             onResetDatabase: event("reset"),
             onDatabaseInitialisation: event("initialise"),
@@ -203,13 +208,106 @@ it("keeps the existing journal writable through a local connection recovery", as
         },
     } as unknown as KeyValueDBDependencies);
     await handlers.loaded();
-    await handlers.close({}, "recovery");
+    await handlers.close?.({});
     await service.openSimpleStore("pending").set("edit", { operation: "create" });
-    await handlers.unload({}, "recovery");
-    await handlers.initialise({}, "recovery");
+    await handlers.unload?.({});
+    await handlers.initialise({});
     expect(openKeyValueDatabase).toHaveBeenCalledOnce();
     expect(close).not.toHaveBeenCalled();
     expect(set).toHaveBeenCalledOnce();
-    await handlers.close({});
+    await handlers.appUnload();
     expect(close).toHaveBeenCalledOnce();
+});
+
+it("keeps KV operations available when the independently owned Pouch connection closes", async () => {
+    const handlers: Record<string, (...args: unknown[]) => Promise<boolean>> = {};
+    const event = (name: string) => ({
+        addHandler: (handler: (typeof handlers)[string]) => {
+            handlers[name] = handler;
+        },
+    });
+    let closed = false;
+    const set = vi.fn(async () => {
+        if (closed) throw new Error("closed KV connection");
+    });
+    const close = vi.fn(async () => {
+        closed = true;
+    });
+    const service = new TestKeyValueDBService(createServiceContext(), {
+        openKeyValueDatabase: vi.fn(async () => ({ set, close })),
+        vault: { getVaultName: () => "test-vault" },
+        appLifecycle: { onSettingLoaded: event("loaded"), onUnload: event("appUnload") },
+        databaseEvents: {
+            onResetDatabase: event("reset"),
+            onDatabaseInitialisation: event("initialise"),
+            onUnloadDatabase: event("unload"),
+            onCloseDatabase: event("close"),
+        },
+    } as unknown as KeyValueDBDependencies);
+    await handlers.loaded();
+    await handlers.close?.({});
+    await handlers.unload?.({});
+    await expect(service.openSimpleStore("pending").set("edit", "retained")).resolves.toBeUndefined();
+    expect(close).not.toHaveBeenCalled();
+});
+
+it("preserves same-store records, changes the logical store explicitly, and discards records only on reset", async () => {
+    const handlers: Record<string, (...args: unknown[]) => Promise<boolean>> = {};
+    const event = (name: string) => ({
+        addHandler: (handler: (typeof handlers)[string]) => {
+            handlers[name] = handler;
+        },
+    });
+    let vaultName = `kv-owner-${crypto.randomUUID()}`;
+    const originalName = vaultName;
+    const factory = createIndexedDBKeyValueDatabaseFactory();
+    const service = new TestKeyValueDBService(createServiceContext(), {
+        openKeyValueDatabase: factory,
+        vault: { getVaultName: () => vaultName },
+        appLifecycle: { onSettingLoaded: event("loaded"), onUnload: event("appUnload") },
+        databaseEvents: { onResetDatabase: event("reset"), onDatabaseInitialisation: event("initialise") },
+    } as unknown as KeyValueDBDependencies);
+    const store = service.openSimpleStore<{ automaticAttempted: boolean }>("pending");
+    await handlers.loaded();
+    await store.set("record", { automaticAttempted: true });
+    await handlers.initialise({});
+    expect(await store.get("record")).toEqual({ automaticAttempted: true });
+    await handlers.appUnload();
+    await expect(store.get("record")).rejects.toThrow("not initialized");
+    await handlers.loaded();
+    expect(await store.get("record")).toEqual({ automaticAttempted: true });
+    vaultName += "-other";
+    await handlers.initialise({});
+    expect(await store.get("record")).toBeUndefined();
+    await service.kvDB.destroy();
+    vaultName = originalName;
+    await handlers.initialise({});
+    expect(await store.get("record")).toEqual({ automaticAttempted: true });
+    await handlers.reset({});
+    expect(await store.get("record")).toBeUndefined();
+    await service.kvDB.destroy();
+});
+
+it("propagates a failed pending write even when the selected KV handle already exists", async () => {
+    const handlers: Record<string, (...args: unknown[]) => Promise<boolean>> = {};
+    const event = (name: string) => ({
+        addHandler: (handler: (typeof handlers)[string]) => {
+            handlers[name] = handler;
+        },
+    });
+    const failure = new Error("KV is unavailable");
+    const service = new TestKeyValueDBService(createServiceContext(), {
+        openKeyValueDatabase: async () => ({
+            set: async () => {
+                throw failure;
+            },
+            close: async () => {},
+        }),
+        vault: { getVaultName: () => "same-key" },
+        appLifecycle: { onSettingLoaded: event("loaded"), onUnload: event("appUnload") },
+        databaseEvents: { onResetDatabase: event("reset"), onDatabaseInitialisation: event("initialise") },
+    } as unknown as KeyValueDBDependencies);
+    await handlers.loaded();
+    await handlers.initialise({});
+    await expect(service.openSimpleStore("pending").set("record", true)).rejects.toBe(failure);
 });

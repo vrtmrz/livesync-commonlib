@@ -36,7 +36,6 @@ async function readRemoteBody(
     acceptUnencryptedContent: boolean,
     encrypt = true,
     retrievalFailure?: { reason: "transport"; error: unknown },
-    onFailure?: (failure: unknown) => void
 ) {
     const database = new PouchDB<EntryDoc>(`chunk-content-${++databaseCounter}`, { adapter: "memory" });
     const settings = {
@@ -72,7 +71,6 @@ async function readRemoteBody(
         ) => {
             expect(ids).toEqual([remoteDocument._id]);
             if (retrievalFailure) {
-                reportFailure?.(remoteDocument._id, retrievalFailure.reason);
                 throw retrievalFailure.error;
             }
             return [encrypt ? await decrypt(remoteDocument) : remoteDocument] as EntryLeaf[];
@@ -102,6 +100,7 @@ async function readRemoteBody(
         };
         const receivedMetadata = encrypt ? await decrypt(metadata) : metadata;
         const host = { services: { setting, path: { id2path: () => metadata.path } } };
+        let failure: unknown;
         const result = await Reflect.apply(getDBEntryFromMeta, undefined, [
             host as Parameters<typeof getDBEntryFromMeta>[0],
             { localDatabase: database, chunkManager: manager } as Parameters<typeof getDBEntryFromMeta>[1],
@@ -109,15 +108,14 @@ async function readRemoteBody(
             false,
             true,
             false,
-            onFailure,
-        ]);
+        ]).catch((error: unknown) => { failure = error; return false; });
         expect(fetchRemoteChunks).toHaveBeenCalledOnce();
         const stored = await database.allDocs({ keys: [remoteDocument._id], include_docs: true });
         return {
             result,
             stored: stored.rows.some((row) => "doc" in row && !!row.doc),
             arrivals: arrived.mock.calls.length,
-            onFailure,
+            failure,
         };
     } finally {
         fetcher.destroy();
@@ -144,7 +142,7 @@ describe.each([E2EEAlgorithms.V2, E2EEAlgorithms.ForceV1])("on-demand Chunk cont
                     data: body,
                 } as EntryDoc;
                 const outcome = await readRemoteBody(remoteDocument, algorithm, accept);
-                expect(outcome).toEqual({ result: false, stored: false, arrivals: 0 });
+                expect(outcome).toMatchObject({ result: false, stored: false, arrivals: 0, failure: { failure: { resources: [] } } });
                 expect(JSON.stringify(log.mock.calls)).not.toContain(body);
             }
         );
@@ -197,22 +195,15 @@ describe.each([E2EEAlgorithms.V2, E2EEAlgorithms.ForceV1])("on-demand Chunk cont
             type: "leaf",
             data: body,
         };
-        const onFailure = vi.fn();
         const outcome = await readRemoteBody(
             remote,
             algorithm,
             false,
             false,
-            { reason: "transport", error: new TypeError("network fetch failed") },
-            onFailure
+            { reason: "transport", error: new TypeError("network fetch failed") }
         );
 
         expect(outcome.result).toBe(false);
-        expect(outcome.onFailure).toHaveBeenCalledOnce();
-        expect(outcome.onFailure).toHaveBeenCalledWith({
-            documentId: "fixture.md",
-            revision: "4-0123456789abcdef0123456789abcdef",
-            reason: "transport",
-        });
+        expect(outcome.failure).toMatchObject({ failure: { documentId: "fixture.md", revision: "4-0123456789abcdef0123456789abcdef", resources: ["remote"] } });
     });
 });

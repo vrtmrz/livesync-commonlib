@@ -1,3 +1,4 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import type { DocumentID, EntryLeaf } from "@lib/common/types";
@@ -40,14 +41,12 @@ describe("ArrivalWaitLayer", () => {
     );
 
     it("reports an immediate unavailable result when delivery waiting is disabled", async () => {
-        const onUnavailable = vi.fn();
         const id = "chunk-1" as DocumentID;
 
-        await expect(arrivalWaitLayer.read([id], { waitForDelivery: false, onUnavailable }, vi.fn())).resolves.toEqual([
+        await expect(arrivalWaitLayer.read([id], { waitForDelivery: false }, vi.fn())).resolves.toEqual([
             false,
         ]);
 
-        expect(onUnavailable).toHaveBeenCalledWith(id, "unavailable");
     });
 
     it.each([{}, { waitForDelivery: true }, { timeout: 1 }, { timeout: 60_000 }])(
@@ -116,7 +115,7 @@ describe("ArrivalWaitLayer", () => {
         coordinator.dispose();
     });
 
-    it("resolves explicit remote absence while other activity remains", async () => {
+    it("waits for producer completion before accepting explicit remote absence", async () => {
         const coordinator = new ChunkDeliveryCoordinator();
         let claim!: ChunkDeliveryClaim;
         eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
@@ -129,8 +128,8 @@ describe("ArrivalWaitLayer", () => {
         const promise = arrivalWaitLayer.read([id], { waitForDelivery: true }, vi.fn());
         arrivalWaitLayer.onMissingChunk(id);
 
-        await expect(promise).resolves.toEqual([false]);
         claim.release();
+        await expect(promise).resolves.toEqual([false]);
         coordinator.dispose();
     });
 
@@ -147,8 +146,8 @@ describe("ArrivalWaitLayer", () => {
         const promise = arrivalWaitLayer.read([chunk._id], { waitForDelivery: true }, vi.fn());
         arrivalWaitLayer.onChunkArrived(chunk, true);
 
-        await expect(promise).resolves.toEqual([false]);
         claim.release();
+        await expect(promise).resolves.toEqual([false]);
         coordinator.dispose();
     });
 
@@ -193,7 +192,6 @@ describe("ArrivalWaitLayer", () => {
         const coordinator = new ChunkDeliveryCoordinator(finiteActivity);
         const chunk = createMockLeaf("chunk-1");
         const recheckAvailability = vi.fn().mockResolvedValue([chunk]);
-        const failureObserver = vi.fn();
         let claim!: ChunkDeliveryClaim;
         eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
             claim = coordinator.claim(ids, { stallTimeoutMs: 0 });
@@ -204,13 +202,13 @@ describe("ArrivalWaitLayer", () => {
 
         const pending = arrivalWaitLayer.read(
             [chunk._id],
-            { waitForDelivery: true, onUnavailable: failureObserver },
+            { waitForDelivery: true },
             vi.fn()
         );
         void pending.then(() => {
             settled = true;
         });
-        arrivalWaitLayer.onChunkFailed(chunk._id, "transport");
+        arrivalWaitLayer.onChunkFailed(chunk._id, { resources: ["remote"], cause: new Error("remote fetch failed") });
         claim.release();
         await Promise.resolve();
         expect(settled).toBe(false);
@@ -218,7 +216,6 @@ describe("ArrivalWaitLayer", () => {
         finiteActivity.value = 0;
         await expect(pending).resolves.toEqual([chunk]);
         expect(recheckAvailability).toHaveBeenCalledWith([chunk._id]);
-        expect(failureObserver).not.toHaveBeenCalled();
         coordinator.dispose();
     });
 
@@ -227,8 +224,6 @@ describe("ArrivalWaitLayer", () => {
         const coordinator = new ChunkDeliveryCoordinator(finiteActivity);
         const id = "chunk-1" as DocumentID;
         const recheckAvailability = vi.fn().mockResolvedValue([false]);
-        const firstObserver = vi.fn();
-        const secondObserver = vi.fn();
         let claim!: ChunkDeliveryClaim;
         eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
             claim ??= coordinator.claim(ids, { stallTimeoutMs: 0 });
@@ -236,17 +231,14 @@ describe("ArrivalWaitLayer", () => {
         arrivalWaitLayer.tearDown();
         arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator, recheckAvailability);
 
-        const first = arrivalWaitLayer.read([id], { waitForDelivery: true, onUnavailable: firstObserver }, vi.fn());
-        const second = arrivalWaitLayer.read([id], { waitForDelivery: true, onUnavailable: secondObserver }, vi.fn());
-        arrivalWaitLayer.onChunkFailed(id, "transport");
+        const first = arrivalWaitLayer.read([id], { waitForDelivery: true }, vi.fn());
+        const second = arrivalWaitLayer.read([id], { waitForDelivery: true }, vi.fn());
+        arrivalWaitLayer.onChunkFailed(id, { resources: ["remote"], cause: new Error("remote fetch failed") });
         claim.release();
         finiteActivity.value = 0;
 
-        await expect(Promise.all([first, second])).resolves.toEqual([[false], [false]]);
-        expect(firstObserver).toHaveBeenCalledOnce();
-        expect(firstObserver).toHaveBeenCalledWith(id, "transport");
-        expect(secondObserver).toHaveBeenCalledOnce();
-        expect(secondObserver).toHaveBeenCalledWith(id, "transport");
+        const results = await Promise.allSettled([first, second]);
+        expect(results).toEqual([expect.objectContaining({ status: "rejected", reason: expect.any(ContentReadError) }), expect.objectContaining({ status: "rejected", reason: expect.any(ContentReadError) })]);
         coordinator.dispose();
     });
 
@@ -255,22 +247,20 @@ describe("ArrivalWaitLayer", () => {
         const coordinator = new ChunkDeliveryCoordinator(finiteActivity);
         const id = "chunk-typed-failure" as DocumentID;
         const recheckAvailability = vi.fn().mockResolvedValue([false]);
-        const failureObserver = vi.fn();
         let claim!: ChunkDeliveryClaim;
         eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
             claim = coordinator.claim(ids, { stallTimeoutMs: 0 });
         });
         arrivalWaitLayer.tearDown();
         arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator, recheckAvailability);
-        const cause = RemoteRequestError.fromError(new TypeError("network fetch failed"));
+        const cause = new RemoteRequestError("Remote request failed", { cause: new TypeError("network fetch failed") });
 
-        const pending = arrivalWaitLayer.read([id], { waitForDelivery: true, onUnavailable: failureObserver }, vi.fn());
-        arrivalWaitLayer.onChunkFailed(id, "transport", cause);
+        const pending = arrivalWaitLayer.read([id], { waitForDelivery: true }, vi.fn());
+        arrivalWaitLayer.onChunkFailed(id, { resources: ["remote"], cause });
         claim.release();
         finiteActivity.value = 0;
 
-        await expect(pending).resolves.toEqual([false]);
-        expect(failureObserver).toHaveBeenCalledExactlyOnceWith(id, "transport", cause);
+        await expect(pending).rejects.toMatchObject({ failure: { resources: ["remote"], cause } });
         coordinator.dispose();
     });
 
@@ -336,7 +326,6 @@ describe("ArrivalWaitLayer", () => {
     it("clears every pending waiter during teardown", async () => {
         const coordinator = new ChunkDeliveryCoordinator();
         let claim!: ChunkDeliveryClaim;
-        const failureObserver = vi.fn();
         eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
             claim = coordinator.claim(ids, { stallTimeoutMs: 0 });
         });
@@ -345,15 +334,13 @@ describe("ArrivalWaitLayer", () => {
 
         const promise = arrivalWaitLayer.read(
             ["chunk-1" as DocumentID, "chunk-2" as DocumentID],
-            { waitForDelivery: true, onUnavailable: failureObserver },
+            { waitForDelivery: true },
             vi.fn()
         );
         arrivalWaitLayer.clearWaiting();
 
         await expect(promise).resolves.toEqual([false, false]);
         expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
-        expect(failureObserver).toHaveBeenNthCalledWith(1, "chunk-1", "cancelled");
-        expect(failureObserver).toHaveBeenNthCalledWith(2, "chunk-2", "cancelled");
         claim.release();
         coordinator.dispose();
     });
@@ -362,4 +349,43 @@ describe("ArrivalWaitLayer", () => {
         expect(() => arrivalWaitLayer.onChunkArrived(createMockLeaf("chunk-1"))).not.toThrow();
         expect(() => arrivalWaitLayer.onMissingChunk("chunk-1" as DocumentID)).not.toThrow();
     });
+    it("retains both a remote failure and the failed final local recheck", async () => {
+        const coordinator = new ChunkDeliveryCoordinator();
+        const id = "h:both-failed" as DocumentID;
+        const remote = new Error("remote request failed");
+        const local = { name: "arbitrary local failure" };
+        let claim!: ChunkDeliveryClaim;
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer((_event, ids) => {
+            claim = coordinator.claim(ids, { stallTimeoutMs: 0 });
+        }, coordinator, async () => { throw local; });
+        const result = arrivalWaitLayer.read([id], { waitForDelivery: true }, vi.fn());
+        arrivalWaitLayer.onChunkFailed(id, { resources: ["remote"], cause: remote });
+        claim.release();
+        await expect(result).rejects.toMatchObject({ failure: { resources: expect.arrayContaining(["remote", "local-database"]) } });
+        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
+        coordinator.dispose();
+    });
+
+    it("requires manual review when a remote failure is mixed with invalid content", async () => {
+        const coordinator = new ChunkDeliveryCoordinator();
+        const ids = ["h:remote", "h:invalid"] as DocumentID[];
+        const remote = new Error("request failed");
+        const invalid = { detail: "invalid content" };
+        let claim!: ChunkDeliveryClaim;
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer((_event, requested) => {
+            claim = coordinator.claim(requested, { stallTimeoutMs: 0 });
+        }, coordinator, async () => [false, false]);
+        const result = arrivalWaitLayer.read(ids, { waitForDelivery: true }, vi.fn());
+        arrivalWaitLayer.onChunkFailed(ids[0], { resources: ["remote"], cause: remote });
+        arrivalWaitLayer.onChunkFailed(ids[1], { resources: [], cause: invalid });
+        claim.release();
+        const error = await result.catch((failure: unknown) => failure);
+        expect(error).toMatchObject({ failure: { resources: [] } });
+        const aggregate = (error as ContentReadError).failure.cause as AggregateError;
+        expect(aggregate.errors.map((failure: ContentReadError) => failure.failure.cause)).toEqual([remote, invalid]);
+        coordinator.dispose();
+    });
+
 });

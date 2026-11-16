@@ -138,8 +138,10 @@ async function createPeer() {
         database: {
             localDatabase: {
                 getDBEntry: entries.getDBEntry.bind(entries),
+                readDBEntry: entries.getDBEntry.bind(entries),
                 getDBEntryMeta: entries.getDBEntryMeta.bind(entries),
                 getDBEntryFromMeta: entries.getDBEntryFromMeta.bind(entries),
+                readDBEntryFromMeta: entries.getDBEntryFromMeta.bind(entries),
                 putDBEntry: entries.putDBEntry.bind(entries),
                 putDBEntryAsIndependentRoot: entries.putDBEntryAsIndependentRoot.bind(entries),
                 deleteDBEntry: entries.deleteDBEntry.bind(entries),

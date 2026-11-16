@@ -1,3 +1,4 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
 import { describe, expect, it } from "vitest";
 
 import { EntryTypes, type FilePathWithPrefix, type LoadedEntry } from "@lib/common/types";
@@ -274,5 +275,26 @@ describe("ServiceFileHandlerBase saving operations", () => {
         expect(fixture.db.storeIndependentRevision).not.toHaveBeenCalled();
         expect(fixture.db.storeWithBaseRevision).not.toHaveBeenCalled();
         expect(fixture.conflict.queueCheckFor).toHaveBeenCalledExactlyOnceWith(filePath);
+    });
+});
+
+describe("ordinary save content fallback", () => {
+    it.each([true, false])("preserves independently after failed content classification (stored=%s)", async (stored) => {
+        const fixture = createFileHandlerFixture();
+        const file = makeFile(filePath, "unique local edits");
+        const entry = makeMetaEntry(filePath, "3-current");
+        const error = new ContentReadError({ documentId: entry._id, revision: entry._rev, resources: ["local-database"], cause: new Error("classification read failed") });
+        fixture.files.set(filePath, file);
+        fixture.db.fetchEntryMeta.mockResolvedValue(entry);
+        fixture.db.findLiveContentRevisions.mockRejectedValue(error);
+        fixture.db.storeIndependentRevision.mockResolvedValue(stored ? "1-preserved" : false);
+        const result = storeFileToDBFromRevision(fixture.ctx, file);
+        if (stored) {
+            await expect(result).resolves.toBe(true);
+        } else {
+            await expect(result).rejects.toBe(error);
+        }
+        expect(fixture.db.storeIndependentRevision).toHaveBeenCalledOnce();
+        expect(fixture.storage.writeFileAuto).not.toHaveBeenCalled();
     });
 });

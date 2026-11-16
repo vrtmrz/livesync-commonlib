@@ -1,3 +1,4 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
 import {
     DEFAULT_SETTINGS,
     EntryTypes,
@@ -11,7 +12,7 @@ import { TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import { computeFileContentHash } from "@lib/common/fileContentHash";
 import { describe, expect, it, vi } from "vitest";
 
-import { applyDatabaseEntryToStorage, dbToStorage, dbToStorageWithSpecificRev } from "./reflection";
+import { applyDatabaseEntryToStorage, reflectDatabaseEntry, dbToStorage, dbToStorageWithSpecificRev } from "./reflection";
 import {
     createFileHandlerFixture,
     makeFile,
@@ -58,7 +59,7 @@ describe("database-to-storage reflection", () => {
         db.getConflictedRevs.mockResolvedValue([entry._rev!]);
         db.fetchEntryFromMeta.mockResolvedValue(decoded);
 
-        await expect(applyDatabaseEntryToStorage(ctx, entry, stub, false, true)).resolves.toBe(true);
+        await expect(applyDatabaseEntryToStorage(ctx, entry, stub, false, true)).resolves.toEqual({ status: "completed" });
 
         expect(storage.readStubContent).toHaveBeenCalledExactlyOnceWith(stub);
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
@@ -83,7 +84,7 @@ describe("database-to-storage reflection", () => {
         db.getConflictedRevs.mockResolvedValue([entry._rev!]);
         db.fetchEntryFromMeta.mockResolvedValue(decoded);
 
-        await expect(applyDatabaseEntryToStorage(ctx, entry, stub, false, true)).resolves.toBe(true);
+        await expect(applyDatabaseEntryToStorage(ctx, entry, stub, false, true)).resolves.toEqual({ status: "completed" });
 
         expect(storage.readStubContent).toHaveBeenCalledExactlyOnceWith(stub);
         expect(storage.writeFileAuto).toHaveBeenCalledExactlyOnceWith(path, "selected bytes", {
@@ -108,7 +109,7 @@ describe("database-to-storage reflection", () => {
             return true;
         });
 
-        await expect(applyDatabaseEntryToStorage(ctx, entry, stub)).resolves.toBe(true);
+        await expect(applyDatabaseEntryToStorage(ctx, entry, stub)).resolves.toEqual({ status: "policy" });
 
         expect(storage.ensureDir).toHaveBeenCalledExactlyOnceWith(path);
         expect(db.storeIndependentRevision).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ path }), true);
@@ -126,7 +127,7 @@ describe("database-to-storage reflection", () => {
         const deletion = makeMetaEntry(path, "3-deleted", { deleted: true });
         db.storeIndependentRevision.mockResolvedValue(false);
 
-        await expect(applyDatabaseEntryToStorage(ctx, deletion, stub)).resolves.toBe(true);
+        await expect(applyDatabaseEntryToStorage(ctx, deletion, stub)).resolves.toEqual({ status: "policy" });
 
         expect(db.storeIndependentRevision).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ path }), true);
         expect(storage.deleteVaultItem).not.toHaveBeenCalled();
@@ -148,7 +149,7 @@ describe("database-to-storage reflection", () => {
         );
         db.fetchEntryMeta.mockResolvedValue(newEntry);
 
-        await expect(applyDatabaseEntryToStorage(ctx, oldEntry, stub)).resolves.toBe(true);
+        await expect(applyDatabaseEntryToStorage(ctx, oldEntry, stub)).resolves.toEqual({ status: "completed" });
 
         expect(storage.writeFileAuto).toHaveBeenCalledExactlyOnceWith(path, "current bytes", expect.any(Object));
         expect(storage.writeFileAuto).not.toHaveBeenCalledWith(path, "older bytes", expect.any(Object));
@@ -159,7 +160,7 @@ describe("database-to-storage reflection", () => {
         const entry = makeMetaEntry(path, "2-incoming");
         folderFixture.storage.getStub.mockResolvedValue(makeFolder(path));
 
-        await expect(applyDatabaseEntryToStorage(folderFixture.ctx, entry, null)).resolves.toBe(true);
+        await expect(applyDatabaseEntryToStorage(folderFixture.ctx, entry, null)).resolves.toEqual({ status: "policy" });
 
         expect(folderFixture.db.fetchEntryFromMeta).not.toHaveBeenCalled();
         expect(folderFixture.storage.writeFileAuto).not.toHaveBeenCalled();
@@ -169,7 +170,7 @@ describe("database-to-storage reflection", () => {
         deletionFixture.provenanceRecords.set(path, { revision: "2-displayed" });
         await expect(
             applyDatabaseEntryToStorage(deletionFixture.ctx, makeMetaEntry(path, "3-deleted", { deleted: true }), null)
-        ).resolves.toBe(true);
+        ).resolves.toEqual({ status: "completed" });
 
         expect(deletionFixture.provenance.delete).toHaveBeenCalledExactlyOnceWith(path);
         expect(deletionFixture.storage.deleteVaultItem).not.toHaveBeenCalled();
@@ -189,7 +190,7 @@ describe("database-to-storage reflection", () => {
         });
         db.fetchEntryFromMeta.mockResolvedValue(loaded(entry, "incoming bytes"));
 
-        await expect(applyDatabaseEntryToStorage(ctx, entry, null, forceWrite)).resolves.toBe(true);
+        await expect(applyDatabaseEntryToStorage(ctx, entry, null, forceWrite)).resolves.toEqual({ status: writeConflicted ? "completed" : "policy" });
 
         if (writeConflicted) {
             expect(storage.writeFileAuto).toHaveBeenCalledExactlyOnceWith(path, "incoming bytes", expect.any(Object));
@@ -206,7 +207,7 @@ describe("database-to-storage reflection", () => {
         const entry = makeMetaEntry(path, "2-incoming", { size: 99 });
         db.fetchEntryFromMeta.mockResolvedValue(loaded(entry, "short"));
 
-        await expect(applyDatabaseEntryToStorage(ctx, entry, null)).resolves.toBe(false);
+        await expect(applyDatabaseEntryToStorage(ctx, entry, null)).rejects.toThrow();
 
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
         expect(storage.deleteVaultItem).not.toHaveBeenCalled();
@@ -231,7 +232,7 @@ describe("database-to-storage reflection", () => {
             return deletion;
         });
 
-        await expect(applyDatabaseEntryToStorage(ctx, deletion, makeFileStub(path))).resolves.toBe(true);
+        await expect(applyDatabaseEntryToStorage(ctx, deletion, makeFileStub(path))).resolves.toEqual({ status: "policy" });
 
         expect(db.storeIndependentRevision).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ path }), true);
         expect(storage.deleteVaultItem).not.toHaveBeenCalled();
@@ -266,7 +267,7 @@ describe("database-to-storage reflection", () => {
                 return deletion;
             });
 
-            await expect(applyDatabaseEntryToStorage(ctx, deletion, makeFileStub(path))).resolves.toBe(false);
+            await expect(applyDatabaseEntryToStorage(ctx, deletion, makeFileStub(path))).rejects.toThrow();
 
             expect(db.fetchEntryMeta).toHaveBeenCalledTimes(2);
             expect(storage.deleteVaultItem).not.toHaveBeenCalled();
@@ -288,7 +289,7 @@ describe("database-to-storage reflection", () => {
             return true;
         });
 
-        await expect(applyDatabaseEntryToStorage(ctx, entry, makeFileStub(path))).resolves.toBe(false);
+        await expect(applyDatabaseEntryToStorage(ctx, entry, makeFileStub(path))).rejects.toThrow();
 
         expect(storage.ensureDir).toHaveBeenCalledExactlyOnceWith(path);
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
@@ -308,7 +309,7 @@ describe("database-to-storage reflection", () => {
             return entry;
         });
 
-        await expect(applyDatabaseEntryToStorage(ctx, entry, stub)).resolves.toBe(false);
+        await expect(applyDatabaseEntryToStorage(ctx, entry, stub)).rejects.toThrow();
 
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
         expect(await files.get(path)?.body.text()).toBe("edit after database check");
@@ -320,7 +321,7 @@ describe("database-to-storage reflection", () => {
         db.fetchEntryFromMeta.mockResolvedValue(loaded(entry, "incoming bytes"));
         storage.writeFileAuto.mockResolvedValue(false);
 
-        await expect(applyDatabaseEntryToStorage(ctx, entry, null, true)).resolves.toBe(false);
+        await expect(applyDatabaseEntryToStorage(ctx, entry, null, true)).rejects.toThrow();
 
         expect(storage.writeFileAuto).toHaveBeenCalledExactlyOnceWith(path, "incoming bytes", {
             ctime: entry.ctime,
@@ -345,7 +346,7 @@ describe("database-to-storage reflection", () => {
             return [];
         });
 
-        await expect(applyDatabaseEntryToStorage(ctx, entry, makeFileStub(path))).resolves.toBe(false);
+        await expect(applyDatabaseEntryToStorage(ctx, entry, makeFileStub(path))).rejects.toThrow();
 
         expect(db.findLiveContentRevisions).toHaveBeenCalledTimes(2);
         expect(db.storeWithBaseRevision).not.toHaveBeenCalled();
@@ -384,24 +385,61 @@ describe("database-to-storage reflection", () => {
 });
 
 describe("reflection content-read outcome", () => {
-    it("reports the failed read to its caller while leaving storage untouched", async () => {
+    it("throws the original read failure without changing its historical revision or storage", async () => {
         const { ctx, db, storage } = createFileHandlerFixture();
-        const entry = makeMetaEntry(path, "2-unavailable");
-        const failure = { documentId: entry._id, revision: entry._rev, reason: "transport" as const };
+        const entry = makeMetaEntry(path, "3-incoming");
+        const error = new ContentReadError({ documentId: entry._id, revision: "1-history", resources: ["remote"], cause: new Error("request failed") });
         db.fetchEntryMeta.mockResolvedValue(entry);
-        db.fetchEntryFromMeta.mockImplementation(async (...args) => {
-            const observer = (args as unknown[])[4];
-            if (typeof observer === "function") {
-                observer(failure);
-            }
-            return false;
-        });
-        const onFailure = vi.fn();
-
-        await expect(Reflect.apply(dbToStorage, undefined, [ctx, entry, null, false, onFailure])).resolves.toBe(false);
-
-        expect(onFailure).toHaveBeenCalledExactlyOnceWith(failure);
+        db.fetchEntryFromMeta.mockRejectedValue(error);
+        await expect(reflectDatabaseEntry(ctx, entry, null, false, { target: { documentId: entry._id, revision: entry._rev! }, source: "received" })).rejects.toBe(error);
+        expect(error.failure.revision).toBe("1-history");
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
         expect(storage.triggerFileEvent).not.toHaveBeenCalled();
+        await expect(dbToStorage(ctx, entry, null)).resolves.toBe(false);
+    });
+
+    it("consumes only an explicit owner checkpoint cancellation before reading", async () => {
+        const { ctx, db, storage } = createFileHandlerFixture();
+        const entry = makeMetaEntry(path, "3-incoming");
+        await expect(reflectDatabaseEntry(ctx, entry, null, false, { target: { documentId: entry._id, revision: entry._rev! }, source: "received", checkpoint: () => false })).resolves.toEqual({ status: "cancelled" });
+        expect(db.fetchEntryMeta).not.toHaveBeenCalled();
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
+    });
+});
+
+describe("Boolean reflection facade cleanup", () => {
+    it("preserves a typed deferred conflict-hook error after unlocking", async () => {
+        const { ctx, db, conflict } = createFileHandlerFixture();
+        const entry = makeMetaEntry(path, "3-current");
+        const error = new ContentReadError({ documentId: entry._id, revision: entry._rev, resources: ["local-database"], cause: new Error("conflict inspection failed") });
+        db.fetchEntryMeta.mockResolvedValue(entry);
+        db.getConflictedRevs.mockResolvedValue(["2-conflict"]);
+        conflict.queueCheckForIfOpen.mockRejectedValue(error);
+        await expect(dbToStorage(ctx, entry, null)).rejects.toBe(error);
+    });
+});
+
+describe("selected-revision Boolean compatibility", () => {
+    it("returns false for an unreadable selected live revision", async () => {
+        const { ctx, db, storage } = createFileHandlerFixture();
+        const entry = makeMetaEntry(path, "3-selected");
+        const error = new ContentReadError({ documentId: entry._id, revision: entry._rev, resources: ["remote"], cause: new Error("request failed") });
+        db.fetchEntryMeta.mockResolvedValue(entry);
+        db.fetchEntryFromMeta.mockRejectedValue(error);
+        await expect(dbToStorageWithSpecificRev(ctx, path, entry._rev!)).resolves.toBe(false);
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
+    });
+
+    it("preserves a post-unlock hook error after protecting a selected-revision write", async () => {
+        const { ctx, db, conflict, files, storage } = createFileHandlerFixture();
+        const entry = makeMetaEntry(path, "3-selected", { size: new Blob(["incoming"]).size });
+        files.set(path, makeFile(path, "unique local edits"));
+        const error = new ContentReadError({ documentId: entry._id, resources: ["local-database"], cause: new Error("review failed") });
+        db.fetchEntryMeta.mockResolvedValue(entry);
+        db.fetchEntryFromMeta.mockResolvedValue(loaded(entry, "incoming"));
+        conflict.queueCheckFor.mockRejectedValue(error);
+        await expect(dbToStorageWithSpecificRev(ctx, path, entry._rev!)).rejects.toBe(error);
+        expect(db.storeIndependentRevision).toHaveBeenCalledOnce();
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
     });
 });

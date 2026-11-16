@@ -2128,7 +2128,7 @@ describe("LiveSyncCouchDBReplicator chunk sending settlement and connection owne
 
 describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
     it("preserves a typed supplied-fetch rejection through real PouchDB HTTP reads", async () => {
-        const typedFailure = RemoteRequestError.fromError(new TypeError("network fetch failed"));
+        const typedFailure = new RemoteRequestError("Remote request failed", { cause: new TypeError("network fetch failed") });
         const fetch = vi.fn().mockRejectedValue(typedFailure);
         const remote = new PouchDB<EntryDoc>("https://couchdb.test/typed-request", {
             skip_setup: true,
@@ -2159,14 +2159,12 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
             db: remoteDatabase,
             close,
         } as never);
-        const onFailure = vi.fn();
 
         await expect(
-            replicator.fetchRemoteChunks(["h:pending"], false, {} as RemoteDBSettings, onFailure)
+            replicator.fetchRemoteChunks(["h:pending"], false, {} as RemoteDBSettings)
         ).rejects.toBe(failure);
 
         expect(remoteDatabase.allDocs).not.toHaveBeenCalled();
-        expect(onFailure).toHaveBeenCalledExactlyOnceWith("h:pending", "transport");
         expect(close).toHaveBeenCalledOnce();
     });
 
@@ -2183,7 +2181,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
             "authentication",
         ],
         ["cancellation while offline", Object.assign(new Error("aborted"), { name: "AbortError" }), false, "cancelled"],
-    ] as const)("classifies %s at the remote chunk lookup boundary", async (_case, failure, isOnline, reason) => {
+    ] as const)("preserves %s at the remote chunk lookup boundary", async (_case, failure, isOnline, _reason) => {
         const remoteDatabase = {
             get: vi.fn(async () => ({ _id: VERSIONING_DOCID, type: "versioninfo", version: VER })),
             allDocs: vi.fn().mockRejectedValue(failure),
@@ -2201,13 +2199,11 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
             db: remoteDatabase,
             close: connectionClose,
         } as never);
-        const onFailure = vi.fn();
 
         await expect(
-            Reflect.apply(replicator.fetchRemoteChunks, replicator, [["h:pending"], false, {}, onFailure])
+            Reflect.apply(replicator.fetchRemoteChunks, replicator, [["h:pending"], false, {}])
         ).rejects.toBe(failure);
 
-        expect(onFailure).toHaveBeenCalledWith("h:pending", reason);
         expect(connectionClose).toHaveBeenCalledOnce();
     });
 
@@ -2219,8 +2215,8 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
         ["unknown cause", new Error("unclassified request failure"), true, "transport"],
         ["cross-realm Error cause", { name: "Error", message: "unclassified request failure" }, true, "transport"],
         ["abort cause", Object.assign(new Error("aborted"), { name: "AbortError" }), false, "cancelled"],
-    ] as const)("classifies typed request failure from its %s", async (_case, cause, isOnline, reason) => {
-        const typedFailure = RemoteRequestError.fromError(cause);
+    ] as const)("preserves typed request failure with its %s", async (_case, cause, isOnline, _reason) => {
+        const typedFailure = new RemoteRequestError("Remote request failed", { cause });
         const remoteDatabase = {
             get: vi.fn(async () => ({ _id: VERSIONING_DOCID, type: "versioninfo", version: VER })),
             allDocs: vi.fn().mockRejectedValue(typedFailure),
@@ -2238,13 +2234,11 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
             db: remoteDatabase,
             close: connectionClose,
         } as never);
-        const onFailure = vi.fn();
 
         await expect(
-            Reflect.apply(replicator.fetchRemoteChunks, replicator, [["h:pending"], false, {}, onFailure])
+            Reflect.apply(replicator.fetchRemoteChunks, replicator, [["h:pending"], false, {}])
         ).rejects.toBe(typedFailure);
 
-        expect(onFailure).toHaveBeenCalledExactlyOnceWith("h:pending", reason, typedFailure);
         expect(connectionClose).toHaveBeenCalledOnce();
     });
 
@@ -2258,13 +2252,11 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
             },
         } as unknown as LiveSyncCouchDBReplicator["env"];
         vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue("offline" as never);
-        const onFailure = vi.fn();
 
         await expect(
-            Reflect.apply(replicator.fetchRemoteChunks, replicator, [["h:pending"], false, {}, onFailure])
-        ).resolves.toBe(false);
+            Reflect.apply(replicator.fetchRemoteChunks, replicator, [["h:pending"], false, {}])
+        ).rejects.toBeInstanceOf(RemoteRequestError);
 
-        expect(onFailure).toHaveBeenCalledWith("h:pending", "offline");
     });
 
     it("does not fetch chunks from a database using an unknown feature", async () => {
@@ -2291,7 +2283,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
             close: connectionClose,
         } as never);
 
-        await expect(replicator.fetchRemoteChunks(["h:pending"], false)).resolves.toBe(false);
+        await expect(replicator.fetchRemoteChunks(["h:pending"], false)).rejects.toBeInstanceOf(RemoteRequestError);
         expect(remoteDatabase.allDocs).not.toHaveBeenCalled();
         expect(connectionClose).toHaveBeenCalledOnce();
     });
@@ -2428,5 +2420,34 @@ describe("plaintext receipt policy failures", () => {
         await expect(result).resolves.toBe("DONE");
         expect(handler.cancel).toHaveBeenCalledOnce();
         expect(handler.pull.listenerCount("requestError")).toBe(0);
+    });
+});
+
+describe("managed replication failure notification", () => {
+    function fixture() {
+        const subject = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        const owner = {} as never;
+        const onLocalDatabaseError = vi.fn(() => new Promise<boolean>(() => {}));
+        const database = { localDatabaseDirect: owner, onLocalDatabaseError };
+        Object.assign(subject, { env: { services: { database } }, abortController: vi.fn(), updateInfo: vi.fn() });
+        return { subject, owner, database, onLocalDatabaseError };
+    }
+
+    it("requests inspection of the captured owner without waiting for recovery", async () => {
+        const { subject, owner, onLocalDatabaseError } = fixture();
+        const error = { name: "arbitrary failure" };
+        expect(subject.replicationErrored(error, owner)).toBeUndefined();
+        await Promise.resolve();
+        expect(onLocalDatabaseError).toHaveBeenCalledExactlyOnceWith(owner, error);
+    });
+
+    it("ignores a retired or absent owner and known remote request failures", async () => {
+        const { subject, owner, database, onLocalDatabaseError } = fixture();
+        subject.replicationErrored(new RemoteRequestError("request failed"), owner);
+        subject.replicationErrored(new Error("no owner"), undefined);
+        subject.replicationErrored(new Error("retired operation"), owner);
+        database.localDatabaseDirect = {} as never;
+        await Promise.resolve();
+        expect(onLocalDatabaseError).not.toHaveBeenCalled();
     });
 });

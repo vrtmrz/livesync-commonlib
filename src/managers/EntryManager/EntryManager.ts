@@ -12,7 +12,6 @@ import type { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters";
 import type { HashManager } from "@lib/managers/HashManager/HashManager";
 import type { GeneratedChunk } from "@lib/pouchdb/LiveSyncLocalDB";
 import type { IPathService, ISettingService } from "@lib/services/base/IService";
-import type { ContentReadFailureHandler } from "@lib/replication/contentRead.ts";
 import { assertDatabasePathIdentity } from "@lib/pouchdb/pathIdentityCompatibility";
 import {
     deleteDBEntryByPath,
@@ -87,10 +86,9 @@ export class EntryManager {
     async getDBEntryMeta(
         path: FilePathWithPrefix | FilePath,
         opt?: PouchDB.Core.GetOptions,
-        includeDeleted = false,
-        onFailure?: ContentReadFailureHandler
+        includeDeleted = false
     ): Promise<false | LoadedEntry> {
-        return await getDBEntryMetaByPath(this.serviceHost, this, path, opt, includeDeleted, onFailure);
+        return await getDBEntryMetaByPath(this.serviceHost, this, path, opt, includeDeleted);
     }
     async getDBEntry(
         path: FilePathWithPrefix | FilePath,
@@ -98,29 +96,17 @@ export class EntryManager {
         dump = false,
         waitForReady = true,
         includeDeleted = false,
-        localOnly = false,
-        onFailure?: ContentReadFailureHandler
+        localOnly = false
     ): Promise<false | LoadedEntry> {
-        return await getDBEntryByPath(
-            this.serviceHost,
-            this,
-            path,
-            opt,
-            dump,
-            waitForReady,
-            includeDeleted,
-            localOnly,
-            onFailure
-        );
+        return await getDBEntryByPath(this.serviceHost, this, path, opt, dump, waitForReady, includeDeleted, localOnly);
     }
     async getDBEntryFromMeta(
         meta: LoadedEntry | MetaEntry,
         dump = false,
         waitForReady = true,
-        localOnly = false,
-        onFailure?: ContentReadFailureHandler
+        localOnly = false
     ): Promise<false | LoadedEntry> {
-        return await getDBEntryFromMeta(this.serviceHost, this, meta, dump, waitForReady, localOnly, onFailure);
+        return await getDBEntryFromMeta(this.serviceHost, this, meta, dump, waitForReady, localOnly);
     }
 
     async deleteDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {

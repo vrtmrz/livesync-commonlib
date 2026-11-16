@@ -3,6 +3,7 @@ import type { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
 import { LiveSyncLocalDB as LiveSyncLocalDBClass } from "@lib/pouchdb/LiveSyncLocalDB";
 import { ServiceContext } from "./ServiceBase";
 import { DatabaseService } from "./DatabaseService";
+import { SuffixDatabaseName } from "@lib/common/models/shared.const.ts";
 import type { openDatabaseParameters } from "./IService";
 
 class TestDatabaseService extends DatabaseService {
@@ -68,9 +69,13 @@ describe("DatabaseService reset ownership", () => {
     it("does not reset a replacement selected while the reset waits for the lifecycle lock", async () => {
         const service = createDatabaseService();
         let finish!: () => void;
-        const gate = new Promise<boolean>((resolve) => { finish = () => resolve(true); });
-        const initialise = vi.spyOn(LiveSyncLocalDBClass.prototype, "initializeDatabase")
-            .mockImplementationOnce(() => gate).mockResolvedValue(true);
+        const gate = new Promise<boolean>((resolve) => {
+            finish = () => resolve(true);
+        });
+        const initialise = vi
+            .spyOn(LiveSyncLocalDBClass.prototype, "initializeDatabase")
+            .mockImplementationOnce(() => gate)
+            .mockResolvedValue(true);
         vi.spyOn(LiveSyncLocalDBClass.prototype, "close").mockResolvedValue(undefined);
         const reset = vi.spyOn(LiveSyncLocalDBClass.prototype, "resetDatabase").mockResolvedValue(true);
         const first = service.openDatabase(openParameters);
@@ -183,12 +188,13 @@ describe("DatabaseService reset ownership", () => {
     });
 });
 
-
 describe("DatabaseService connection lifetime", () => {
     it("serialises two opens until initialisation and the preceding close have settled", async () => {
         const service = createDatabaseService();
         let release!: () => void;
-        const pending = new Promise<void>((resolve) => { release = resolve; });
+        const pending = new Promise<void>((resolve) => {
+            release = resolve;
+        });
         const initialised: LiveSyncLocalDB[] = [];
         vi.spyOn(LiveSyncLocalDBClass.prototype, "initializeDatabase").mockImplementation(async function () {
             initialised.push(this);
@@ -204,7 +210,9 @@ describe("DatabaseService connection lifetime", () => {
             await Promise.resolve();
             expect(initialised).toHaveLength(1);
             expect(close).not.toHaveBeenCalled();
-        } finally { release(); }
+        } finally {
+            release();
+        }
         await expect(first).resolves.toBe(true);
         await expect(second).resolves.toBe(true);
         expect(initialised).toHaveLength(2);
@@ -215,11 +223,11 @@ describe("DatabaseService connection lifetime", () => {
     it("does not create a database just to check a missing or unready connection", async () => {
         const service = createDatabaseService();
         const open = vi.spyOn(service, "openDatabase");
-        await expect(service.checkDatabaseConnection()).resolves.toBe(false);
+        await expect(service.canReadCurrentDatabaseInfo()).resolves.toBe(false);
         const unready = localDatabase("vault-current");
         Object.assign(unready, { isReady: false, localDatabase: { info: vi.fn() } });
         service.setActiveDatabase(unready);
-        await expect(service.checkDatabaseConnection()).resolves.toBe(false);
+        await expect(service.canReadCurrentDatabaseInfo()).resolves.toBe(false);
         expect(unready.localDatabase.info).not.toHaveBeenCalled();
         expect(open).not.toHaveBeenCalled();
     });
@@ -231,26 +239,32 @@ describe("DatabaseService connection lifetime", () => {
         const active = localDatabase("vault-current");
         Object.assign(active, { isReady: true, localDatabase: { info } });
         service.setActiveDatabase(active);
-        await expect(service.checkDatabaseConnection()).resolves.toBe(true);
-        await expect(service.checkDatabaseConnection()).rejects.toBe(error);
+        await expect(service.canReadCurrentDatabaseInfo()).resolves.toBe(true);
+        await expect(service.canReadCurrentDatabaseInfo()).rejects.toBe(error);
         expect(service.localDatabaseDirect).toBe(active);
         expect(active.close).not.toHaveBeenCalled();
     });
 
     it("reopens a failed lifetime once when duplicate recovery requests are queued", async () => {
         const service = createDatabaseService();
-        const active = localDatabase("vault-current");
-        Object.assign(active, { isReady: false });
-        service.setActiveDatabase(active);
-        const initialise = vi.spyOn(LiveSyncLocalDBClass.prototype, "initializeDatabase").mockImplementation(async function () {
-            this.isReady = true;
-            return true;
-        });
-        await expect(Promise.all([
-            service.reopenDatabase(active, openParameters),
-            service.reopenDatabase(active, openParameters),
-        ])).resolves.toEqual([true, false]);
-        expect(active.close).toHaveBeenCalledOnce();
+        const initialise = vi
+            .spyOn(LiveSyncLocalDBClass.prototype, "initializeDatabase")
+            .mockImplementation(async function () {
+                this.isReady = true;
+                return true;
+            });
+        const close = vi.spyOn(LiveSyncLocalDBClass.prototype, "close").mockResolvedValue(undefined);
+        await service.openDatabase(openParameters);
+        const active = service.localDatabase;
+        active.isReady = false;
+        initialise.mockClear();
+        await expect(
+            Promise.all([
+                service.reopenDatabase(active, openParameters),
+                service.reopenDatabase(active, openParameters),
+            ])
+        ).resolves.toEqual([true, false]);
+        expect(close).toHaveBeenCalledOnce();
         expect(initialise).toHaveBeenCalledOnce();
     });
 
@@ -263,4 +277,45 @@ describe("DatabaseService connection lifetime", () => {
         expect(service.localDatabaseDirect).toBeNull();
         expect(active.close).toHaveBeenCalledOnce();
     });
+});
+
+it("rejects recovery when the selected database changes while work drains", async () => {
+    let useIndexedDBAdapter = false;
+    const pouchDB = vi.fn(function (name: string, options: { adapter?: string }) {
+        return { name, adapter: options.adapter ?? "idb" };
+    });
+    const service = new TestDatabaseService(new ServiceContext(), {
+        pouchDB: pouchDB as never,
+        path: {} as never,
+        vault: { getVaultName: () => "vault-current" } as never,
+        setting: { currentSettings: () => ({ useIndexedDBAdapter }) } as never,
+        API: { addLog: vi.fn() } as never,
+    });
+    vi.spyOn(LiveSyncLocalDBClass.prototype, "close").mockResolvedValue(undefined);
+    vi.spyOn(LiveSyncLocalDBClass.prototype, "initializeDatabase").mockImplementation(async function () {
+        const runtime = (
+            this as unknown as { runtimeOptions: { createPouchDBInstance?: typeof service.createPouchDBInstance } }
+        ).runtimeOptions;
+        const create =
+            runtime.createPouchDBInstance ??
+            this.env.services.database.createPouchDBInstance.bind(this.env.services.database);
+        this.localDatabase = create(this.dbname + SuffixDatabaseName);
+        this.isReady = true;
+        return true;
+    });
+    await service.openDatabase(openParameters);
+    const originalName = (service.localDatabase.localDatabase as unknown as { name: string }).name;
+    const active = service.localDatabase;
+    const params = {
+        databaseEvents: {
+            onBeforeDatabaseRecovery: async () => {
+                useIndexedDBAdapter = true;
+                return true;
+            },
+        },
+    } as openDatabaseParameters;
+    await expect(service.reopenDatabase(active, params)).resolves.toBe(false);
+    expect(service.localDatabase).toBe(active);
+    expect((service.localDatabase.localDatabase as unknown as { name: string }).name).toBe(originalName);
+    expect((service.localDatabase.localDatabase as unknown as { adapter: string }).adapter).toBe("idb");
 });

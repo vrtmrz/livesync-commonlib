@@ -19,7 +19,6 @@ import {
     type ReplicatorProviderDefinition,
 } from "@lib/replication/ReplicatorProvider.ts";
 import { NO_REMOTE_RESOURCE_CAPABILITIES } from "@lib/replication/RemoteResource.ts";
-import type { ContentReadFailure } from "@lib/replication/contentRead.ts";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, type RemoteDBSettings, type RemoteType } from "@lib/common/types.ts";
 
 class TestReplicationService extends ReplicationService<ServiceContext> {}
@@ -179,20 +178,16 @@ describe("ReplicationService typed provider roles", () => {
         const { dependencies } = createTypedDependencies(true);
         const service = new TestReplicationService(new ServiceContext(), dependencies);
         const onFiniteReplicationCompleted = vi.fn().mockResolvedValue(true);
-        const onFileReflectionContentReadFailed = vi.fn().mockResolvedValue(true);
+        const onFileReflectionFailed = vi.fn().mockResolvedValue(true);
         service.onFiniteReplicationCompleted.addHandler(onFiniteReplicationCompleted);
-        service.onFileReflectionContentReadFailed.addHandler(onFileReflectionContentReadFailed);
-        const failure = {
-            documentId: "file.md",
-            revision: "4-revision",
-            reason: "transport",
-        } as ContentReadFailure;
+        service.onFileReflectionFailed.addHandler(onFileReflectionFailed);
+        const failure = { documentId: "file.md" as never, revision: "4-revision", resources: ["remote"], cause: new Error("request failed") };
 
         await expect(service.onFiniteReplicationCompleted()).resolves.toBe(true);
-        await expect(service.onFileReflectionContentReadFailed(failure)).resolves.toBe(true);
+        await expect(service.onFileReflectionFailed({ documentId: failure.documentId, revision: failure.revision! }, failure)).resolves.toBe(true);
 
         expect(onFiniteReplicationCompleted).toHaveBeenCalledOnce();
-        expect(onFileReflectionContentReadFailed).toHaveBeenCalledWith(failure);
+        expect(onFileReflectionFailed).toHaveBeenCalledWith({ documentId: failure.documentId, revision: failure.revision }, failure);
     });
 
     it("dispatches unattended one-shot work without interaction authority", async () => {
@@ -1041,5 +1036,23 @@ describe("ReplicationService rebuild maintenance", () => {
 
         expect(replicateAllFromServer).not.toHaveBeenCalled();
         expect(replicateAllToServer).not.toHaveBeenCalled();
+    });
+});
+
+describe("strict reflection dispatch", () => {
+    it("propagates the reflection error unchanged to its owning caller", async () => {
+        const { dependencies } = createTypedDependencies();
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const error = { diagnostic: "read failed" };
+        service.processSynchroniseResult.addHandler(async () => { throw error; });
+        await expect(service.processSynchroniseResult({ _id: "note.md", _rev: "2-target" } as never)).rejects.toBe(error);
+    });
+
+    it("propagates the snapshot save error unchanged after a reflection failure", async () => {
+        const { dependencies } = createTypedDependencies();
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const error = new Error("snapshot save failed");
+        service.onFileReflectionFailed.addHandler(async () => { throw error; });
+        await expect(service.onFileReflectionFailed({ documentId: "note.md" as never, revision: "2-target" }, new Error("read failed"))).rejects.toBe(error);
     });
 });
