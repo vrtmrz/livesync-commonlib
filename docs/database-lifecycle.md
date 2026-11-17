@@ -2,12 +2,17 @@
 date: 2026-10-25
 commonlib-version: "0.2.0"
 self-hosted-livesync-version: "1.0.40"
-status: unreleased
+status: published
 ---
 
 # Local database lifecycle
 
 This document defines ownership and event ordering for the local PouchDB database. It is a developer contract for Commonlib and maintained hosts. It does not define remote database ownership or user-facing recovery policy.
+
+Publication note: this contract, including connection recovery, is available in
+[Commonlib 0.6.0](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.6.0).
+The reviewed-version fields above retain their historical baseline. Downstream adoption and runtime evidence are tracked separately in
+[maintained-host evidence](proven-in-use.md).
 
 ## Identities
 
@@ -125,7 +130,7 @@ A destructive workflow must use `resetDatabaseForCurrentSettings()` after applyi
 
 ## Recovering a lost local connection
 
-This unreleased extension was reviewed against Commonlib 0.5.0 and Self-hosted LiveSync 1.0.50. The revised implementation replaces public-method interception with explicit operation-owner notifications.
+This extension was initially reviewed against Commonlib 0.5.0 and Self-hosted LiveSync 1.0.50. The revised implementation replaces public-method interception with explicit operation-owner notifications.
 
 `openDatabase()`, `reopenDatabase()`, `closeDatabase()`, and `resetDatabase()` serialise physical transitions through the same per-service `withLock`. Normal opens are separate ordered requests. `DatabaseService` resolves the physical name and adapter options when opening, and supplies that selection to the new local database. A recovery request names its failed owner; a requested close, replacement owner, or changed selection prevents it from closing another store. Once admitted, recovery retains that physical selection across the asynchronous drain and close.
 

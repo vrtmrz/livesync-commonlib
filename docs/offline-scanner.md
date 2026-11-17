@@ -2,7 +2,7 @@
 date: 2026-10-26
 commonlib-version: "0.2.1"
 self-hosted-livesync-version: "1.0.40"
-status: unreleased
+status: published
 ---
 
 # Full offline scan
@@ -13,7 +13,12 @@ Metadata inspection and repair, last-seen persistence, file collection and
 reflection, and scan orchestration. The entry module retains lifecycle integration
 and re-exports its existing public functions; callers do not need to change imports.
 
-Implementation note: the settings-controlled strict comparison correction for [Self-hosted LiveSync #1329](https://github.com/vrtmrz/obsidian-livesync/issues/1329) is implemented but unreleased. The original reviewed-version fields above retain their historical baseline.
+Publication note: this contract, including host recovery integration, is available
+in [Commonlib 0.6.0](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.6.0).
+The reviewed-version fields above retain their historical baseline. Downstream adoption and runtime evidence are tracked separately in
+[maintained-host evidence](proven-in-use.md).
+
+Implementation note: the settings-controlled strict comparison correction for [Self-hosted LiveSync #1329](https://github.com/vrtmrz/obsidian-livesync/issues/1329) is available in Commonlib 0.6.0.
 
 This document defines the developer contract for `synchroniseAllFilesBetweenDBandStorage`. It describes how the scanner classifies each selected path, chooses an action, and records a database-to-storage reflection. Host-specific setup dialogue and recovery choices remain outside this contract.
 
@@ -76,7 +81,7 @@ The standard-file revalidation contract is:
 
 An inability to inspect the current path is not proof of absence. Revalidation suppresses a destructive half when storage inspection fails, records the failure, and leaves the operation pending. The full scan can still examine the current state and reports any selected-pair failure under its strict or explicitly partial completion policy. Target-file policy and file-size limits are evaluated from current settings rather than inherited from the saved event.
 
-The unreleased rename-exclusion guard retains `renameTarget` when a rename is converted to deletion during target filtering. Unlike an ordinary deletion, this intent can remove a file from synchronisation without removing it from storage. The guard distinguishes deliberate exclusion from transient case-collision rejection, preserves a recreated source, and permits a deliberately excluded same-ID destination without requiring that destination to disappear. Older snapshots without this optional field retain the absence-only rule. See [Storage events and database-to-storage reflection](storage-events-and-reflection.md) for the exact admission conditions and the separate ordinary watcher boundary.
+The rename-exclusion guard retains `renameTarget` when a rename is converted to deletion during target filtering. Unlike an ordinary deletion, this intent can remove a file from synchronisation without removing it from storage. The guard distinguishes deliberate exclusion from transient case-collision rejection, preserves a recreated source, and permits a deliberately excluded same-ID destination without requiring that destination to disappear. Older snapshots without this optional field retain the absence-only rule. See [Storage events and database-to-storage reflection](storage-events-and-reflection.md) for the exact admission conditions and the separate ordinary watcher boundary.
 
 Independent validation of rename halves does not remove target-first execution. When the new path currently exists, its inclusion must finish successfully before the old-path deletion may run. A failed inclusion preserves the old database entry. When the new path is currently absent, there is no inclusion to publish, and a separately validated absence at the old path may be applied as deletion intent.
 
@@ -203,10 +208,13 @@ concurrency, and cost contracts. This opt-in extension is published in
 [Commonlib 0.4.2](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.4.2).
 
 
-## Unreleased host recovery integration
+<a id="unreleased-host-recovery-integration"></a>
 
-The following extension was reviewed against Commonlib 0.5.0 and Self-hosted
-LiveSync 1.0.50. It is implemented on the working branch and is not yet published.
+## Host recovery integration
+
+The following extension was initially reviewed against Commonlib 0.5.0 and
+Self-hosted LiveSync 1.0.50. It is published in
+[Commonlib 0.6.0](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.6.0).
 
 `VaultScanOptions.onReflectionFailed(target, error)` receives a terminal ordinary DB-to-Vault reflection failure. The target is the selected input document ID and revision; a content error can separately identify the historical revision which could not be read. The scanner awaits the owner callback once. A callback rejection propagates as a persistence failure and is not converted into another content failure. Completed reflection, normal absence, and policy skips do not create failed work.
 

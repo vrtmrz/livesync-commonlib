@@ -81,10 +81,11 @@ source compatibility changes use the next minor version under the policy.
 
 ### 0.6.0 integration changes
 
-Version 0.6.0 is an unreleased candidate with source compatibility changes to
-strict reads, file reflection, and database lifecycle integration. The standard
-base implementations supply the new members. Custom overrides must also follow
-the updated return and failure contracts.
+Version [0.6.0](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.6.0)
+introduces source compatibility changes to strict reads, file reflection, and
+database lifecycle integration. The standard base implementations supply the new
+members. Custom overrides must also follow the updated return and failure
+contracts.
 
 Direct interface implementations must provide these additional members:
 
@@ -118,7 +119,7 @@ I/O can continue after its caller wait ends. Raw replication, changes-feed, and
 maintenance integrations retain responsibility for their own completion and lifetime.
 
 See [Local database lifecycle](database-lifecycle.md) and
-[Strict content reads and reflection](offline-scanner.md#unreleased-host-recovery-integration)
+[Strict content reads and reflection](offline-scanner.md#host-recovery-integration)
 for operation ownership and host integration.
 
 ## Preparing a release
