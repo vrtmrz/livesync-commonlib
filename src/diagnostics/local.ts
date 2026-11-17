@@ -2,9 +2,16 @@ import type PouchDB from "pouchdb-core";
 import type { EntryDoc } from "../common/types.ts";
 import type { DiagnosticDatabaseSource } from "./types.ts";
 
-/** Wrap an existing local handle without taking ownership or using chunk caches. */
+/** Promise reads used by local diagnostics; a host can supply its owned read boundary. */
+type LocalDiagnosticDatabase = Pick<DiagnosticDatabaseSource, "info" | "get"> & {
+    allDocs(
+        options: PouchDB.Core.AllDocsOptions & Partial<Pick<PouchDB.Core.AllDocsWithinRangeOptions, "startkey">>
+    ): Promise<PouchDB.Core.AllDocsResponse<EntryDoc>>;
+};
+
+/** Wrap local Promise reads without taking ownership or using chunk caches. */
 export function createLocalDiagnosticSource(
-    database: Pick<PouchDB.Database<EntryDoc>, "info" | "allDocs" | "get">
+    database: LocalDiagnosticDatabase
 ): DiagnosticDatabaseSource {
     return {
         info: () => database.info(),

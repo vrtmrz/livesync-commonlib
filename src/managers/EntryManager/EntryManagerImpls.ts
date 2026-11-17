@@ -44,7 +44,11 @@ type Managers = {
     readScope?: LocalDatabaseReadScope;
 };
 type NecessaryManagers<T extends keyof Managers> = Pick<Managers, T | "log" | "readScope">;
-/** Keep standalone managers usable while prepared database owners supply their read lifetime. */
+/**
+ * Use the prepared database owner's shared read lifetime when supplied.
+ * Standalone managers keep direct reads and do not gain caller-wait retirement.
+ * This helper does not create another scope or own the Pouch lifetime.
+ */
 function readFromDatabase<T>(readScope: LocalDatabaseReadScope | undefined, operation: () => Promise<T>): Promise<T> {
     return readScope ? readScope.run(operation) : operation();
 }

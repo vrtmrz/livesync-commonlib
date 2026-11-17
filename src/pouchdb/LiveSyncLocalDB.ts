@@ -82,6 +82,19 @@ export class LiveSyncLocalDB {
     auth: Credential;
     dbname: string;
     settings!: RemoteDBSettings;
+    /**
+     * The raw PouchDB handle for replication, changes feeds, and maintenance.
+     *
+     * Direct reads bypass this owner's caller-wait retirement. Use
+     * {@link readDBEntry} for file contents, {@link getRaw} or {@link allDocsRaw}
+     * for raw documents, and {@link readFromDatabase} for other read-only Pouch
+     * operations. These entry points end caller waits when the owner retires;
+     * they do not cancel native I/O or automatically retry a failed operation.
+     *
+     * Integrations which require this handle must own their operation's
+     * retirement and completion. Keep writes and mixed read/write workflows
+     * outside {@link readFromDatabase}; started writes must actually finish.
+     */
     localDatabase!: PouchDB.Database<EntryDoc>;
     _log: LogFunction;
 
@@ -158,7 +171,15 @@ export class LiveSyncLocalDB {
         this.readScope.close();
     }
 
-    /** Read through the captured physical lifetime without changing the underlying Pouch object. */
+    /**
+     * Run a read on the captured Pouch and end its caller wait when this owner retires.
+     *
+     * Use {@link getRaw} or {@link allDocsRaw} for document reads with known IDs.
+     * This callback also supports other read-only operations, including inspection
+     * of unvalidated stored IDs. It can continue after the caller wait rejects,
+     * so it must not perform writes or change application state after a read.
+     * No connection-health conclusion, recovery request, or retry is implied.
+     */
     readFromDatabase<T>(operation: (database: PouchDB.Database<EntryDoc>) => Promise<T>): Promise<T> {
         const database = this.localDatabase;
         return this.readScope.run(() => operation(database));
@@ -601,6 +622,7 @@ export class LiveSyncLocalDB {
         return false;
     }
 
+    /** Read a raw document by its known ID, with caller-wait retirement owned by this database. */
     getRaw<T extends EntryDoc>(
         docId: DocumentID,
         options?: PouchDB.Core.GetOptions
@@ -616,6 +638,7 @@ export class LiveSyncLocalDB {
         return this.localDatabase.put(doc, options || {});
     }
 
+    /** Read a raw document listing with caller-wait retirement owned by this database. */
     allDocsRaw<T extends EntryDoc | DatabaseEntry>(
         options?:
             | PouchDB.Core.AllDocsWithKeyOptions
