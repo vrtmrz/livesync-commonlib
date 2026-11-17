@@ -1,3 +1,4 @@
+import type { LocalDatabaseReadScope } from "@lib/pouchdb/LocalDatabaseReadScope.ts";
 import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
 import type { ISettingService } from "@lib/services/base/IService";
@@ -17,6 +18,7 @@ export type ChunkManagerOptions = {
     /** Host-owned logger; standalone instances default to the global logger. */
     log?: LogFunction;
     database: PouchDB.Database<EntryDoc>;
+    readScope?: LocalDatabaseReadScope;
     changeManager: ChangeManager<EntryDoc>;
     // maxCacheSize?: number; // Maximum cache size
     settingService: ISettingService;

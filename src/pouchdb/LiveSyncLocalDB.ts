@@ -21,6 +21,7 @@ import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 import { EVENT_CHUNK_FETCHED } from "@lib/managers/ChunkFetcher.ts";
 import type { LiveSyncEventHub } from "@lib/hub/hub.ts";
 import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
+import { LocalDatabaseReadScope } from "./LocalDatabaseReadScope.ts";
 import { LiveSyncManagers } from "@lib/managers/LiveSyncManagers.ts";
 import type { ChunkFetchSource } from "@lib/managers/chunkFetchSource.ts";
 import type { AutoMergeResult } from "@lib/managers/ConflictManager.ts";
@@ -84,6 +85,7 @@ export class LiveSyncLocalDB {
     localDatabase!: PouchDB.Database<EntryDoc>;
     _log: LogFunction;
 
+    private readScope = new LocalDatabaseReadScope();
     private _managers?: LiveSyncManagers;
     get managers() {
         if (!this._managers) {
@@ -151,9 +153,21 @@ export class LiveSyncLocalDB {
         void this.notifyDatabaseUnload();
     }
 
+    /** End caller read waits before lifecycle hooks drain their owners; native IO is not cancelled. */
+    stopReads(): void {
+        this.readScope.close();
+    }
+
+    /** Read through the captured physical lifetime without changing the underlying Pouch object. */
+    readFromDatabase<T>(operation: (database: PouchDB.Database<EntryDoc>) => Promise<T>): Promise<T> {
+        const database = this.localDatabase;
+        return this.readScope.run(() => operation(database));
+    }
+
     async close() {
         this._log("Database closed (by close)");
         this.isReady = false;
+        this.stopReads();
         this.offRemoteChunkFetchedHandler?.();
         this.offRemoteChunkFetchedHandler = undefined;
         await this.closeActiveReplication();
@@ -208,6 +222,7 @@ export class LiveSyncLocalDB {
         managers: LiveSyncManagers
     ): Promise<void> {
         this.isReady = false;
+        if (this.localDatabase === database) this.stopReads();
         this.offRemoteChunkFetchedHandler?.();
         this.offRemoteChunkFetchedHandler = undefined;
         const closeCleanup = this.databaseCloseCleanup?.database === database ? this.databaseCloseCleanup : undefined;
@@ -244,10 +259,12 @@ export class LiveSyncLocalDB {
     async initializeDatabase(): Promise<boolean> {
         await this._prepareHashFunctions();
         if (this.localDatabase != null) {
+            this.stopReads();
             this.localDatabase.removeAllListeners();
             await this.localDatabase.close();
         }
         this.localDatabase = null!;
+        this.readScope = new LocalDatabaseReadScope();
 
         this.localDatabase = (
             this.runtimeOptions.createPouchDBInstance ??
@@ -260,10 +277,12 @@ export class LiveSyncLocalDB {
         this.activeReplicationClose = undefined;
         this.databaseUnloadNotification = undefined;
         const openedDatabase = this.localDatabase;
+        const readScope = this.readScope;
         this.databaseCloseCleanup = undefined;
 
         const manager = new LiveSyncManagers({
             database: this.localDatabase,
+            readScope,
             chunkFetchSource: this.runtimeOptions?.createChunkFetchSource?.(this.localDatabase),
             APIService: this.env.services.API,
             pathService: this.env.services.path,
@@ -286,6 +305,7 @@ export class LiveSyncLocalDB {
             this._log(JSON.stringify(await openedDatabase.info(), null, 2), LOG_LEVEL_VERBOSE);
             await manager.initialise();
             openedDatabase.on("closed", () => {
+                readScope.close();
                 this._log("Database closed.");
                 this.isReady = false;
                 openedDatabase.removeAllListeners();
@@ -585,7 +605,7 @@ export class LiveSyncLocalDB {
         docId: DocumentID,
         options?: PouchDB.Core.GetOptions
     ): Promise<T & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta> {
-        return this.localDatabase.get<T>(docId, options || {});
+        return this.readFromDatabase((database) => database.get<T>(docId, options || {}));
     }
 
     removeRaw(docId: DocumentID, revision: string, options?: PouchDB.Core.Options): Promise<PouchDB.Core.Response> {
@@ -603,7 +623,7 @@ export class LiveSyncLocalDB {
             | PouchDB.Core.AllDocsWithinRangeOptions
             | PouchDB.Core.AllDocsOptions
     ): Promise<PouchDB.Core.AllDocsResponse<T>> {
-        return this.localDatabase.allDocs<T>(options);
+        return this.readFromDatabase((database) => database.allDocs<T>(options));
     }
 
     bulkDocsRaw<T extends EntryDoc>(

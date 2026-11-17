@@ -1,3 +1,4 @@
+import type { LocalDatabaseReadScope } from "@lib/pouchdb/LocalDatabaseReadScope.ts";
 import { ContentReadError } from "@lib/common/LSError";
 import type { EntryLeaf, DocumentID, EntryDoc } from "@lib/common/types";
 import type { IReadLayer } from "./ChunkLayerInterfaces";
@@ -8,7 +9,10 @@ import type { ChunkReadOptions } from "./types.ts";
  */
 
 export class DatabaseReadLayer implements IReadLayer {
-    constructor(private database: PouchDB.Database<EntryDoc>) {}
+    constructor(
+        private database: PouchDB.Database<EntryDoc>,
+        private readonly readScope?: LocalDatabaseReadScope
+    ) {}
 
     private isChunkDoc(doc: EntryDoc): doc is EntryLeaf {
         return doc && typeof doc._id === "string" && doc.type === "leaf";
@@ -41,13 +45,17 @@ export class DatabaseReadLayer implements IReadLayer {
 
         let results: PouchDB.Core.AllDocsWithKeysResponse<EntryDoc>;
         try {
-            results = await this.database.allDocs({ keys: ids, include_docs: true });
+            const read = () => this.database.allDocs({ keys: ids, include_docs: true });
+            results = await (this.readScope ? this.readScope.run(read) : read());
         } catch (error) {
             const localFailure = new ContentReadError({
                 documentId: ids[0],
                 resources: ["local-database"],
                 cause: error,
             });
+            // Retiring this connection must reach the caller's retention and cleanup,
+            // rather than entering a new delivery wait on the retired lifetime.
+            if (this.readScope?.isClosed) throw localFailure;
             try {
                 const fallback = await next(ids);
                 if (fallback.every(Boolean)) {

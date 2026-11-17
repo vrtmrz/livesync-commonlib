@@ -93,7 +93,7 @@ export class LayeredChunkManager {
 
         // Initialize cache layer
         this.cacheLayer = new CacheLayer(maxCacheSize);
-        this.databaseReadLayer = new DatabaseReadLayer(this.database);
+        this.databaseReadLayer = new DatabaseReadLayer(this.database, options.readScope);
 
         // Initialise the shared arrival/fetch activity coordinator and wait layer.
         this.deliveryCoordinator = new ChunkDeliveryCoordinator(options.finiteReplicationActivity);

@@ -1,3 +1,4 @@
+import { LocalDatabaseReadScope } from "@lib/pouchdb/LocalDatabaseReadScope.ts";
 import { ContentReadError } from "@lib/common/LSError.ts";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { LOG_LEVEL_VERBOSE, defaultLogger, setGlobalLogFunction } from "octagonal-wheels/common/logger";
@@ -207,14 +208,12 @@ describe("EntryManagerImpls", () => {
             const secondMessages = secondLog.mock.calls.map(([message]) => message);
             expect(
                 firstMessages.some(
-                    (message) =>
-                        typeof message === "string" && message.includes("entry-manager-second-owner.md")
+                    (message) => typeof message === "string" && message.includes("entry-manager-second-owner.md")
                 )
             ).toBe(false);
             expect(
                 secondMessages.some(
-                    (message) =>
-                        typeof message === "string" && message.includes("entry-manager-first-owner.md")
+                    (message) => typeof message === "string" && message.includes("entry-manager-first-owner.md")
                 )
             ).toBe(false);
         });
@@ -274,7 +273,6 @@ describe("EntryManagerImpls", () => {
             }
         });
     });
-
 
     describe("isTargetFile", () => {
         it("should return true for normal files", () => {
@@ -953,6 +951,21 @@ describe("EntryManagerImpls", () => {
             }
         });
 
+        it("returns an unfinished Metadata read when its physical database lifetime ends", async () => {
+            const readScope = new LocalDatabaseReadScope();
+            const host = createHost(mockSettingService, mockPathService);
+            const get = vi.spyOn(db, "get").mockImplementationOnce(() => new Promise(() => {}));
+            const reading = getDBEntryMetaByPath(
+                host,
+                { localDatabase: db, readScope },
+                "pending.md" as FilePathWithPrefix
+            );
+            await vi.waitFor(() => expect(get).toHaveBeenCalledOnce());
+            readScope.close();
+
+            await expect(reading).rejects.toMatchObject({ failure: { resources: ["local-database"] } });
+        });
+
         it("should retrieve entry metadata", async () => {
             const entry = createSavingEntry("meta-test", "Test data");
             const host = createHost(mockSettingService, mockPathService);
@@ -1155,7 +1168,9 @@ describe("EntryManagerImpls", () => {
             const revision = "4-incoming-revision";
             const error = Object.assign(new Error("database context is invalid"), { name: "InvalidStateError" });
             vi.spyOn(db, "get").mockRejectedValueOnce(error);
-            await expect(getDBEntryMetaByPath(host, { localDatabase: db }, path, { rev: revision }, false)).rejects.toMatchObject({
+            await expect(
+                getDBEntryMetaByPath(host, { localDatabase: db }, path, { rev: revision }, false)
+            ).rejects.toMatchObject({
                 failure: { documentId: path, revision, resources: ["local-database"], cause: error },
             });
         });
@@ -1228,8 +1243,16 @@ describe("EntryManagerImpls", () => {
                 eden: {},
             } as LoadedEntry;
             const remoteFailure = new Error("request failed");
-            vi.spyOn(chunkManager, "read").mockRejectedValue(new ContentReadError({ documentId: "h:transport" as DocumentID, resources: ["remote"], cause: remoteFailure }));
-            await expect(getDBEntryFromMeta(host, { localDatabase: db, chunkManager }, meta, false, true, false)).rejects.toMatchObject({
+            vi.spyOn(chunkManager, "read").mockRejectedValue(
+                new ContentReadError({
+                    documentId: "h:transport" as DocumentID,
+                    resources: ["remote"],
+                    cause: remoteFailure,
+                })
+            );
+            await expect(
+                getDBEntryFromMeta(host, { localDatabase: db, chunkManager }, meta, false, true, false)
+            ).rejects.toMatchObject({
                 failure: { documentId: meta._id, revision: meta._rev, resources: ["remote"] },
             });
         });
@@ -1327,7 +1350,9 @@ describe("EntryManagerImpls", () => {
             await db.remove(chunk);
             chunkManager.clearCaches();
 
-            await expect(getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path)).rejects.toBeInstanceOf(ContentReadError);
+            await expect(
+                getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path)
+            ).rejects.toBeInstanceOf(ContentReadError);
             await expect(
                 deleteDBEntryByPath(host, { localDatabase: db }, entry.path, {
                     rev: saved.rev,

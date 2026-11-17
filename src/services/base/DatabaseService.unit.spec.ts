@@ -15,6 +15,10 @@ class TestDatabaseService extends DatabaseService {
 function localDatabase(name: string, resetResult = true) {
     return {
         dbname: name,
+        stopReads: vi.fn(),
+        readFromDatabase<T>(read: (pouch: LiveSyncLocalDB["localDatabase"]) => Promise<T>): Promise<T> {
+            return read((this as unknown as LiveSyncLocalDB).localDatabase);
+        },
         close: vi.fn(async () => undefined),
         onunload: vi.fn(),
         resetDatabase: vi.fn(async () => resetResult),

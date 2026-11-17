@@ -27,7 +27,12 @@ function fixture(localDatabase: object = {}) {
         services: {
             API: { addLog: Logger },
             context: createServiceContext(),
-            database: { localDatabase: { localDatabase } },
+            database: {
+                localDatabase: {
+                    localDatabase,
+                    readFromDatabase: <T>(read: (pouch: typeof localDatabase) => Promise<T>) => read(localDatabase),
+                },
+            },
             replicator: {
                 replicationStatics: statistics,
                 runFiniteReplicationActivity: async <T>(run: () => Promise<T>) => await run(),

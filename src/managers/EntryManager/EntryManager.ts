@@ -1,3 +1,4 @@
+import type { LocalDatabaseReadScope } from "@lib/pouchdb/LocalDatabaseReadScope.ts";
 import {
     type FilePathWithPrefix,
     type FilePath,
@@ -33,6 +34,7 @@ export interface EntryManagerOptions {
     chunkManager: ChunkManager;
     splitter: ContentSplitter;
     database: PouchDB.Database<EntryDoc>;
+    readScope?: LocalDatabaseReadScope;
     settingService: ISettingService;
     pathService: IPathService;
     /** Host-owned logger; standalone instances default to the global logger. */
@@ -49,6 +51,9 @@ export class EntryManager {
     }
     get localDatabase(): PouchDB.Database<EntryDoc> {
         return this.options.database;
+    }
+    get readScope(): LocalDatabaseReadScope | undefined {
+        return this.options.readScope;
     }
     get hashManager(): HashManager {
         return this.options.hashManager;

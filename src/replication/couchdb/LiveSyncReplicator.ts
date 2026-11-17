@@ -559,6 +559,19 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             });
     }
 
+    /** Report only the captured local read; recovery must not join the operation it drains. */
+    private async readLocalDatabase<T>(
+        database: LiveSyncLocalDB,
+        operation: (pouch: PouchDB.Database<EntryDoc>) => Promise<T>
+    ): Promise<T> {
+        try {
+            return await database.readFromDatabase(operation);
+        } catch (error) {
+            if (!isErrorOfMissingDoc(error)) this.requestCurrentDatabaseInspection(error, database);
+            throw error;
+        }
+    }
+
     replicationErrored(e: unknown, database?: LiveSyncLocalDB | null) {
         this.syncStatus = "ERRORED";
         this.abortController();
@@ -811,7 +824,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         this.log(`Bulk sending chunks to remote database...`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
         const remoteMilestone = await remoteDB.get(MILESTONE_DOCID);
         const remoteID = (remoteMilestone as { created?: number })?.created ?? 0;
-        const localDB = this.rawDatabase;
+        const localOwner = this.env.services.database.localDatabase;
+        const localDB = localOwner.localDatabase;
         const te = new TextEncoder();
         this.log(
             this.translate("liveSyncReplicator.checkingLastSyncPoint"),
@@ -1030,7 +1044,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     );
                     return false;
                 }
-                const localDB = this.rawDatabase;
+                const localOwner = this.env.services.database.localDatabase;
+                const localDB = localOwner.localDatabase;
                 this.log(this.translate("liveSyncReplicator.oneShotSyncBegin", { syncMode }));
                 const ret = await this.checkOneShotReplicationConnectivity(
                     setting,
@@ -1055,7 +1070,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         return false;
                     }
                     this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
-                    this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
+                    this.maxPushSeq = Number(
+                        `${(await this.readLocalDatabase(localOwner, (pouch) => pouch.info())).update_seq}`.split(
+                            "-"
+                        )[0]
+                    );
                     if (cancellationRequested()) {
                         return false;
                     }
@@ -1339,7 +1358,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         try {
             try {
                 await assertDatabasePathIdentity(dbRet.db, setting);
-                await assertDatabasePathIdentity(this.env.services.database.localDatabase.localDatabase, setting);
+                const localOwner = this.env.services.database.localDatabase;
+                await assertDatabasePathIdentity(localOwner.localDatabase, setting, false, (operation) =>
+                    this.readLocalDatabase(localOwner, () => operation())
+                );
             } catch (error) {
                 recordCompatibilityDecision?.(
                     centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.INCOMPATIBLE_VERSION)
@@ -1546,7 +1568,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 return false;
             }
             this.publishPreparationPhase("catch-up");
-            const localDB = this.rawDatabase;
+            const localOwner = this.env.services.database.localDatabase;
+            const localDB = localOwner.localDatabase;
             this.log(this.translate("liveSyncReplicator.beforeLiveSync"));
             const caughtUp = await this.env.services.replicator.runFiniteReplicationActivity(
                 () =>
@@ -1587,7 +1610,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     }
                     this.syncStatus = "STARTED";
                     this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
-                    this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
+                    this.maxPushSeq = Number(
+                        `${(await this.readLocalDatabase(localOwner, (pouch) => pouch.info())).update_seq}`.split(
+                            "-"
+                        )[0]
+                    );
                     if (this.continuousStopRequested) {
                         return false;
                     }

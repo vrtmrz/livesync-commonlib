@@ -1,3 +1,4 @@
+import { NFC_PATH_IDENTITY_FEATURE, REMOTE_FEATURE_GENERATION } from "@lib/pouchdb/remoteFeatureCompatibility.ts";
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
@@ -341,7 +342,7 @@ describe("LiveSyncCouchDBReplicator finite attempt result", () => {
             services: {
                 API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
-                database: { localDatabase: { localDatabase: {} } },
+                database: { localDatabase: localDatabaseOwner({}) },
             },
         } as unknown as ConstructorParameters<typeof LiveSyncCouchDBReplicator>[0]);
         const ensurePBKDF2Salt = vi.spyOn(replicator, "ensurePBKDF2Salt").mockResolvedValue(true);
@@ -824,7 +825,7 @@ function createContinuousTestReplicator(localDatabase: object) {
         services: {
             API: { addLog: Logger },
             context: createServiceContext(),
-            database: { localDatabase: { localDatabase } },
+            database: { localDatabase: localDatabaseOwner(localDatabase) },
             replicator: { runFiniteReplicationActivity },
         },
     } as unknown as LiveSyncCouchDBReplicator["env"];
@@ -894,7 +895,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             services: {
                 API: { addLog: Logger },
                 context: createServiceContext(),
-                database: { localDatabase: { localDatabase: {} } },
+                database: { localDatabase: localDatabaseOwner({}) },
                 replicator: {
                     runFiniteReplicationActivity: vi.fn(async <T>(task: () => Promise<T>) => await task()),
                 },
@@ -935,7 +936,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             services: {
                 API: { addLog: Logger },
                 context: createServiceContext(),
-                database: { localDatabase: { localDatabase: {} } },
+                database: { localDatabase: localDatabaseOwner({}) },
                 replicator: {
                     runFiniteReplicationActivity: vi.fn(async <T>(task: () => Promise<T>) => await task()),
                 },
@@ -1083,7 +1084,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
                 API: { addLog: Logger },
                 context: createServiceContext(),
                 database: {
-                    localDatabase: { localDatabase },
+                    localDatabase: localDatabaseOwner(localDatabase),
                 },
                 replicator: { runFiniteReplicationActivity },
             },
@@ -1150,7 +1151,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             services: {
                 API: { addLog: Logger },
                 context: createServiceContext(),
-                database: { localDatabase: { localDatabase } },
+                database: { localDatabase: localDatabaseOwner(localDatabase) },
                 replicator: {
                     runFiniteReplicationActivity: vi.fn(async <T>(task: () => Promise<T>) => await task()),
                 },
@@ -1175,6 +1176,13 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
     });
 });
 
+function localDatabaseOwner<T>(localDatabase: T) {
+    return {
+        localDatabase,
+        readFromDatabase: <R>(read: (pouch: T) => Promise<R>) => read(localDatabase),
+    };
+}
+
 function createOneShotReplicator(remoteDatabase: { close: () => Promise<void> }) {
     if (!("get" in remoteDatabase)) {
         Object.assign(remoteDatabase, { get: vi.fn().mockRejectedValue({ status: 404, name: "not_found" }) });
@@ -1193,7 +1201,7 @@ function createOneShotReplicator(remoteDatabase: { close: () => Promise<void> })
         services: {
             API: { addLog: Logger },
             context: createServiceContext(),
-            database: { localDatabase: { localDatabase } },
+            database: { localDatabase: localDatabaseOwner(localDatabase) },
         },
     } as unknown as LiveSyncCouchDBReplicator["env"];
     replicator.docArrived = 0;
@@ -1458,7 +1466,7 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
                 context: createServiceContext(),
                 replication: { onFiniteReplicationCompleted },
                 database: {
-                    localDatabase: { localDatabase },
+                    localDatabase: localDatabaseOwner(localDatabase),
                     localNodeIdentity: { nodeId: "device-node" },
                 },
                 vault: {
@@ -1683,7 +1691,7 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
             services: {
                 API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
-                database: { localDatabase: { localDatabase } },
+                database: { localDatabase: localDatabaseOwner(localDatabase) },
             },
         } as unknown as LiveSyncCouchDBReplicator["env"];
         replicator.docArrived = 0;
@@ -1732,7 +1740,9 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
             close: vi.fn().mockResolvedValue(undefined),
         };
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
-        replicator.env = { services: { API: { addLog: Logger }, database: { localDatabase: { localDatabase: remoteDatabase } } } } as never;
+        replicator.env = {
+            services: { API: { addLog: Logger }, database: { localDatabase: localDatabaseOwner(remoteDatabase) } },
+        } as never;
         replicator.translate = vi.fn((key) => key);
         replicator.isMobile = vi.fn().mockReturnValue(false);
         vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
@@ -1768,7 +1778,9 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
             close: vi.fn().mockResolvedValue(undefined),
         };
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
-        replicator.env = { services: { API: { addLog: Logger }, database: { localDatabase: { localDatabase: remoteDatabase } } } } as never;
+        replicator.env = {
+            services: { API: { addLog: Logger }, database: { localDatabase: localDatabaseOwner(remoteDatabase) } },
+        } as never;
         replicator.translate = vi.fn((key) => key);
         replicator.isMobile = vi.fn().mockReturnValue(false);
         vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
@@ -2094,7 +2106,7 @@ describe("LiveSyncCouchDBReplicator chunk sending settlement and connection owne
             services: {
                 API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
-                database: { localDatabase: { localDatabase } },
+                database: { localDatabase: localDatabaseOwner(localDatabase) },
                 keyValueDB: { openSimpleStore: () => store },
             },
         } as unknown as LiveSyncCouchDBReplicator["env"];
@@ -2193,7 +2205,9 @@ describe("LiveSyncCouchDBReplicator chunk sending settlement and connection owne
 
 describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
     it("preserves a typed supplied-fetch rejection through real PouchDB HTTP reads", async () => {
-        const typedFailure = new RemoteRequestError("Remote request failed", { cause: new TypeError("network fetch failed") });
+        const typedFailure = new RemoteRequestError("Remote request failed", {
+            cause: new TypeError("network fetch failed"),
+        });
         const fetch = vi.fn().mockRejectedValue(typedFailure);
         const remote = new PouchDB<EntryDoc>("https://couchdb.test/typed-request", {
             skip_setup: true,
@@ -2225,9 +2239,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
             close,
         } as never);
 
-        await expect(
-            replicator.fetchRemoteChunks(["h:pending"], false, {} as RemoteDBSettings)
-        ).rejects.toBe(failure);
+        await expect(replicator.fetchRemoteChunks(["h:pending"], false, {} as RemoteDBSettings)).rejects.toBe(failure);
 
         expect(remoteDatabase.allDocs).not.toHaveBeenCalled();
         expect(close).toHaveBeenCalledOnce();
@@ -2265,9 +2277,9 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
             close: connectionClose,
         } as never);
 
-        await expect(
-            Reflect.apply(replicator.fetchRemoteChunks, replicator, [["h:pending"], false, {}])
-        ).rejects.toBe(failure);
+        await expect(Reflect.apply(replicator.fetchRemoteChunks, replicator, [["h:pending"], false, {}])).rejects.toBe(
+            failure
+        );
 
         expect(connectionClose).toHaveBeenCalledOnce();
     });
@@ -2300,9 +2312,9 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
             close: connectionClose,
         } as never);
 
-        await expect(
-            Reflect.apply(replicator.fetchRemoteChunks, replicator, [["h:pending"], false, {}])
-        ).rejects.toBe(typedFailure);
+        await expect(Reflect.apply(replicator.fetchRemoteChunks, replicator, [["h:pending"], false, {}])).rejects.toBe(
+            typedFailure
+        );
 
         expect(connectionClose).toHaveBeenCalledOnce();
     });
@@ -2321,7 +2333,6 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
         await expect(
             Reflect.apply(replicator.fetchRemoteChunks, replicator, [["h:pending"], false, {}])
         ).rejects.toBeInstanceOf(RemoteRequestError);
-
     });
 
     it("does not fetch chunks from a database using an unknown feature", async () => {
@@ -2494,7 +2505,11 @@ describe("managed replication failure notification", () => {
         const owner = {} as never;
         const onLocalDatabaseError = vi.fn(() => new Promise<boolean>(() => {}));
         const database = { localDatabaseDirect: owner, onLocalDatabaseError };
-        Object.assign(subject, { env: { services: { API: { addLog: Logger }, database } }, abortController: vi.fn(), updateInfo: vi.fn() });
+        Object.assign(subject, {
+            env: { services: { API: { addLog: Logger }, database } },
+            abortController: vi.fn(),
+            updateInfo: vi.fn(),
+        });
         return { subject, owner, database, onLocalDatabaseError };
     }
 
@@ -2514,5 +2529,115 @@ describe("managed replication failure notification", () => {
         database.localDatabaseDirect = {} as never;
         await Promise.resolve();
         expect(onLocalDatabaseError).not.toHaveBeenCalled();
+    });
+});
+
+describe("replication preparation local database failure notification", () => {
+    function preparationFixture() {
+        const remote = { close: vi.fn(async () => undefined) };
+        const subject = createOneShotReplicator(remote);
+        const database = subject.env.services.database;
+        Object.assign(subject.env.services.API, { isMobile: () => false });
+        Object.assign(subject.env.services, {
+            replicator: { runFiniteReplicationActivity: async <T>(task: () => Promise<T>) => await task() },
+        });
+        const owner = database.localDatabase;
+        const onLocalDatabaseError = vi.fn(() => new Promise<boolean>(() => {}));
+        Object.assign(database, { localDatabaseDirect: owner, onLocalDatabaseError });
+        Object.assign(owner, {
+            readFromDatabase: <T>(read: (pouch: typeof owner.localDatabase) => Promise<T>) => read(owner.localDatabase),
+        });
+        return { subject, remote, database, owner, onLocalDatabaseError };
+    }
+
+    it.each(["one-shot", "continuous"])(
+        "notifies the owned %s info failure without awaiting recovery",
+        async (mode) => {
+            const { subject, remote, owner, onLocalDatabaseError } = preparationFixture();
+            const error = new Error("Local info failed");
+            vi.mocked(owner.localDatabase.info).mockRejectedValueOnce(error);
+            if (mode === "continuous") vi.spyOn(subject, "openOneShotReplication").mockResolvedValue(true);
+            const operation =
+                mode === "one-shot"
+                    ? subject.openOneShotReplication({} as RemoteDBSettings, false, false, "sync")
+                    : subject.openContinuousReplication({} as RemoteDBSettings, false, false);
+
+            await expect(operation).rejects.toBe(error);
+            await Promise.resolve();
+            expect(onLocalDatabaseError).toHaveBeenCalledExactlyOnceWith(owner, error);
+            expect(remote.close).toHaveBeenCalledOnce();
+        }
+    );
+
+    it("does not treat a missing local declaration as an IO failure", async () => {
+        const { subject, remote, onLocalDatabaseError } = preparationFixture();
+        vi.mocked(subject.checkReplicationConnectivity).mockRestore();
+        vi.spyOn(subject, "connectRemoteCouchDBWithSetting").mockResolvedValue({
+            db: remote,
+            close: remote.close,
+        } as never);
+        const settings = {
+            couchDB_URI: "https://example.invalid",
+            couchDB_DBNAME: "fixture",
+            versionUpFlash: "",
+            pathNormalizationVersion: 0,
+        } as RemoteDBSettings;
+        const connection = await subject.checkReplicationConnectivity(settings, false, true, false);
+        expect(connection).not.toBe(false);
+        await Promise.resolve();
+        expect(onLocalDatabaseError).not.toHaveBeenCalled();
+        if (connection) await connection.close();
+    });
+
+    it("keeps an intentional local path identity rejection separate from an IO failure", async () => {
+        const { subject, remote, owner, onLocalDatabaseError } = preparationFixture();
+        const document = {
+            _id: VERSIONING_DOCID,
+            type: "versioninfo",
+            version: REMOTE_FEATURE_GENERATION,
+            used_features: [NFC_PATH_IDENTITY_FEATURE],
+        };
+        vi.mocked(owner.localDatabase.get).mockResolvedValueOnce(document as never);
+        vi.mocked(subject.checkReplicationConnectivity).mockRestore();
+        vi.spyOn(subject, "connectRemoteCouchDBWithSetting").mockResolvedValue({
+            db: remote,
+            close: remote.close,
+        } as never);
+        const settings = {
+            couchDB_URI: "https://example.invalid",
+            couchDB_DBNAME: "fixture",
+            versionUpFlash: "",
+            pathNormalizationVersion: 0,
+        } as RemoteDBSettings;
+
+        await expect(subject.checkReplicationConnectivity(settings, false, true, false)).resolves.toBe(false);
+        await Promise.resolve();
+        expect(onLocalDatabaseError).not.toHaveBeenCalled();
+        expect(remote.close).toHaveBeenCalledOnce();
+    });
+
+    it.each(["local", "remote"])("attributes the %s path identity failure to its actual source", async (source) => {
+        const { subject, remote, owner, onLocalDatabaseError } = preparationFixture();
+        const error = new Error("Path identity read failed");
+        const remoteGet = vi.fn().mockRejectedValue({ status: 404, name: "not_found" });
+        Object.assign(remote, { get: remoteGet });
+        if (source === "local") vi.mocked(owner.localDatabase.get).mockRejectedValueOnce(error);
+        else remoteGet.mockRejectedValueOnce(error);
+        vi.mocked(subject.checkReplicationConnectivity).mockRestore();
+        vi.spyOn(subject, "connectRemoteCouchDBWithSetting").mockResolvedValue({
+            db: remote,
+            close: remote.close,
+        } as never);
+        const settings = {
+            couchDB_URI: "https://example.invalid",
+            couchDB_DBNAME: "fixture",
+            versionUpFlash: "",
+        } as RemoteDBSettings;
+
+        await expect(subject.checkReplicationConnectivity(settings, false, true, false)).resolves.toBe(false);
+        await Promise.resolve();
+        if (source === "local") expect(onLocalDatabaseError).toHaveBeenCalledExactlyOnceWith(owner, error);
+        else expect(onLocalDatabaseError).not.toHaveBeenCalled();
+        expect(remote.close).toHaveBeenCalledOnce();
     });
 });

@@ -1,3 +1,4 @@
+import type { LocalDatabaseReadScope } from "@lib/pouchdb/LocalDatabaseReadScope.ts";
 import type PouchDB from "pouchdb-core";
 import { Logger, LOG_LEVEL_VERBOSE, LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
 import {
@@ -40,8 +41,14 @@ type Managers = {
     chunkManager: ChunkManager;
     splitter: ContentSplitter;
     localDatabase: PouchDB.Database<EntryDoc>;
+    readScope?: LocalDatabaseReadScope;
 };
-type NecessaryManagers<T extends keyof Managers> = Pick<Managers, T | "log">;
+type NecessaryManagers<T extends keyof Managers> = Pick<Managers, T | "log" | "readScope">;
+/** Keep standalone managers usable while prepared database owners supply their read lifetime. */
+function readFromDatabase<T>(readScope: LocalDatabaseReadScope | undefined, operation: () => Promise<T>): Promise<T> {
+    return readScope ? readScope.run(operation) : operation();
+}
+
 /** Select ancestry and stale-base handling when writing document metadata. */
 type PutDBEntryRevisionTarget =
     /** Use the current winning revision, retaining the legacy forced-write behaviour. */
@@ -224,7 +231,7 @@ async function putDBEntryInternal(
     onlyChunks: boolean | undefined,
     revisionTarget: PutDBEntryRevisionTarget
 ) {
-    const { localDatabase, chunkManager, splitter, log = Logger } = managers;
+    const { localDatabase, readScope, chunkManager, splitter, log = Logger } = managers;
 
     //safety valve
     const filename = host.services.path.id2path(note._id, note);
@@ -281,7 +288,7 @@ async function putDBEntryInternal(
                     // Legacy callers use whichever revision currently wins. A missing
                     // document starts a new tree through PouchDB's normal write path.
                     try {
-                        const old = await localDatabase.get(newDoc._id);
+                        const old = await readFromDatabase(readScope, () => localDatabase.get(newDoc._id));
                         newDoc._rev = old._rev;
                     } catch (ex) {
                         if (isErrorOfMissingDoc(ex)) {
@@ -302,7 +309,9 @@ async function putDBEntryInternal(
                     newDoc._rev = `1-${rootId}`;
                     const imported = { ...newDoc, _revisions: { start: 1, ids: [rootId] } };
                     await localDatabase.bulkDocs([imported], { new_edits: false });
-                    const stored = await localDatabase.get(newDoc._id, { rev: newDoc._rev });
+                    const stored = await readFromDatabase(readScope, () =>
+                        localDatabase.get(newDoc._id, { rev: newDoc._rev })
+                    );
                     return stored._rev === newDoc._rev ? { id: newDoc._id, ok: true, rev: newDoc._rev } : false;
                 }
                 // Only live-base relies on ordinary MVCC to reject an advanced base.
@@ -373,7 +382,7 @@ export async function prepareChunk(
 
 export async function getDBEntryMetaByPath(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
-    { localDatabase }: NecessaryManagers<"localDatabase">,
+    { localDatabase, readScope }: NecessaryManagers<"localDatabase">,
     path: FilePathWithPrefix | FilePath,
     opt?: PouchDB.Core.GetOptions,
     includeDeleted = false
@@ -386,9 +395,9 @@ export async function getDBEntryMetaByPath(
         let obj: EntryDocResponse | null = null;
         try {
             if (opt) {
-                obj = await localDatabase.get(id, opt);
+                obj = await readFromDatabase(readScope, () => localDatabase.get(id, opt));
             } else {
-                obj = await localDatabase.get(id);
+                obj = await readFromDatabase(readScope, () => localDatabase.get(id));
             }
         } catch (ex) {
             if (!includeDeleted || opt?.rev !== undefined || !isErrorOfMissingDoc(ex)) throw ex;
@@ -396,13 +405,16 @@ export async function getDBEntryMetaByPath(
             // its current revision, which can be read explicitly. Do not use the
             // incoming deletion revision: a live winner may have replaced it.
             for (let attempt = 0; attempt < 3; attempt++) {
-                const result = await localDatabase.allDocs({ keys: [id] });
+                const result = await readFromDatabase(readScope, () => localDatabase.allDocs({ keys: [id] }));
                 const row = result.rows[0];
                 if (!row || !("value" in row) || !row.value.rev) return false;
-                const candidate = await localDatabase.get(id, { ...opt, rev: row.value.rev });
+                const candidate = await readFromDatabase(readScope, () =>
+                    localDatabase.get(id, { ...opt, rev: row.value.rev })
+                );
                 // Fetching an indexed revision can race with a restoration.
                 // Confirm the winner again before returning it as current.
-                const current = (await localDatabase.allDocs({ keys: [id] })).rows[0];
+                const current = (await readFromDatabase(readScope, () => localDatabase.allDocs({ keys: [id] })))
+                    .rows[0];
                 if (!current || !("value" in current) || !current.value.rev) return false;
                 if (current.value.rev === candidate._rev) {
                     obj = candidate;
@@ -548,7 +560,7 @@ export function computeChunkRetrievalMethod(
 }
 
 async function respondEntryFromMeta(
-    { localDatabase, chunkManager, log = Logger }: NecessaryManagers<"localDatabase" | "chunkManager">,
+    { localDatabase, readScope, chunkManager, log = Logger }: NecessaryManagers<"localDatabase" | "chunkManager">,
     settings: ObsidianLiveSyncSettings,
     filename: FilePathWithPrefix | FilePath,
     meta: NewEntry | PlainEntry,
@@ -560,11 +572,13 @@ async function respondEntryFromMeta(
     if (dump) {
         let conflicts: EntryDocResponse;
         try {
-            conflicts = await localDatabase.get(meta._id, {
-                rev: meta._rev,
-                conflicts: true,
-                revs_info: true,
-            });
+            conflicts = await readFromDatabase(readScope, () =>
+                localDatabase.get(meta._id, {
+                    rev: meta._rev,
+                    conflicts: true,
+                    revs_info: true,
+                })
+            );
         } catch (error) {
             throw new ContentReadError({
                 documentId: meta._id,
@@ -709,7 +723,7 @@ export async function deleteDBEntryByPath(
     path: FilePathWithPrefix | FilePath,
     opt?: PouchDB.Core.GetOptions
 ): Promise<boolean> {
-    const { localDatabase } = managers;
+    const { localDatabase, readScope } = managers;
     const log = managers.log ?? Logger;
     if (!isTargetFile(host, path)) {
         return false;
@@ -721,9 +735,9 @@ export async function deleteDBEntryByPath(
                 const settings = host.services.setting.currentSettings();
                 let obj: EntryDocResponse | null = null;
                 if (opt) {
-                    obj = await localDatabase.get(id, opt);
+                    obj = await readFromDatabase(readScope, () => localDatabase.get(id, opt));
                 } else {
-                    obj = await localDatabase.get(id);
+                    obj = await readFromDatabase(readScope, () => localDatabase.get(id));
                 }
                 const revDeletion = opt && ("rev" in opt ? opt.rev : "") != "";
 
@@ -775,7 +789,7 @@ export async function storeDeletionByPathAtRevision(
     path: FilePathWithPrefix | FilePath,
     baseRevision: string
 ): Promise<PouchDB.Core.Response | false> {
-    const { localDatabase } = managers;
+    const { localDatabase, readScope } = managers;
     const log = managers.log ?? Logger;
     if (!isTargetFile(host, path)) {
         return false;
@@ -784,9 +798,11 @@ export async function storeDeletionByPathAtRevision(
     try {
         return (
             (await serialized("file:" + path, async () => {
-                const obj = (await localDatabase.get<EntryDocResponse>(id, {
-                    rev: baseRevision,
-                })) as EntryDocResponse & EntryBase;
+                const obj = (await readFromDatabase(readScope, () =>
+                    localDatabase.get<EntryDocResponse>(id, {
+                        rev: baseRevision,
+                    })
+                )) as EntryDocResponse & EntryBase;
                 if (obj.type === "leaf") {
                     return false;
                 }

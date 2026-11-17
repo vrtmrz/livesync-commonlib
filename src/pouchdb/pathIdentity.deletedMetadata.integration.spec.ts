@@ -50,7 +50,12 @@ const pathService = new PathServiceCompat(new ServiceContext(), {
 });
 
 function subjectFor(database: PouchDB.Database<EntryDoc>): LiveSyncLocalDB {
-    const subject = Object.create(LiveSyncLocalDB.prototype) as LiveSyncLocalDB;
+    const subject = new LiveSyncLocalDB("deleted-metadata-inspection", {
+        services: {
+            API: { addLog: () => undefined },
+            setting: { currentSettings: () => ({}) },
+        },
+    } as never);
     Object.assign(subject, { localDatabase: database });
     return subject;
 }

@@ -133,6 +133,7 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
                 return false;
             }
             database.isReady = false;
+            database.stopReads();
             if (
                 params.databaseEvents?.onBeforeDatabaseRecovery &&
                 !(await params.databaseEvents.onBeforeDatabaseRecovery())
@@ -152,7 +153,7 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
         if (this.closingRequested || !database?.isReady || !database.localDatabase) {
             return false;
         }
-        await database.localDatabase.info();
+        await database.readFromDatabase((pouch) => pouch.info());
         return !this.closingRequested && this._localDatabase === database && database.isReady;
     }
 

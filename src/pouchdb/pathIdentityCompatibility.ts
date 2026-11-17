@@ -11,6 +11,12 @@ import { bumpRemoteVersion } from "./negotiation";
 
 type PathIdentitySettings = { pathNormalizationVersion?: number };
 
+type DatabaseRead = <T>(operation: () => Promise<T>) => Promise<T>;
+
+function readDatabase<T>(operation: () => Promise<T>): Promise<T> {
+    return operation();
+}
+
 export type PathIdentityInspection =
     | { readonly status: "empty" }
     | { readonly status: "configured"; readonly pathNormalizationVersion: 0 | 1 };
@@ -48,14 +54,16 @@ export function assertMatchingPathIdentityFeature(document: unknown, settings: P
 }
 
 /** Inspect Metadata only; Chunks and control documents do not establish a path identity. */
-async function hasMetadata(database: PouchDB.Database<EntryDoc>): Promise<boolean> {
+async function hasMetadata(database: PouchDB.Database<EntryDoc>, read: DatabaseRead): Promise<boolean> {
     let startkey: string | undefined;
     for (;;) {
-        const result = await database.allDocs({
-            include_docs: true,
-            limit: 100,
-            ...(startkey ? { startkey, skip: 1 } : {}),
-        });
+        const result = await read(() =>
+            database.allDocs({
+                include_docs: true,
+                limit: 100,
+                ...(startkey ? { startkey, skip: 1 } : {}),
+            })
+        );
         for (const row of result.rows) {
             if (row.doc?.type === "plain" || row.doc?.type === "newnote") return true;
         }
@@ -64,15 +72,19 @@ async function hasMetadata(database: PouchDB.Database<EntryDoc>): Promise<boolea
     }
 }
 
-/** Refuse an implicit migration. A fresh database may declare its identity before its first Metadata write. */
+/**
+ * Refuse an implicit migration; a fresh database may declare its identity before its first Metadata write.
+ * The optional read observer owns IO failures, separately from compatibility rejection and declaration writes.
+ */
 export async function assertDatabasePathIdentity(
     database: PouchDB.Database<EntryDoc>,
     settings: PathIdentitySettings,
-    declare = false
+    declare = false,
+    read: DatabaseRead = readDatabase
 ): Promise<void> {
     let document: EntryDoc | undefined;
     try {
-        document = await database.get(VERSIONING_DOCID);
+        document = await read(() => database.get(VERSIONING_DOCID));
     } catch (error) {
         if (!isErrorOfMissingDoc(error)) throw error;
     }
@@ -83,10 +95,10 @@ export async function assertDatabasePathIdentity(
         return;
     }
     if (declared) return;
-    if (await hasMetadata(database)) {
+    if (await hasMetadata(database, read)) {
         // Another writer may have declared this fresh database while the listing was in progress.
         try {
-            document = await database.get(VERSIONING_DOCID);
+            document = await read(() => database.get(VERSIONING_DOCID));
         } catch (error) {
             if (!isErrorOfMissingDoc(error)) throw error;
         }
