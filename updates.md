@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+## 0.6.0
+
+17th November, 2026
+
+### Fixed
+
+- Retiring a local database releases participating read callers before dependent
+  work is drained, so an unfinished adapter read does not keep those callers
+  waiting after retirement.
+    - This ends caller waits without cancelling underlying I/O. Started writes
+      must still finish.
+
+- Strict content reads and file reflection propagate failures to their owning
+  host, allowing incomplete work to be retained for recovery.
+    - Failures preserve the original cause and explicitly observed local or
+      remote dependencies. Existing Boolean and array-returning facades retain
+      their compatibility behaviour.
+
+### Improved
+
+- Hosts can inspect an unavailable local database and reopen the same database
+  without resetting its contents or discarding the separate key-value store.
+  ([Self-hosted LiveSync #1360](https://github.com/vrtmrz/obsidian-livesync/issues/1360),
+  [#1224](https://github.com/vrtmrz/obsidian-livesync/issues/1224))
+    - Hosts remain responsible for pausing work, retaining failed targets, and
+      deciding whether to retry. This recovery path does not prevent platform
+      disconnections or detect an isolated adapter operation which never settles.
+
+### Compatibility
+
+- Direct implementations of `DatabaseFileAccess`, `IFileHandler`,
+  `IDatabaseService`, `IDatabaseEventService`, and `IReplicationService` must
+  provide the new strict-read, reflection, and lifecycle members. The standard
+  base implementations provide these members.
+- `IReplicationService.processSynchroniseResult()` now returns
+  `FileReflectionResult | undefined` instead of a Boolean. Use
+  `isReflectionCompleted()` before completion bookkeeping; `undefined` means
+  that no handler accepted the operation.
+- Direct reads through the raw Pouch handle bypass caller-wait retirement.
+  Use `readDBEntry()` for file content, `getRaw()` or `allDocsRaw()` for raw
+  documents, and `readFromDatabase()` for other read-only operations.
+
+See the [compatibility requirements](docs/releasing.md#version-compatibility-policy)
+and [database lifecycle contract](docs/database-lifecycle.md) for integration details.
+
 ## 0.5.0
 
 12th November, 2026
