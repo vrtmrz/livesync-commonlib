@@ -970,7 +970,7 @@ describe("dispatcher exception values", () => {
 
 describe("rejection-preserving dispatch", () => {
     it("returns the first defined result in priority order and permits unregistering it", async () => {
-        const dispatch = handlers<{ read: () => Promise<string | undefined> }>().firstDefined("read");
+        const dispatch = handlers<{ read: () => Promise<string | undefined> }>().firstApplicable("read");
         const later = vi.fn(async () => "later");
         dispatch.addHandler(later, 10);
         const remove = dispatch.addHandler(async () => "selected", -1);
@@ -981,7 +981,7 @@ describe("rejection-preserving dispatch", () => {
     });
 
     it("treats false as a defined result rather than continuing to another handler", async () => {
-        const dispatch = handlers<{ read: () => Promise<boolean | undefined> }>().firstDefined("read");
+        const dispatch = handlers<{ read: () => Promise<boolean | undefined> }>().firstApplicable("read");
         const later = vi.fn(async () => true);
         dispatch.addHandler(async () => undefined);
         dispatch.addHandler(async () => false);
@@ -991,14 +991,14 @@ describe("rejection-preserving dispatch", () => {
     });
 
     it("returns undefined when no handler applies", async () => {
-        const dispatch = handlers<{ read: () => Promise<string | undefined> }>().firstDefined("read");
+        const dispatch = handlers<{ read: () => Promise<string | undefined> }>().firstApplicable("read");
         expect(await dispatch()).toBeUndefined();
         dispatch.addHandler(async () => undefined);
         expect(await dispatch()).toBeUndefined();
     });
 
     it("keeps the invocation's registration snapshot while a handler is running", async () => {
-        const dispatch = handlers<{ read: () => Promise<string | undefined> }>().firstDefined("read");
+        const dispatch = handlers<{ read: () => Promise<string | undefined> }>().firstApplicable("read");
         const added = vi.fn(async () => "added");
         dispatch.addHandler(async () => {
             dispatch.addHandler(added);
@@ -1009,7 +1009,7 @@ describe("rejection-preserving dispatch", () => {
     });
 
     it("propagates the original first-result rejection without invoking fallback handlers", async () => {
-        const dispatch = handlers<{ read: () => Promise<string | undefined> }>().firstDefined("read");
+        const dispatch = handlers<{ read: () => Promise<string | undefined> }>().firstApplicable("read");
         const error = { diagnostic: "read failed" };
         const later = vi.fn(async () => "fallback");
         dispatch.addHandler(async () => {

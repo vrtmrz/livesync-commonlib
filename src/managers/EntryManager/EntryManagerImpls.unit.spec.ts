@@ -1,5 +1,6 @@
 import { ContentReadError } from "@lib/common/LSError.ts";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { LOG_LEVEL_VERBOSE, defaultLogger, setGlobalLogFunction } from "octagonal-wheels/common/logger";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import HttpAdapter from "pouchdb-adapter-http";
@@ -166,6 +167,114 @@ describe("EntryManagerImpls", () => {
         chunkManager?.destroy();
         await db.destroy();
     });
+
+    describe("EntryManager logging", () => {
+        it("keeps concurrent log calls scoped to their EntryManager owner", async () => {
+            const firstLog = vi.fn();
+            const secondLog = vi.fn();
+            const managerDependencies = {
+                database: db,
+                chunkManager,
+                hashManager,
+                splitter,
+                pathService: mockPathService,
+                settingService: mockSettingService,
+            };
+            const firstOptions = { ...managerDependencies, log: firstLog };
+            const secondOptions = { ...managerDependencies, log: secondLog };
+            const firstManager = new EntryManager(firstOptions);
+            const secondManager = new EntryManager(secondOptions);
+
+            const firstEntry = createSavingEntry("entry-manager-first-owner.md", "First owner's content");
+            const secondEntry = createSavingEntry("entry-manager-second-owner.md", "Second owner's content");
+            const [firstResult, secondResult] = await Promise.all([
+                firstManager.putDBEntry(firstEntry),
+                secondManager.putDBEntry(secondEntry),
+            ]);
+
+            expect(firstResult).not.toBe(false);
+            expect(secondResult).not.toBe(false);
+            expect(firstLog).toHaveBeenCalledWith(
+                expect.stringContaining("Document saved: entry-manager-first-owner.md"),
+                LOG_LEVEL_VERBOSE
+            );
+            expect(secondLog).toHaveBeenCalledWith(
+                expect.stringContaining("Document saved: entry-manager-second-owner.md"),
+                LOG_LEVEL_VERBOSE
+            );
+
+            const firstMessages = firstLog.mock.calls.map(([message]) => message);
+            const secondMessages = secondLog.mock.calls.map(([message]) => message);
+            expect(
+                firstMessages.some(
+                    (message) =>
+                        typeof message === "string" && message.includes("entry-manager-second-owner.md")
+                )
+            ).toBe(false);
+            expect(
+                secondMessages.some(
+                    (message) =>
+                        typeof message === "string" && message.includes("entry-manager-first-owner.md")
+                )
+            ).toBe(false);
+        });
+
+        it("preserves helper log messages, levels, and object values", async () => {
+            const log = vi.fn();
+            const managerDependencies = {
+                database: db,
+                chunkManager,
+                hashManager,
+                splitter,
+                pathService: mockPathService,
+                settingService: mockSettingService,
+            };
+            const optionsWithLog = { ...managerDependencies, log };
+            const manager = new EntryManager(optionsWithLog);
+            const entry = createSavingEntry("entry-manager-log-values.md", "Log value preservation");
+
+            const saved = await manager.putDBEntry(entry);
+            expect(saved).not.toBe(false);
+            if (saved === false) {
+                throw new Error("EntryManager did not save the test entry");
+            }
+            expect(log).toHaveBeenCalledWith(
+                `Document saved: ${entry.path} (${saved.id.substring(0, 8)}-${saved.rev})`,
+                LOG_LEVEL_VERBOSE
+            );
+
+            const loaded = await manager.getDBEntry(entry.path, undefined, true);
+            expect(loaded).not.toBe(false);
+            if (loaded === false) {
+                throw new Error("EntryManager did not load the test entry");
+            }
+            expect(log.mock.calls.some(([message]) => message === loaded)).toBe(true);
+        });
+
+        it("keeps the global Logger fallback for direct helper calls without a logger", async () => {
+            const globalLog = vi.fn();
+            setGlobalLogFunction(globalLog);
+            try {
+                const host = createHost(mockSettingService, mockPathService);
+                const entry = createSavingEntry("direct-helper-global-log.md", "Global fallback");
+                const result = await putDBEntry(
+                    host,
+                    { localDatabase: db, chunkManager, hashManager, splitter },
+                    entry
+                );
+
+                expect(result).not.toBe(false);
+                expect(globalLog).toHaveBeenCalledWith(
+                    expect.stringContaining("Document saved: direct-helper-global-log.md"),
+                    LOG_LEVEL_VERBOSE,
+                    undefined
+                );
+            } finally {
+                setGlobalLogFunction(defaultLogger);
+            }
+        });
+    });
+
 
     describe("isTargetFile", () => {
         it("should return true for normal files", () => {

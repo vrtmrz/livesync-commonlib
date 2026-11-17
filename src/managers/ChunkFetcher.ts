@@ -12,6 +12,7 @@ import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf, type RemoteDBSetting
 
 import { type ChunkManager } from "./ChunkManager.ts";
 import type { ChunkFetchSource } from "./chunkFetchSource.ts";
+import type { LogFunction } from "@lib/services/lib/logUtils.ts";
 
 import type { IReplicatorService, ISettingService } from "@lib/services/base/IService.ts";
 import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
@@ -29,6 +30,8 @@ export const EVENT_MISSING_CHUNK_REMOTE = "missingChunkRemote";
 export const EVENT_CHUNK_FETCHED = "chunkFetched"; // Event for chunk arrival
 export const EVENT_CHUNK_FAILED = "chunkFailed";
 export type ChunkFetcherOptions = {
+    /** Host-owned logger; standalone instances default to the global logger. */
+    log?: LogFunction;
     settingService: ISettingService;
     chunkManager: ChunkManager;
     replicatorService: IReplicatorService;
@@ -65,6 +68,7 @@ function canFetchRemoteChunks(replicator: ReplicatorInstance): replicator is Rem
 
 export class ChunkFetcher {
     options: ChunkFetcherOptions;
+    private readonly log: LogFunction;
     get chunkManager(): ChunkManager {
         return this.options.chunkManager;
     }
@@ -93,6 +97,7 @@ export class ChunkFetcher {
     abort: AbortController = new AbortController();
     constructor(options: ChunkFetcherOptions) {
         this.options = options;
+        this.log = options.log ?? Logger;
         this.finiteActivityWasActive = this.chunkManager.deliveryCoordinator.isFiniteReplicationActive();
         this.stopObservingDelivery = this.chunkManager.deliveryCoordinator.onChanged(() => {
             const active = this.chunkManager.deliveryCoordinator.isFiniteReplicationActive();
@@ -197,8 +202,8 @@ export class ChunkFetcher {
                 pending.resolveActivityBoundary(false);
                 this.removePendingDelivery(pending, abandonedIds);
                 claim.release();
-                Logger("The chunk-delivery activity runner rejected before the claim settled.", LOG_LEVEL_VERBOSE);
-                Logger(error, LOG_LEVEL_VERBOSE);
+                this.log("The chunk-delivery activity runner rejected before the claim settled.", LOG_LEVEL_VERBOSE);
+                this.log(error, LOG_LEVEL_VERBOSE);
             });
         return unclaimedIds;
     }
@@ -240,7 +245,7 @@ export class ChunkFetcher {
     private onClaimStalled(pending: PendingChunkDelivery, stalledIds: readonly DocumentID[]): void {
         pending.resolveActivityBoundary(false);
         this.removePendingDelivery(pending, stalledIds);
-        Logger(`Chunk delivery stalled for the following IDs: ${stalledIds.join(", ")}`, LOG_LEVEL_VERBOSE);
+        this.log(`Chunk delivery stalled for the following IDs: ${stalledIds.join(", ")}`, LOG_LEVEL_VERBOSE);
     }
 
     private settleClaim(id: DocumentID, pending: PendingChunkFetch | undefined): void {
@@ -338,7 +343,7 @@ export class ChunkFetcher {
         { chunks, invalidChunks }: FetchedChunkClassification
     ): void {
         if (invalidChunks.length > 0) {
-            Logger(
+            this.log(
                 `Some fetched chunks are invalid and will be ignored: (${invalidChunks.length} / ${chunks.length + invalidChunks.length}).`,
                 LOG_LEVEL_VERBOSE
             );
@@ -347,7 +352,7 @@ export class ChunkFetcher {
                     typeof chunk === "object" && chunk !== null && "_id" in chunk && typeof chunk._id === "string"
                         ? chunk._id
                         : undefined;
-                Logger(
+                this.log(
                     id === undefined
                         ? "Invalid chunk without a string document ID."
                         : `Invalid chunk document: ${JSON.stringify(id)}`,
@@ -356,7 +361,7 @@ export class ChunkFetcher {
             }
         }
         if (chunks.length === 0) {
-            Logger(`No valid chunks were found for the following IDs: ${requestedIds.join(", ")}`);
+            this.log(`No valid chunks were found for the following IDs: ${requestedIds.join(", ")}`);
         }
     }
 
@@ -381,7 +386,7 @@ export class ChunkFetcher {
                 pending.inFlight = false;
                 pending.nextRequestAt = Date.now() + action.delayMs;
                 this.queue.push(chunkID);
-                Logger(
+                this.log(
                     `Remote chunk is not available yet; retrying ${chunkID} in ${action.delayMs} ms.`,
                     LOG_LEVEL_VERBOSE
                 );
@@ -490,11 +495,11 @@ export class ChunkFetcher {
 
         const replicator = this.options.replicatorService.getActiveReplicator();
         if (!replicator) {
-            Logger("No active replicator was found to request missing chunks.");
+            this.log("No active replicator was found to request missing chunks.");
             return undefined;
         }
         if (!canFetchRemoteChunks(replicator)) {
-            Logger("The active replicator does not support fetching individual remote chunks.");
+            this.log("The active replicator does not support fetching individual remote chunks.");
             this.publishUnsupportedReplicatorResult(ids);
             return undefined;
         }
@@ -524,7 +529,7 @@ export class ChunkFetcher {
         const activeIds = this.getActiveClaimIds(requestedIds, requestClaims);
         this.touchClaims(activeIds, requestClaims);
         if (!fetched) {
-            Logger(`No chunks were found for the following IDs: ${activeIds.join(", ")}`);
+            this.log(`No chunks were found for the following IDs: ${activeIds.join(", ")}`);
             for (const chunkID of activeIds) {
                 this.chunkManager.emitEvent(EVENT_CHUNK_FAILED, {
                     id: chunkID,
@@ -557,7 +562,7 @@ export class ChunkFetcher {
             if (this.options.source) {
                 await this.options.source.storeChunks(chunks);
             } else {
-                Logger(`Writing fetched chunks (${chunks.length}) to the database...`);
+                this.log(`Writing fetched chunks (${chunks.length}) to the database...`);
                 const result = await this.chunkManager.write(
                     chunks,
                     {
@@ -568,17 +573,17 @@ export class ChunkFetcher {
                 );
                 this.touchClaims(requestedIds, requestClaims);
                 if (result.result === true) {
-                    Logger(`Fetched chunks were stored successfully: ${chunks.length}`, LOG_LEVEL_VERBOSE);
+                    this.log(`Fetched chunks were stored successfully: ${chunks.length}`, LOG_LEVEL_VERBOSE);
                 } else {
-                    Logger(
+                    this.log(
                         `Fetched chunks could not be stored: ${chunks.map((chunk) => chunk._id).join(", ")}`,
                         LOG_LEVEL_VERBOSE
                     );
                 }
             }
         } catch (error) {
-            Logger(`An error occurred while storing fetched chunks!`, LOG_LEVEL_VERBOSE);
-            Logger(error, LOG_LEVEL_VERBOSE);
+            this.log(`An error occurred while storing fetched chunks!`, LOG_LEVEL_VERBOSE);
+            this.log(error, LOG_LEVEL_VERBOSE);
         }
     }
 
@@ -623,17 +628,17 @@ export class ChunkFetcher {
             });
         }
         if (isUnencryptedContentRejectedError(error)) {
-            Logger(
+            this.log(
                 getUnencryptedContentRejectionMessage("on-demand"),
                 LOG_LEVEL_NOTICE,
                 "unencrypted-content-rejected"
             );
             const rejection = getUnencryptedContentRejection(error);
             const identifiers = rejection ? [rejection.documentId] : requestIDs;
-            Logger(`On-demand retrieval rejected unencrypted content: ${identifiers.join(", ")}`, LOG_LEVEL_VERBOSE);
+            this.log(`On-demand retrieval rejected unencrypted content: ${identifiers.join(", ")}`, LOG_LEVEL_VERBOSE);
         } else {
-            Logger("An error occurred while fetching remote chunks.", LOG_LEVEL_VERBOSE);
-            Logger(error, LOG_LEVEL_VERBOSE);
+            this.log("An error occurred while fetching remote chunks.", LOG_LEVEL_VERBOSE);
+            this.log(error, LOG_LEVEL_VERBOSE);
         }
     }
 }

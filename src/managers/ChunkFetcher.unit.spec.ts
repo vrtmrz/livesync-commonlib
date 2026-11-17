@@ -126,6 +126,39 @@ describe("ChunkFetcher", () => {
         });
     });
 
+    it("keeps request diagnostics within the logger selected by each fetcher owner", async () => {
+        const firstLog = vi.fn();
+        const secondLog = vi.fn();
+        const globalLog = vi.fn();
+        const firstOptions = { ...chunkFetcher.options, log: firstLog };
+        chunkFetcher.destroy();
+        chunkFetcher = new ChunkFetcher(firstOptions);
+        const otherCoordinator = new ChunkDeliveryCoordinator();
+        const otherOptions = {
+            ...firstOptions,
+            log: secondLog,
+            chunkManager: { ...mockChunkManager, deliveryCoordinator: otherCoordinator } as ChunkManager,
+        };
+        const otherFetcher = new ChunkFetcher(otherOptions);
+        setGlobalLogFunction(globalLog);
+        try {
+            chunkFetcher.queue = ["first-owner" as DocumentID];
+            await chunkFetcher.requestMissingChunks();
+            expect(firstLog).toHaveBeenCalledWith("No active replicator was found to request missing chunks.");
+            expect(secondLog).not.toHaveBeenCalled();
+            otherFetcher.queue = ["second-owner" as DocumentID];
+            await otherFetcher.requestMissingChunks();
+            expect(secondLog).toHaveBeenCalledWith("No active replicator was found to request missing chunks.");
+            expect(firstLog).toHaveBeenCalledTimes(1);
+            expect(secondLog).toHaveBeenCalledTimes(1);
+            expect(globalLog).not.toHaveBeenCalled();
+        } finally {
+            otherFetcher.destroy();
+            otherCoordinator.dispose();
+            setGlobalLogFunction(defaultLogger);
+        }
+    });
+
     describe("Initialization", () => {
         it("should initialize successfully", () => {
             expect(chunkFetcher).toBeDefined();

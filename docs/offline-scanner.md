@@ -214,6 +214,13 @@ Strict internal reads propagate `ContentReadError` with directly observed `local
 
 `ReflectionOperationContext` carries the target, source policy, and optional checkpoint. `reflectDatabaseEntry` and `processSynchroniseResult` return `completed`, `policy`, or `cancelled`; uncontinuable failures reject the operation. Existing Boolean retrieval and `dbToStorage` facades retain their compatibility conversion at the outside boundary. They are not used to recover a lost cause from a second callback channel. `/replication` re-exports the neutral content and reflection contracts for consumers.
 
+A `policy` result means that applicable policy intentionally withheld ordinary
+file reflection, for example to preserve an unsynchronised edit as a conflict,
+queue conflict resolution, or leave an existing folder untouched. A host may
+also decline automatic file application. This is a normal policy decision;
+it does not certify completed reflection or schedule an automatic retry.
+Protection and conflict scheduling may already have occurred.
+
 The reflection result keeps its `status` shape, with shared immutable
 `FILE_REFLECTION_COMPLETED`, `FILE_REFLECTION_POLICY`, and
 `FILE_REFLECTION_CANCELLED` values. `isReflectionCompleted` and

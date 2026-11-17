@@ -257,7 +257,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     /**
      * Process a synchronisation result document.
      */
-    readonly processSynchroniseResult = handlers<IReplicationService>().firstDefined("processSynchroniseResult");
+    readonly processSynchroniseResult = handlers<IReplicationService>().firstApplicable("processSynchroniseResult");
 
     /**
      * Process a synchronisation result document for optional entries i.e., hidden files.

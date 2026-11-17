@@ -68,18 +68,55 @@ export interface ReflectionOperationContext {
     readonly checkpoint?: () => boolean | void;
 }
 
+/**
+ * A normal outcome of one file reflection attempt; terminal failures reject.
+ *
+ * @remarks Only `completed` permits completion bookkeeping. `policy` is an
+ * intentional skip under the applicable reflection policy, and `cancelled`
+ * means the target owner declined continuation at a checkpoint. Neither outcome
+ * establishes completed reflection or grants an automatic retry.
+ */
 export type FileReflectionResult = Readonly<{ status: "completed" | "policy" | "cancelled" }>;
 
+/**
+ * Reflection completed, including an already-matching file or an already-absent deletion.
+ * @remarks Callers may perform completion bookkeeping; a new storage write is not required.
+ */
 export const FILE_REFLECTION_COMPLETED = Object.freeze({ status: "completed" as const });
+
+/**
+ * Applicable policy intentionally withheld ordinary file reflection.
+ *
+ * @remarks Examples include handing a conflict to its resolution workflow,
+ * preserving unsynchronised storage as a conflict, an existing folder at the
+ * target path, or a host which does not apply received files automatically.
+ * Protection or conflict scheduling may already have occurred. This is a
+ * normal policy decision, not a failed read or a promise of a later retry.
+ */
 export const FILE_REFLECTION_POLICY = Object.freeze({ status: "policy" as const });
+
+/**
+ * The target owner's checkpoint declined continuation of this reflection attempt.
+ * @remarks This does not convert unrelated I/O failures into cancellation or roll back earlier work.
+ */
 export const FILE_REFLECTION_CANCELLED = Object.freeze({ status: "cancelled" as const });
 
-/** Only completed reflection permits the caller's success bookkeeping. */
+/**
+ * Test whether reflection permits the caller's completion bookkeeping.
+ * @param result - The normal outcome returned by the reflection operation.
+ * @returns True only for `completed`, including completion without a new write.
+ */
 export function isReflectionCompleted(result: FileReflectionResult): boolean {
     return result.status === "completed";
 }
 
-/** Preserve cancellation when adapting reflection to legacy Boolean results. */
+/**
+ * Test whether the target owner declined continuation at a checkpoint.
+ * @param result - The normal outcome returned by the reflection operation.
+ * @returns True only for `cancelled`; false can also mean a normal policy skip.
+ * @remarks Legacy Boolean facades can preserve cancellation with this predicate.
+ * Callers which require completed reflection must use {@link isReflectionCompleted}.
+ */
 export function isReflectionCancelled(result: FileReflectionResult): boolean {
     return result.status === "cancelled";
 }

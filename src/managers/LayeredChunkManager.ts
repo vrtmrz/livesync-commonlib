@@ -1,4 +1,5 @@
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
+import type { LogFunction } from "@lib/services/lib/logUtils.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import type { DocumentID, EntryDoc, EntryLeaf } from "@lib/common/types.ts";
 import type { ChangeManager } from "@lib/managers/ChangeManager.ts";
@@ -29,6 +30,7 @@ import { ChunkDeliveryCoordinator } from "./ChunkDeliveryCoordinator.ts";
  */
 export class LayeredChunkManager {
     protected options: ChunkManagerOptions;
+    private readonly log: LogFunction;
     protected eventTarget: EventTarget = new EventTarget();
 
     // Middleware layers
@@ -78,13 +80,14 @@ export class LayeredChunkManager {
     protected initialised = Promise.resolve();
 
     async _initialise() {
-        Logger("ChunkManager initialised", LOG_LEVEL_VERBOSE);
+        this.log("ChunkManager initialised", LOG_LEVEL_VERBOSE);
         // TODO: Add chunkpack
         return await Promise.resolve();
     }
 
     constructor(options: ChunkManagerOptions) {
         this.options = options;
+        this.log = options.log ?? Logger;
         const settings = options.settingService.currentSettings();
         const maxCacheSize = settings.hashCacheMaxCount * 10;
 
@@ -106,7 +109,8 @@ export class LayeredChunkManager {
                     [...ids],
                     { preventRemoteRequest: true, skipCache: true, waitForDelivery: false },
                     (remaining) => Promise.resolve(remaining.map(() => false))
-                )
+                ),
+            this.log
         );
 
         // Build read layers pipeline: Cache → Database → ArrivalWait
@@ -309,10 +313,10 @@ export class LayeredChunkManager {
         } finally {
             this.concurrentTransactions--;
             if (this.concurrentTransactions === 0) {
-                Logger(`All transactions completed. Performing stabilisation.`, LOG_LEVEL_VERBOSE);
+                this.log(`All transactions completed. Performing stabilisation.`, LOG_LEVEL_VERBOSE);
                 await this._stabilise();
             } else {
-                Logger(`Transaction completed. Remaining: ${this.concurrentTransactions}`, LOG_LEVEL_VERBOSE);
+                this.log(`Transaction completed. Remaining: ${this.concurrentTransactions}`, LOG_LEVEL_VERBOSE);
             }
         }
     }

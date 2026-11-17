@@ -391,7 +391,7 @@ The platform and RPC ownership decisions are accepted:
 The package build records each compatibility path explicitly. Do not add a wildcard export. A new compatibility path requires a real downstream import, a packed-consumer or downstream test, and a migration plan towards a focused public entry or the owning package.
 
 For the unreleased reflection integration, service composition uses
-`handlers<T>().firstDefined()` to select the first non-`undefined` result and
+`handlers<T>().firstApplicable()` to select the first non-`undefined` result and
 `handlers<T>().allOrThrow()` to run boolean callbacks until one returns `false`.
 Both propagate callback exceptions unchanged and retain the existing registration,
 priority, and invocation-snapshot semantics. Reflection and snapshot failures can

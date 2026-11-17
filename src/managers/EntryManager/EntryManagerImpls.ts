@@ -32,14 +32,16 @@ import { stripAllPrefixes } from "@lib/string_and_binary/path";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
 import type { GeneratedChunk } from "@lib/pouchdb/LiveSyncLocalDB";
 import { ContentReadError } from "@lib/common/LSError.ts";
+import type { LogFunction } from "@lib/services/lib/logUtils.ts";
 
 type Managers = {
+    log?: LogFunction;
     hashManager: HashManager;
     chunkManager: ChunkManager;
     splitter: ContentSplitter;
     localDatabase: PouchDB.Database<EntryDoc>;
 };
-type NecessaryManagers<T extends keyof Managers> = Pick<Managers, T>;
+type NecessaryManagers<T extends keyof Managers> = Pick<Managers, T | "log">;
 /** Select ancestry and stale-base handling when writing document metadata. */
 type PutDBEntryRevisionTarget =
     /** Use the current winning revision, retaining the legacy forced-write behaviour. */
@@ -56,7 +58,7 @@ export async function createChunks(
     dispFilename: string,
     note: SavingEntry
 ) {
-    const { chunkManager, splitter } = managers;
+    const { chunkManager, splitter, log = Logger } = managers;
     let bufferedChunk = [] as EntryLeaf[];
     let bufferedSize = 0;
 
@@ -74,7 +76,7 @@ export async function createChunks(
     let writeChars = 0;
     const flushBufferedChunks = async () => {
         if (bufferedChunk.length === 0) {
-            Logger(`No chunks to flush for ${dispFilename}`, LOG_LEVEL_VERBOSE);
+            log(`No chunks to flush for ${dispFilename}`, LOG_LEVEL_VERBOSE);
             return true;
         }
         const writeBuf = [...bufferedChunk];
@@ -89,7 +91,7 @@ export async function createChunks(
             note._id
         );
         if (result.result === false) {
-            Logger(`Failed to write buffered chunks for ${dispFilename}`, LOG_LEVEL_NOTICE);
+            log(`Failed to write buffered chunks for ${dispFilename}`, LOG_LEVEL_NOTICE);
             return false;
         }
         totalWritingCount++;
@@ -98,13 +100,13 @@ export async function createChunks(
         duplicatedCount += result.processed.duplicated;
         writeChars += writeBuf.map((e) => e.data.length).reduce((a, b) => a + b, 0);
         // chunks.push(...writeBuf.map((e) => e._id));
-        Logger(`Flushed ${writeBuf.length} (${writeChars}) chunks for ${dispFilename}`, LOG_LEVEL_VERBOSE);
+        log(`Flushed ${writeBuf.length} (${writeChars}) chunks for ${dispFilename}`, LOG_LEVEL_VERBOSE);
         return true;
     };
     const flushIfNeeded = async () => {
         if (bufferedSize > MAX_WRITE_SIZE) {
             if (!(await flushBufferedChunks())) {
-                Logger(`Failed to flush buffered chunks for ${dispFilename}`, LOG_LEVEL_NOTICE);
+                log(`Failed to flush buffered chunks for ${dispFilename}`, LOG_LEVEL_NOTICE);
                 return false;
             }
         }
@@ -138,8 +140,8 @@ export async function createChunks(
             }
         }
     } catch (ex) {
-        Logger(`Error processing pieces for ${dispFilename}`);
-        Logger(ex, LOG_LEVEL_VERBOSE);
+        log(`Error processing pieces for ${dispFilename}`);
+        log(ex, LOG_LEVEL_VERBOSE);
         return false;
     }
     if (!(await flushBufferedChunks())) {
@@ -148,13 +150,13 @@ export async function createChunks(
 
     const dataSize = note.data.size;
     const stats = `(✨: ${newCount}, 🗃️: ${cachedCount} (${resultCachedCount}) / 🗄️: ${writeCount}, ♻:${duplicatedCount})`;
-    Logger(
+    log(
         `Chunks processed for ${dispFilename} (${dataSize}): 📚:${totalChunkCount} (${createChunkCount}) , 📥:${totalWritingCount} ${stats}`,
         LOG_LEVEL_VERBOSE
     );
 
     if (dataSize > 0 && totalWritingCount === 0) {
-        Logger(
+        log(
             `No data to save in ${dispFilename}!! This document may be corrupted in the local database! Please back it up immediately, and report an issue!`,
             LOG_LEVEL_NOTICE
         );
@@ -222,7 +224,7 @@ async function putDBEntryInternal(
     onlyChunks: boolean | undefined,
     revisionTarget: PutDBEntryRevisionTarget
 ) {
-    const { localDatabase, chunkManager, splitter } = managers;
+    const { localDatabase, chunkManager, splitter, log = Logger } = managers;
 
     //safety valve
     const filename = host.services.path.id2path(note._id, note);
@@ -232,7 +234,7 @@ async function putDBEntryInternal(
     if (!note.eden) note.eden = {};
 
     if (!isTargetFile(host, filename)) {
-        Logger(`File skipped:${dispFilename}`, LOG_LEVEL_VERBOSE);
+        log(`File skipped:${dispFilename}`, LOG_LEVEL_VERBOSE);
         return false;
     }
 
@@ -319,10 +321,10 @@ async function putDBEntryInternal(
         );
     });
     if (result === false) {
-        Logger(`Failed to write document ${dispFilename}`, LOG_LEVEL_NOTICE);
+        log(`Failed to write document ${dispFilename}`, LOG_LEVEL_NOTICE);
         return false;
     }
-    Logger(`Document saved: ${dispFilename} (${result.id.substring(0, 8)}-${result.rev})`, LOG_LEVEL_VERBOSE);
+    log(`Document saved: ${dispFilename} (${result.id.substring(0, 8)}-${result.rev})`, LOG_LEVEL_VERBOSE);
     return result;
 }
 export function isTargetFile(host: NecessaryServicesInterfaces<"setting", never>, filenameSrc: string) {
@@ -480,11 +482,11 @@ function complementEntryMeta(note: NoteEntry) {
 }
 
 // only for legacy support. Will be removed in the future. No longer this type will be stored in the database, but we need to support it for a while until all documents are migrated.
-function respondOldFashionedEntry(note: NoteEntry, dump = false) {
+function respondOldFashionedEntry(note: NoteEntry, dump: boolean, log: LogFunction) {
     const doc = complementEntryMeta(note);
     if (dump) {
-        Logger(`--Old fashioned document--`);
-        Logger(doc);
+        log(`--Old fashioned document--`);
+        log(doc);
     }
     return doc;
 }
@@ -546,7 +548,7 @@ export function computeChunkRetrievalMethod(
 }
 
 async function respondEntryFromMeta(
-    { localDatabase, chunkManager }: NecessaryManagers<"localDatabase" | "chunkManager">,
+    { localDatabase, chunkManager, log = Logger }: NecessaryManagers<"localDatabase" | "chunkManager">,
     settings: ObsidianLiveSyncSettings,
     filename: FilePathWithPrefix | FilePath,
     meta: NewEntry | PlainEntry,
@@ -571,16 +573,16 @@ async function respondEntryFromMeta(
                 cause: error,
             });
         }
-        Logger("-- Conflicts --");
-        Logger(conflicts._conflicts ?? "No conflicts");
-        Logger("-- Revs info -- ");
-        Logger(conflicts._revs_info);
+        log("-- Conflicts --");
+        log(conflicts._conflicts ?? "No conflicts");
+        log("-- Revs info -- ");
+        log(conflicts._revs_info);
     }
     // search children
     try {
         if (dump) {
-            Logger(`--Bare document--`);
-            Logger(meta);
+            log(`--Bare document--`);
+            log(meta);
         }
 
         // Reading `Eden` for legacy support.
@@ -638,8 +640,8 @@ async function respondEntryFromMeta(
             type: meta.type,
         };
         if (dump) {
-            Logger(`--Loaded Document--`);
-            Logger(doc);
+            log(`--Loaded Document--`);
+            log(doc);
         }
         return doc;
     } catch (error) {
@@ -660,12 +662,13 @@ async function respondEntryFromMeta(
 
 export async function getDBEntryFromMeta(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
-    { localDatabase, chunkManager }: NecessaryManagers<"localDatabase" | "chunkManager">,
+    managers: NecessaryManagers<"localDatabase" | "chunkManager">,
     meta: LoadedEntry | MetaEntry,
     dump = false,
     waitForReady = true,
     localOnly = false
 ) {
+    const log = managers.log ?? Logger;
     const filename = host.services.path.id2path(meta._id, meta);
     if (!isTargetFile(host, filename)) {
         return false;
@@ -675,19 +678,11 @@ export async function getDBEntryFromMeta(
     if (isLegacyNote(meta)) {
         // simple note
         const note = meta as NoteEntry;
-        return respondOldFashionedEntry(note, dump);
+        return respondOldFashionedEntry(note, dump, log);
     }
     if (meta.type == "newnote" || meta.type == "plain") {
         // newnote or plain
-        return await respondEntryFromMeta(
-            { localDatabase, chunkManager },
-            settings,
-            filename,
-            meta,
-            dump,
-            waitForReady,
-            localOnly
-        );
+        return await respondEntryFromMeta(managers, settings, filename, meta, dump, waitForReady, localOnly);
     }
     return false;
 }
@@ -710,10 +705,12 @@ export async function getDBEntryByPath(
 }
 export async function deleteDBEntryByPath(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
-    { localDatabase }: NecessaryManagers<"localDatabase">,
+    managers: NecessaryManagers<"localDatabase">,
     path: FilePathWithPrefix | FilePath,
     opt?: PouchDB.Core.GetOptions
 ): Promise<boolean> {
+    const { localDatabase } = managers;
+    const log = managers.log ?? Logger;
     if (!isTargetFile(host, path)) {
         return false;
     }
@@ -738,7 +735,7 @@ export async function deleteDBEntryByPath(
                 if (!obj.type || (obj.type && obj.type == "notes")) {
                     obj._deleted = true;
                     const r = await localDatabase.put(obj, { force: !revDeletion });
-                    Logger(`Entry removed: ${path} (${obj._id.substring(0, 8)}-${r.rev}) `);
+                    log(`Entry removed: ${path} (${obj._id.substring(0, 8)}-${r.rev}) `);
                     return true;
 
                     // simple note
@@ -755,7 +752,7 @@ export async function deleteDBEntryByPath(
                     }
                     const r = await localDatabase.put(obj, { force: !revDeletion });
 
-                    Logger(
+                    log(
                         `Entry removed: [${revDeletion ? "REV" : "DEL"}] ${path} (${obj._id.substring(0, 8)}-${r.rev})`
                     );
                     return true;
@@ -774,10 +771,12 @@ export async function deleteDBEntryByPath(
 
 export async function storeDeletionByPathAtRevision(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
-    { localDatabase }: NecessaryManagers<"localDatabase">,
+    managers: NecessaryManagers<"localDatabase">,
     path: FilePathWithPrefix | FilePath,
     baseRevision: string
 ): Promise<PouchDB.Core.Response | false> {
+    const { localDatabase } = managers;
+    const log = managers.log ?? Logger;
     if (!isTargetFile(host, path)) {
         return false;
     }
@@ -795,7 +794,7 @@ export async function storeDeletionByPathAtRevision(
                 obj.deleted = true;
                 obj.mtime = Date.now();
                 const result = await localDatabase.put(obj, { force: true });
-                Logger(`Entry soft-deleted from revision: ${path} (${obj._id.substring(0, 8)}-${result.rev})`);
+                log(`Entry soft-deleted from revision: ${path} (${obj._id.substring(0, 8)}-${result.rev})`);
                 return result;
             })) ?? false
         );

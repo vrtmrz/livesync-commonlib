@@ -220,7 +220,7 @@ export class MultiBinder<T extends (...args: any[]) => any> implements MultiRegi
      * Adds a handler function.
      * Note: The same function is only added once.
      * @param callback The handler function to add.
-     * @param priority The priority of the handler, Do not use floating numbers to prevent confusion.
+     * @param priority Lower numbers run first; equal priorities retain registration order. Use integers.
      * @returns A function to unregister the added handler.
      *
      */
@@ -507,13 +507,14 @@ export class AnySuccessHandler<T extends unknown[]> extends BooleanHandlerBase<T
 }
 
 /**
- * A handler that invokes all added handler functions sequentially until one returns a non-falsy value.
+ * Invoke handlers sequentially until one returns a value other than `false` or `undefined`.
+ * Callback failures are logged and skipped; `0`, an empty string, and `null` are results.
  */
 export class FirstResultHandler<T extends unknown[], U> extends MultiBinder<BooleanHandlerFunc<T, U>> {
     /**
-     * Invokes handlers sequentially until one returns a non-falsy value.
+     * Invokes handlers sequentially, skipping `false`, `undefined`, and callback failures.
      * @param args The arguments to pass to the handlers.
-     * @returns The first non-falsy result from the handlers, or false if none found.
+     * @returns The first result other than `false` or `undefined`, or `false` when none applies.
      */
     async invoke(...args: T): Promise<U | false> {
         const _callbacks = [...this._callbacks];
@@ -532,8 +533,16 @@ export class FirstResultHandler<T extends unknown[], U> extends MultiBinder<Bool
     }
 }
 
-/** Return the first defined value, propagating callback failures unchanged. */
-export class FirstDefinedHandler<T extends unknown[], U> extends MultiBinder<HandlerFunc<T, U>> {
+/**
+ * Invoke a registration snapshot in priority order until a handler returns a value.
+ *
+ * @remarks Lower numerical priorities run first, with registration order breaking
+ * ties. Returning `undefined` declines the invocation; `false`, `0`, and `null`
+ * are results and stop dispatch. Handlers run sequentially, so this is not a
+ * race between responses and does not require a single registered handler.
+ * Callback errors and rejections propagate unchanged without trying later handlers.
+ */
+export class FirstApplicableHandler<T extends unknown[], U> extends MultiBinder<HandlerFunc<T, U>> {
     async invoke(...args: T): Promise<Awaited<U> | undefined> {
         for (const callback of [...this._callbacks]) {
             const result = await callback(...args);
@@ -640,7 +649,7 @@ export interface MultipleHandlerFunction<TFunc extends (...args: any[]) => U | P
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches the callback signature accepted by the other multiple-handler helpers.
-export type FirstDefinedFunction<TFunc extends (...args: any[]) => Promise<unknown>> = ((
+export type FirstApplicableFunction<TFunc extends (...args: any[]) => Promise<unknown>> = ((
     ...args: Parameters<TFunc>
 ) => Promise<Awaited<ReturnType<TFunc>> | undefined>) &
     Pick<MultipleHandlerFunction<TFunc>, "addHandler" | "removeHandler">;
@@ -797,14 +806,20 @@ export function firstResultFunction<TFunc extends (...args: any[]) => Promise<un
     return getMultipleBound(handler) as MultipleHandlerFunction<TFunc>;
 }
 
+/**
+ * Bind an ordered dispatcher which treats only `undefined` as a declined invocation.
+ * @param name - The diagnostic name of the handler registration owner.
+ * @returns A callable dispatcher with registration and removal methods.
+ * @remarks Dispatch order and failure handling follow {@link FirstApplicableHandler}.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- covariant in return type, so cannot be generic.
-export function firstDefinedFunction<TFunc extends (...args: any[]) => Promise<unknown>>(
+export function firstApplicableFunction<TFunc extends (...args: any[]) => Promise<unknown>>(
     name?: string
-): FirstDefinedFunction<TFunc> {
-    const handler = new FirstDefinedHandler<Parameters<TFunc>, Awaited<ReturnType<TFunc>>>(
-        name ?? "firstDefinedFunction"
+): FirstApplicableFunction<TFunc> {
+    const handler = new FirstApplicableHandler<Parameters<TFunc>, Awaited<ReturnType<TFunc>>>(
+        name ?? "firstApplicableFunction"
     );
-    return getMultipleBound(handler) as FirstDefinedFunction<TFunc>;
+    return getMultipleBound(handler) as FirstApplicableFunction<TFunc>;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches the callback signature accepted by the other multiple-handler helpers.
@@ -969,7 +984,7 @@ export function handlers<T extends object>() {
             return anySuccessFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>>(String(name));
         },
         /**
-         * Create a handler that invokes all added handler functions sequentially until one returns a non-falsy value.
+         * Create a handler which skips `false`, `undefined`, and logged callback failures.
          * @param name
          * @returns
          */
@@ -980,13 +995,18 @@ export function handlers<T extends object>() {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- covariant in return type, so cannot be generic.
             return firstResultFunction<Extract<T[K], (...args: any[]) => Promise<unknown>>>(String(name));
         },
-        /** Return the first defined result; propagate callback failures unchanged. */
-        firstDefined<K extends FunctionKeys<T>>(
+        /**
+         * Try handlers in priority and registration order until one returns a value.
+         * @param name - The callback on `T` whose invocation a handler may decline with `undefined`.
+         * @returns The first non-`undefined` result, or `undefined` when every handler declines.
+         * @remarks All other values stop dispatch. Callback failures propagate unchanged.
+         */
+        firstApplicable<K extends FunctionKeys<T>>(
             name: K
             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- follows the existing callback-selection pattern.
-        ): FirstDefinedFunction<Extract<T[K], (...args: any[]) => Promise<unknown>>> {
+        ): FirstApplicableFunction<Extract<T[K], (...args: any[]) => Promise<unknown>>> {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- follows the existing callback-selection pattern.
-            return firstDefinedFunction<Extract<T[K], (...args: any[]) => Promise<unknown>>>(String(name));
+            return firstApplicableFunction<Extract<T[K], (...args: any[]) => Promise<unknown>>>(String(name));
         },
         /**
          * Create a handler that invokes registered handlers until one completes or vetoes.

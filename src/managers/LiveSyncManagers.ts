@@ -96,18 +96,21 @@ export class LiveSyncManagers {
         });
 
         const chunkManager = new ChunkManager({
+            log: createInstanceLogFunction("ChunkManager", this._APIService),
             changeManager: changeManager,
             database,
             settingService: this.options.settingService,
             finiteReplicationActivity: this.options.replicatorService.finiteReplicationActivityCount,
         });
         const chunkFetcher = new ChunkFetcher({
+            log: createInstanceLogFunction("ChunkFetcher", this._APIService),
             chunkManager: chunkManager,
             source: this.options.chunkFetchSource,
             replicatorService: this.options.replicatorService,
             settingService: this.options.settingService,
         });
         const entryManager = new EntryManager({
+            log: createInstanceLogFunction("EntryManager", this._APIService),
             database,
             hashManager: hashManager,
             chunkManager: chunkManager,

@@ -10,9 +10,12 @@ import type {
 } from "@lib/managers/ChunkFetcher";
 import type { ActivityCountSource } from "@lib/managers/ChunkDeliveryCoordinator";
 import type { ContentReadResource } from "@lib/interfaces/DatabaseFileAccess.ts";
+import type { LogFunction } from "@lib/services/lib/logUtils.ts";
 export type ChunkDeliveryFailure = { resources: readonly ContentReadResource[]; cause: unknown };
 
 export type ChunkManagerOptions = {
+    /** Host-owned logger; standalone instances default to the global logger. */
+    log?: LogFunction;
     database: PouchDB.Database<EntryDoc>;
     changeManager: ChangeManager<EntryDoc>;
     // maxCacheSize?: number; // Maximum cache size

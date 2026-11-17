@@ -17,7 +17,7 @@ import {
     type EntryLeaf,
     type RemoteDBSettings,
 } from "@lib/common/types.ts";
-import { defaultLogger, setGlobalLogFunction } from "@lib/common/logger.ts";
+import { Logger, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, defaultLogger, setGlobalLogFunction } from "@lib/common/logger.ts";
 import { RemoteRequestError } from "@lib/common/LSError.ts";
 import * as compatibility from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import * as negotiation from "@lib/pouchdb/negotiation.ts";
@@ -33,6 +33,57 @@ import type { InitialFetchFastForward } from "./fastForward.ts";
 
 PouchDB.plugin(MemoryAdapter);
 PouchDB.plugin(HttpAdapter);
+
+describe("LiveSyncCouchDBReplicator logging", () => {
+    it("supplies the API log key default when the caller omits it", async () => {
+        const replicator = createOneShotReplicator({ close: vi.fn().mockResolvedValue(undefined) });
+        const addLog = vi.fn();
+        replicator.env.services.API.addLog = addLog;
+
+        await expect(replicator.migrate(1, 2)).resolves.toBe(true);
+
+        expect(addLog).toHaveBeenCalledExactlyOnceWith("Database updated from 1 to 2", LOG_LEVEL_NOTICE, "");
+    });
+
+    it("routes completion logs through each replicator's own API service", () => {
+        const globalLog = vi.fn();
+        const firstCalls: unknown[][] = [];
+        const secondCalls: unknown[][] = [];
+        const firstAPI = {
+            owner: "first",
+            addLog(...args: unknown[]) {
+                firstCalls.push([this.owner, ...args]);
+            },
+        };
+        const secondAPI = {
+            owner: "second",
+            addLog(...args: unknown[]) {
+                secondCalls.push([this.owner, ...args]);
+            },
+        };
+        const createSubject = (API: typeof firstAPI) => {
+            const subject = new LiveSyncCouchDBReplicator({
+                services: { API },
+            } as unknown as ConstructorParameters<typeof LiveSyncCouchDBReplicator>[0]);
+            subject.updateInfo = vi.fn();
+            return subject;
+        };
+        const firstReplicator = createSubject(firstAPI);
+        const secondReplicator = createSubject(secondAPI);
+        setGlobalLogFunction(globalLog);
+
+        try {
+            firstReplicator.replicationCompleted(true);
+            secondReplicator.replicationCompleted(false);
+
+            expect(firstCalls).toEqual([["first", "Replication completed", LOG_LEVEL_NOTICE, "sync"]]);
+            expect(secondCalls).toEqual([["second", "Replication completed", LOG_LEVEL_INFO, ""]]);
+            expect(globalLog).not.toHaveBeenCalled();
+        } finally {
+            setGlobalLogFunction(defaultLogger);
+        }
+    });
+});
 
 describe("LiveSyncCouchDBReplicator initialisation", () => {
     it.each([false, true])(
@@ -51,6 +102,7 @@ describe("LiveSyncCouchDBReplicator initialisation", () => {
             vi.mocked(replicator.checkReplicationConnectivity).mockRestore();
             replicator.isMobile = vi.fn().mockReturnValue(false);
             replicator.env.services.API = {
+                addLog: Logger,
                 getAppVersion: () => "test",
                 getPluginVersion: () => "test",
                 getPlatform: () => "test",
@@ -96,6 +148,7 @@ describe("LiveSyncCouchDBReplicator initialisation", () => {
         const replicator = createOneShotReplicator(remoteDatabase);
         vi.mocked(replicator.checkReplicationConnectivity).mockRestore();
         replicator.env.services.API = {
+            addLog: Logger,
             isMobile: () => false,
             getAppVersion: () => "test",
             getPluginVersion: () => "test",
@@ -149,6 +202,7 @@ describe("LiveSyncCouchDBReplicator initialisation", () => {
             const replicator = createOneShotReplicator(remoteDatabase);
             vi.mocked(replicator.checkReplicationConnectivity).mockRestore();
             replicator.env.services.API = {
+                addLog: Logger,
                 isMobile: () => false,
                 getAppVersion: () => "test",
                 getPluginVersion: () => "test",
@@ -196,6 +250,7 @@ describe("LiveSyncCouchDBReplicator initialisation", () => {
         const env = {
             services: {
                 API: {
+                    addLog: Logger,
                     isMobile: () => false,
                 },
                 database: {
@@ -284,7 +339,7 @@ describe("LiveSyncCouchDBReplicator finite attempt result", () => {
     it("blocks a coalesced caller without borrowing the initiating compatibility rejection", async () => {
         const replicator = new LiveSyncCouchDBReplicator({
             services: {
-                API: { isMobile: () => false },
+                API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
                 database: { localDatabase: { localDatabase: {} } },
             },
@@ -406,7 +461,7 @@ describe("LiveSyncCouchDBReplicator preferred tweak writes", () => {
     it("rejects a connection-string failure instead of resolving successfully", async () => {
         const replicator = new LiveSyncCouchDBReplicator({
             services: {
-                API: { isMobile: () => false },
+                API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
             },
         } as unknown as ConstructorParameters<typeof LiveSyncCouchDBReplicator>[0]);
@@ -472,7 +527,7 @@ describe("LiveSyncCouchDBReplicator preferred tweak writes", () => {
     function createCouchReplicatorForPreferredWrite(remoteDatabase: Record<string, unknown>) {
         const env = {
             services: {
-                API: { isMobile: () => false },
+                API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
             },
         } as unknown as ConstructorParameters<typeof LiveSyncCouchDBReplicator>[0];
@@ -495,7 +550,7 @@ describe("LiveSyncCouchDBReplicator remote administration settlement", () => {
     function createReplicator() {
         return new LiveSyncCouchDBReplicator({
             services: {
-                API: { isMobile: () => false },
+                API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
             },
         } as unknown as ConstructorParameters<typeof LiveSyncCouchDBReplicator>[0]);
@@ -660,6 +715,7 @@ describe("LiveSyncCouchDBReplicator remote preferred tweak values", () => {
         const env = {
             services: {
                 API: {
+                    addLog: Logger,
                     isMobile: () => false,
                 },
             },
@@ -766,6 +822,7 @@ function createContinuousTestReplicator(localDatabase: object) {
     const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
     replicator.env = {
         services: {
+            API: { addLog: Logger },
             context: createServiceContext(),
             database: { localDatabase: { localDatabase } },
             replicator: { runFiniteReplicationActivity },
@@ -791,6 +848,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
+                API: { addLog: Logger },
                 context: createServiceContext(),
                 database: {
                     localDatabase: {
@@ -834,6 +892,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
+                API: { addLog: Logger },
                 context: createServiceContext(),
                 database: { localDatabase: { localDatabase: {} } },
                 replicator: {
@@ -874,6 +933,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
+                API: { addLog: Logger },
                 context: createServiceContext(),
                 database: { localDatabase: { localDatabase: {} } },
                 replicator: {
@@ -982,6 +1042,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
+                API: { addLog: Logger },
                 context: createServiceContext(),
                 database: {
                     localDatabase: {
@@ -1019,6 +1080,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
+                API: { addLog: Logger },
                 context: createServiceContext(),
                 database: {
                     localDatabase: { localDatabase },
@@ -1086,6 +1148,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
+                API: { addLog: Logger },
                 context: createServiceContext(),
                 database: { localDatabase: { localDatabase } },
                 replicator: {
@@ -1128,6 +1191,7 @@ function createOneShotReplicator(remoteDatabase: { close: () => Promise<void> })
     const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
     replicator.env = {
         services: {
+            API: { addLog: Logger },
             context: createServiceContext(),
             database: { localDatabase: { localDatabase } },
         },
@@ -1385,6 +1449,7 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
         replicator.env = {
             services: {
                 API: {
+                    addLog: Logger,
                     getAppVersion: () => "app-version",
                     getPluginVersion: () => "plugin-version",
                     getPlatform: () => "test-platform",
@@ -1494,7 +1559,7 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
             oneShotConnectivityTimeoutMs: 5,
             services: {
                 ...replicator.env.services,
-                API: { isMobile: () => false },
+                API: { isMobile: () => false, addLog: Logger },
                 remote: { connect },
             },
         } as LiveSyncCouchDBReplicator["env"];
@@ -1616,7 +1681,7 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
-                API: { isMobile: () => false },
+                API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
                 database: { localDatabase: { localDatabase } },
             },
@@ -1667,7 +1732,7 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
             close: vi.fn().mockResolvedValue(undefined),
         };
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
-        replicator.env = { services: { database: { localDatabase: { localDatabase: remoteDatabase } } } } as never;
+        replicator.env = { services: { API: { addLog: Logger }, database: { localDatabase: { localDatabase: remoteDatabase } } } } as never;
         replicator.translate = vi.fn((key) => key);
         replicator.isMobile = vi.fn().mockReturnValue(false);
         vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
@@ -1703,7 +1768,7 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
             close: vi.fn().mockResolvedValue(undefined),
         };
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
-        replicator.env = { services: { database: { localDatabase: { localDatabase: remoteDatabase } } } } as never;
+        replicator.env = { services: { API: { addLog: Logger }, database: { localDatabase: { localDatabase: remoteDatabase } } } } as never;
         replicator.translate = vi.fn((key) => key);
         replicator.isMobile = vi.fn().mockReturnValue(false);
         vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
@@ -1908,7 +1973,7 @@ describe("LiveSyncCouchDBReplicator finite maintenance connection ownership", ()
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
-                API: { isMobile: () => false },
+                API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
                 database: { localNodeIdentity: { nodeId: "node" } },
                 setting: { currentSettings: () => setting },
@@ -2027,7 +2092,7 @@ describe("LiveSyncCouchDBReplicator chunk sending settlement and connection owne
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
-                API: { isMobile: () => false },
+                API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
                 database: { localDatabase: { localDatabase } },
                 keyValueDB: { openSimpleStore: () => store },
@@ -2091,7 +2156,7 @@ describe("LiveSyncCouchDBReplicator chunk sending settlement and connection owne
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
-                API: { isMobile: () => false },
+                API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
                 keyValueDB: {
                     openSimpleStore: () => ({
@@ -2150,7 +2215,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
-                API: { isMobile: () => false, isOnline: true },
+                API: { isMobile: () => false, isOnline: true, addLog: Logger },
                 context: createServiceContext(),
                 setting: { currentSettings: () => ({}) },
             },
@@ -2190,7 +2255,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
-                API: { isMobile: () => false, isOnline },
+                API: { isMobile: () => false, isOnline, addLog: Logger },
                 context: createServiceContext(),
                 setting: { currentSettings: () => ({}) },
             },
@@ -2225,7 +2290,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
-                API: { isMobile: () => false, isOnline },
+                API: { isMobile: () => false, isOnline, addLog: Logger },
                 context: createServiceContext(),
                 setting: { currentSettings: () => ({}) },
             },
@@ -2246,7 +2311,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
-                API: { isMobile: () => false, isOnline: false },
+                API: { isMobile: () => false, isOnline: false, addLog: Logger },
                 context: createServiceContext(),
                 setting: { currentSettings: () => ({}) },
             },
@@ -2273,7 +2338,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
-                API: { isMobile: () => false },
+                API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
                 setting: { currentSettings: () => ({}) },
             },
@@ -2313,7 +2378,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
         const liveSetting = { couchDB_URI: "https://live.example.test" } as RemoteDBSettings;
         replicator.env = {
             services: {
-                API: { isMobile: () => false },
+                API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
                 setting: { currentSettings: () => liveSetting },
             },
@@ -2348,7 +2413,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
-                API: { isMobile: () => false },
+                API: { isMobile: () => false, addLog: Logger },
                 context: createServiceContext(),
                 setting: { currentSettings: () => ({}) },
             },
@@ -2429,7 +2494,7 @@ describe("managed replication failure notification", () => {
         const owner = {} as never;
         const onLocalDatabaseError = vi.fn(() => new Promise<boolean>(() => {}));
         const database = { localDatabaseDirect: owner, onLocalDatabaseError };
-        Object.assign(subject, { env: { services: { database } }, abortController: vi.fn(), updateInfo: vi.fn() });
+        Object.assign(subject, { env: { services: { API: { addLog: Logger }, database } }, abortController: vi.fn(), updateInfo: vi.fn() });
         return { subject, owner, database, onLocalDatabaseError };
     }
 

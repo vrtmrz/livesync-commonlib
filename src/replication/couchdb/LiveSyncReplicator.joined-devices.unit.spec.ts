@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { Logger } from "@lib/common/logger.ts";
 
 import {
     MILESTONE_DOCID,
@@ -49,7 +50,7 @@ function createReplicator(
     const setting = {} as RemoteDBSettings;
     const replicator = new LiveSyncCouchDBReplicator({
         services: {
-            API: { isMobile: () => false },
+            API: { isMobile: () => false, addLog: Logger },
             database: { localDatabase: { localDatabase: localDB } },
         },
     } as never);

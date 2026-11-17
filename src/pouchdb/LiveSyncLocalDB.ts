@@ -16,7 +16,6 @@ import {
     type diff_result_leaf,
     SuffixDatabaseName,
 } from "@lib/common/types.ts";
-import { Logger } from "@lib/common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 import { EVENT_CHUNK_FETCHED } from "@lib/managers/ChunkFetcher.ts";
@@ -422,11 +421,11 @@ export class LiveSyncLocalDB {
         this.isReady = false;
         await this.closeActiveReplication();
         if (!(await this.env.services.databaseEvents.onResetDatabase(this))) {
-            Logger("Database reset has been prevented or failed on some modules.", LOG_LEVEL_NOTICE);
+            this._log("Database reset has been prevented or failed on some modules.", LOG_LEVEL_NOTICE);
             return false;
         }
         await this.managers.teardownManagers();
-        Logger("Database closed for reset Database.");
+        this._log("Database closed for reset Database.");
         await this.localDatabase.destroy();
         //@ts-ignore
         this.localDatabase = null;
@@ -576,7 +575,7 @@ export class LiveSyncLocalDB {
             return true;
         } catch (ex) {
             if (isErrorOfMissingDoc(ex)) {
-                Logger(`Remove revision: Missing target revision, ${docId}-${revision}`, LOG_LEVEL_VERBOSE);
+                this._log(`Remove revision: Missing target revision, ${docId}-${revision}`, LOG_LEVEL_VERBOSE);
             }
         }
         return false;

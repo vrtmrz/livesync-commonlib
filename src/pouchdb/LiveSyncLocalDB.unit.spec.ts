@@ -4,6 +4,7 @@ import MemoryAdapter from "pouchdb-adapter-memory";
 import replication from "pouchdb-replication";
 import { DEFAULT_SETTINGS, type DocumentID, type EntryDoc } from "@lib/common/types";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
+import { LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { LiveSyncLocalDB } from "./LiveSyncLocalDB";
 
 const managerLifecycle = vi.hoisted(() => ({
@@ -460,6 +461,27 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
             subject,
         };
     }
+
+    it("routes missing-revision diagnostics to the owning database logger", async () => {
+        const first = createSubject(async () => true);
+        const second = createSubject(async () => true);
+        await first.subject.initializeDatabase();
+        await second.subject.initializeDatabase();
+        const firstLog = vi.mocked(first.subject.env.services.API.addLog);
+        const secondLog = vi.mocked(second.subject.env.services.API.addLog);
+        firstLog.mockClear();
+        secondLog.mockClear();
+        first.database.get.mockRejectedValue({ status: 404 });
+
+        await expect(first.subject.removeRevision("note.md" as DocumentID, "1-missing")).resolves.toBe(false);
+
+        expect(firstLog).toHaveBeenCalledExactlyOnceWith(
+            expect.stringContaining("Remove revision: Missing target revision, note.md-1-missing"),
+            LOG_LEVEL_VERBOSE,
+            ""
+        );
+        expect(secondLog).not.toHaveBeenCalled();
+    });
 
     beforeEach(() => {
         managerLifecycle.initialise.mockClear();

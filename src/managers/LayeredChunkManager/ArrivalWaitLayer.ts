@@ -5,6 +5,7 @@ import type { ChunkReadOptions, ChunkDeliveryFailure } from "./types.ts";
 import { ContentReadError } from "@lib/common/LSError.ts";
 import { ChunkDeliveryCoordinator } from "@lib/managers/ChunkDeliveryCoordinator.ts";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
+import type { LogFunction } from "@lib/services/lib/logUtils.ts";
 export type ChunkAvailabilityRecheck = (ids: readonly DocumentID[]) => Promise<readonly (EntryLeaf | false)[]>;
 
 /** Unknown failures keep the combined delivery ineligible for an automatic retry. */
@@ -46,7 +47,8 @@ export class ArrivalWaitLayer implements IReadLayer {
     constructor(
         eventEmitter: (eventName: string, data: DocumentID[]) => void,
         deliveryCoordinator?: ChunkDeliveryCoordinator,
-        private readonly recheckAvailability?: ChunkAvailabilityRecheck
+        private readonly recheckAvailability?: ChunkAvailabilityRecheck,
+        private readonly log: LogFunction = Logger
     ) {
         this.eventEmitter = eventEmitter;
         this.deliveryCoordinator = deliveryCoordinator ?? new ChunkDeliveryCoordinator();
@@ -98,8 +100,11 @@ export class ArrivalWaitLayer implements IReadLayer {
                 ? await this.recheckAvailability(candidates.map(({ id }) => id))
                 : candidates.map(() => false);
         } catch (error) {
-            Logger("Could not recheck chunk availability after finite delivery activity completed.", LOG_LEVEL_VERBOSE);
-            Logger(error, LOG_LEVEL_VERBOSE);
+            this.log(
+                "Could not recheck chunk availability after finite delivery activity completed.",
+                LOG_LEVEL_VERBOSE
+            );
+            this.log(error, LOG_LEVEL_VERBOSE);
             for (const { id, version, queue } of candidates) {
                 if (this.waitingMap.get(id) === queue && queue.activityVersion === version) {
                     queue.failure = combineDeliveryFailures(queue.failure, {
