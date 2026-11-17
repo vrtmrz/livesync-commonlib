@@ -1039,6 +1039,26 @@ describe("rejection-preserving dispatch", () => {
         expect(calls).toEqual([1, 2]);
     });
 
+    it("keeps the current boolean-handler snapshot when registrations change", async () => {
+        const dispatch = handlers<{ save: () => Promise<boolean> }>().allOrThrow("save");
+        const current = vi.fn(async () => true);
+        const added = vi.fn(async () => true);
+        const removeCurrent = dispatch.addHandler(current, 10);
+        dispatch.addHandler(async () => {
+            removeCurrent();
+            dispatch.addHandler(added, 20);
+            return true;
+        });
+
+        expect(await dispatch()).toBe(true);
+        expect(current).toHaveBeenCalledOnce();
+        expect(added).not.toHaveBeenCalled();
+
+        expect(await dispatch()).toBe(true);
+        expect(current).toHaveBeenCalledOnce();
+        expect(added).toHaveBeenCalledOnce();
+    });
+
     it("succeeds when no boolean handler rejects the operation", async () => {
         const dispatch = handlers<{ save: () => Promise<boolean> }>().allOrThrow("save");
         expect(await dispatch()).toBe(true);
