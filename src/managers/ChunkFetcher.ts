@@ -1,15 +1,18 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
 import { getUnencryptedContentRejectionMessage } from "@lib/replication/unencryptedContentMessages.ts";
 import {
     getUnencryptedContentRejection,
     isUnencryptedContentRejectedError,
 } from "@lib/replication/UnencryptedContentRejectedError.ts";
+import { withScope } from "octagonal-wheels/resource/scope";
 import { delay, promiseWithResolvers } from "octagonal-wheels/promises";
 import { unique } from "octagonal-wheels/collection";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
-import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf } from "@lib/common/types.ts";
+import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf, type RemoteDBSettings } from "@lib/common/types.ts";
 
 import { type ChunkManager } from "./ChunkManager.ts";
 import type { ChunkFetchSource } from "./chunkFetchSource.ts";
+import type { LogFunction } from "@lib/services/lib/logUtils.ts";
 
 import type { IReplicatorService, ISettingService } from "@lib/services/base/IService.ts";
 import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
@@ -25,7 +28,10 @@ import {
 export const EVENT_MISSING_CHUNKS = "missingChunks";
 export const EVENT_MISSING_CHUNK_REMOTE = "missingChunkRemote";
 export const EVENT_CHUNK_FETCHED = "chunkFetched"; // Event for chunk arrival
+export const EVENT_CHUNK_FAILED = "chunkFailed";
 export type ChunkFetcherOptions = {
+    /** Host-owned logger; standalone instances default to the global logger. */
+    log?: LogFunction;
     settingService: ISettingService;
     chunkManager: ChunkManager;
     replicatorService: IReplicatorService;
@@ -49,7 +55,11 @@ type PendingChunkFetch = {
 };
 
 interface RemoteChunkReader extends ReplicatorInstance {
-    fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]>;
+    fetchRemoteChunks(
+        missingChunks: string[],
+        showResult: boolean,
+        setting?: RemoteDBSettings
+    ): Promise<false | EntryLeaf[]>;
 }
 
 function canFetchRemoteChunks(replicator: ReplicatorInstance): replicator is RemoteChunkReader {
@@ -58,6 +68,7 @@ function canFetchRemoteChunks(replicator: ReplicatorInstance): replicator is Rem
 
 export class ChunkFetcher {
     options: ChunkFetcherOptions;
+    private readonly log: LogFunction;
     get chunkManager(): ChunkManager {
         return this.options.chunkManager;
     }
@@ -86,6 +97,7 @@ export class ChunkFetcher {
     abort: AbortController = new AbortController();
     constructor(options: ChunkFetcherOptions) {
         this.options = options;
+        this.log = options.log ?? Logger;
         this.finiteActivityWasActive = this.chunkManager.deliveryCoordinator.isFiniteReplicationActive();
         this.stopObservingDelivery = this.chunkManager.deliveryCoordinator.onChanged(() => {
             const active = this.chunkManager.deliveryCoordinator.isFiniteReplicationActive();
@@ -190,8 +202,8 @@ export class ChunkFetcher {
                 pending.resolveActivityBoundary(false);
                 this.removePendingDelivery(pending, abandonedIds);
                 claim.release();
-                Logger("The chunk-delivery activity runner rejected before the claim settled.", LOG_LEVEL_VERBOSE);
-                Logger(error, LOG_LEVEL_VERBOSE);
+                this.log("The chunk-delivery activity runner rejected before the claim settled.", LOG_LEVEL_VERBOSE);
+                this.log(error, LOG_LEVEL_VERBOSE);
             });
         return unclaimedIds;
     }
@@ -233,7 +245,7 @@ export class ChunkFetcher {
     private onClaimStalled(pending: PendingChunkDelivery, stalledIds: readonly DocumentID[]): void {
         pending.resolveActivityBoundary(false);
         this.removePendingDelivery(pending, stalledIds);
-        Logger(`Chunk delivery stalled for the following IDs: ${stalledIds.join(", ")}`, LOG_LEVEL_VERBOSE);
+        this.log(`Chunk delivery stalled for the following IDs: ${stalledIds.join(", ")}`, LOG_LEVEL_VERBOSE);
     }
 
     private settleClaim(id: DocumentID, pending: PendingChunkFetch | undefined): void {
@@ -277,27 +289,36 @@ export class ChunkFetcher {
         this.touchClaims(ids, claims);
         while (!this.destroyed) {
             const activeIds = this.getActiveClaimIds(ids, claims);
-            if (activeIds.length === 0) return [];
+            if (activeIds.length === 0) {
+                return [];
+            }
             if (localCheckCompletionVersion !== this.finiteCompletionVersion) {
                 localCheckCompletionVersion = this.finiteCompletionVersion;
                 await this.resolveLocallyAvailableRetries(claims);
                 continue;
             }
 
-            const now = Date.now();
-            const timeToWait = this.previousRequestTime + this.interval - now;
-            // An interval at or above the claim's inactivity fuse is exceptional;
-            // the safety valve may release logical ownership before this pause ends.
-            if (timeToWait > 0) {
-                await delay(timeToWait);
+            const waitMs = this.reserveRequestInterval();
+            if (waitMs > 0) {
+                await delay(waitMs);
                 continue;
             }
-            // Reserve the start before yielding, so other waiting requests recheck against it.
-            this.previousRequestTime = now;
             this.touchClaims(activeIds, claims);
             return activeIds;
         }
         return [];
+    }
+
+    /** Return the remaining delay, or reserve the request start synchronously. */
+    private reserveRequestInterval(): number {
+        const now = Date.now();
+        const waitMs = this.previousRequestTime + this.interval - now;
+        // The claim's inactivity fuse may expire while an unusually long interval is awaited.
+        if (waitMs > 0) {
+            return waitMs;
+        }
+        this.previousRequestTime = now;
+        return 0;
     }
 
     private async resolveLocallyAvailableRetries(claims: ReadonlyMap<DocumentID, PendingChunkFetch>): Promise<void> {
@@ -322,7 +343,7 @@ export class ChunkFetcher {
         { chunks, invalidChunks }: FetchedChunkClassification
     ): void {
         if (invalidChunks.length > 0) {
-            Logger(
+            this.log(
                 `Some fetched chunks are invalid and will be ignored: (${invalidChunks.length} / ${chunks.length + invalidChunks.length}).`,
                 LOG_LEVEL_VERBOSE
             );
@@ -331,7 +352,7 @@ export class ChunkFetcher {
                     typeof chunk === "object" && chunk !== null && "_id" in chunk && typeof chunk._id === "string"
                         ? chunk._id
                         : undefined;
-                Logger(
+                this.log(
                     id === undefined
                         ? "Invalid chunk without a string document ID."
                         : `Invalid chunk document: ${JSON.stringify(id)}`,
@@ -340,7 +361,7 @@ export class ChunkFetcher {
             }
         }
         if (chunks.length === 0) {
-            Logger(`No valid chunks were found for the following IDs: ${requestedIds.join(", ")}`);
+            this.log(`No valid chunks were found for the following IDs: ${requestedIds.join(", ")}`);
         }
     }
 
@@ -365,7 +386,7 @@ export class ChunkFetcher {
                 pending.inFlight = false;
                 pending.nextRequestAt = Date.now() + action.delayMs;
                 this.queue.push(chunkID);
-                Logger(
+                this.log(
                     `Remote chunk is not available yet; retrying ${chunkID} in ${action.delayMs} ms.`,
                     LOG_LEVEL_VERBOSE
                 );
@@ -402,123 +423,222 @@ export class ChunkFetcher {
         }
         let requestIDs: DocumentID[] = [];
         const requestClaims = new Map<DocumentID, PendingChunkFetch>();
-        try {
+        await withScope(requestClaims, async (scope) => {
             this.currentProcessing++;
-            requestIDs = unique(this.queue.filter((id) => this.isReady(id))).slice(0, BATCH_SIZE);
-            const selectedIds = new Set(requestIDs);
-            this.queue = this.queue.filter((id) => !selectedIds.has(id));
-            this.ensureClaims(requestIDs);
-            for (const id of requestIDs) {
-                const pending = this.pendingClaims.get(id);
-                if (pending) {
-                    pending.inFlight = true;
-                    requestClaims.set(id, pending);
-                }
-            }
-            this.scheduleRequest();
-            requestIDs = await this.waitForActivityBoundary(requestClaims);
-            if (requestIDs.length === 0) return;
-
-            const localCheckCompletionVersion = this.finiteCompletionVersion;
-            await this.resolveLocallyAvailableRetries(requestClaims);
-            let pendingIDs = await this.waitBeforeRemoteRequest(requestIDs, requestClaims, localCheckCompletionVersion);
-            if (pendingIDs.length === 0) return;
-
-            // A lookup begun before the latest finite completion cannot be the final probe.
-            const requestCompletionVersion = this.finiteCompletionVersion;
-            let fetched: EntryLeaf[] | false;
-            if (this.options.source) {
-                fetched = await this.options.source.fetchChunks(pendingIDs);
-            } else {
-                const replicator = this.options.replicatorService.getActiveReplicator();
-                if (!replicator) {
-                    Logger("No active replicator was found to request missing chunks.");
-                    return;
-                }
-                if (!canFetchRemoteChunks(replicator)) {
-                    Logger("The active replicator does not support fetching individual remote chunks.");
-                    for (const chunkID of pendingIDs) {
-                        this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
-                    }
-                    return;
-                }
-                fetched = await replicator.fetchRemoteChunks(pendingIDs, false);
-            }
-            pendingIDs = this.getActiveClaimIds(pendingIDs, requestClaims);
-            this.touchClaims(pendingIDs, requestClaims);
-            if (!fetched) {
-                Logger(`No chunks were found for the following IDs: ${pendingIDs.join(", ")}`);
-                for (const chunkID of pendingIDs) {
-                    this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
-                }
-                return;
-            }
-            const classification = classifyFetchedChunks(pendingIDs, fetched);
-            this.logFetchedChunks(pendingIDs, classification);
-            const { chunks, missingIds, invalidIds } = classification;
+            scope.defer(() => this.cleanupRequestBatch(requestClaims));
             try {
-                if (chunks.length > 0 && this.options.source) {
-                    await this.options.source.storeChunks(chunks);
-                } else if (chunks.length > 0) {
-                    Logger(`Writing fetched chunks (${chunks.length}) to the database...`);
-                    const result = await this.chunkManager.write(
-                        chunks,
-                        {
-                            skipCache: true,
-                            force: true, // Force writing to ensure the chunks with existing _rev.
-                        },
-                        "ChunkFetcher" as DocumentID
-                    );
-                    this.touchClaims(pendingIDs, requestClaims);
-                    if (result.result === true) {
-                        Logger(`Fetched chunks were stored successfully: ${chunks.length}`, LOG_LEVEL_VERBOSE);
-                    } else {
-                        Logger(
-                            `Fetched chunks could not be stored: ${chunks.map((chunk) => chunk._id).join(", ")}`,
-                            LOG_LEVEL_VERBOSE
-                        );
-                    }
+                requestIDs = unique(this.queue.filter((id) => this.isReady(id))).slice(0, BATCH_SIZE);
+                this.admitRequestBatch(requestIDs, requestClaims);
+                requestIDs = await this.waitForActivityBoundary(requestClaims);
+                if (requestIDs.length === 0) {
+                    return;
                 }
-            } catch (error) {
-                Logger(`An error occurred while storing fetched chunks!`, LOG_LEVEL_VERBOSE);
-                Logger(error, LOG_LEVEL_VERBOSE);
-            } finally {
-                // Emitting fetched chunks regardless of storage success preserves the existing refetch behaviour.
-                for (const chunk of chunks) {
-                    this.chunkManager.emitEvent(EVENT_CHUNK_FETCHED, chunk);
-                    this.settleClaim(chunk._id, requestClaims.get(chunk._id));
-                }
-                for (const invalidID of this.getActiveClaimIds(invalidIds, requestClaims)) {
-                    this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, invalidID);
-                    this.settleClaim(invalidID, requestClaims.get(invalidID));
-                }
-            }
 
-            this.applyMissingChunkResults(missingIds, requestClaims, requestCompletionVersion);
+                const localCheckCompletionVersion = this.finiteCompletionVersion;
+                await this.resolveLocallyAvailableRetries(requestClaims);
+                const pendingIDs = await this.waitBeforeRemoteRequest(
+                    requestIDs,
+                    requestClaims,
+                    localCheckCompletionVersion
+                );
+                if (pendingIDs.length === 0) {
+                    return;
+                }
+
+                // A lookup begun before the latest finite completion cannot be the final probe.
+                const requestCompletionVersion = this.finiteCompletionVersion;
+                const fetchResult = this.fetchRemoteChunks(pendingIDs);
+                if (!fetchResult) {
+                    return;
+                }
+                const fetched = await fetchResult;
+                await this.acceptFetchedChunks(pendingIDs, requestClaims, requestCompletionVersion, fetched);
+            } catch (error) {
+                this.publishRequestFailure(requestIDs, requestClaims, error);
+            }
+        });
+    }
+
+    private admitRequestBatch(
+        requestIDs: readonly DocumentID[],
+        requestClaims: Map<DocumentID, PendingChunkFetch>
+    ): void {
+        const selectedIds = new Set(requestIDs);
+        this.queue = this.queue.filter((id) => !selectedIds.has(id));
+        this.ensureClaims(requestIDs);
+        for (const id of requestIDs) {
+            const pending = this.pendingClaims.get(id);
+            if (pending) {
+                pending.inFlight = true;
+                requestClaims.set(id, pending);
+            }
+        }
+        this.scheduleRequest();
+    }
+
+    private cleanupRequestBatch(requestClaims: ReadonlyMap<DocumentID, PendingChunkFetch>): void {
+        for (const [id, pending] of requestClaims) {
+            if (pending.inFlight) {
+                this.settleClaim(id, pending);
+            }
+        }
+        this.currentProcessing--;
+        this.previousRequestTime = Date.now();
+        this.scheduleRequest();
+    }
+
+    private fetchRemoteChunks(ids: DocumentID[]): Promise<EntryLeaf[] | false> | undefined {
+        const source = this.options.source;
+        if (source) {
+            return this.fetchWithRemoteError(ids, () => source.fetchChunks(ids));
+        }
+
+        const replicator = this.options.replicatorService.getActiveReplicator();
+        if (!replicator) {
+            this.log("No active replicator was found to request missing chunks.");
+            return undefined;
+        }
+        if (!canFetchRemoteChunks(replicator)) {
+            this.log("The active replicator does not support fetching individual remote chunks.");
+            this.publishUnsupportedReplicatorResult(ids);
+            return undefined;
+        }
+        return this.fetchWithRemoteError(ids, () => replicator.fetchRemoteChunks(ids, false));
+    }
+
+    private async fetchWithRemoteError(
+        ids: DocumentID[],
+        fetch: () => Promise<EntryLeaf[] | false>
+    ): Promise<EntryLeaf[] | false> {
+        try {
+            return await fetch();
         } catch (error) {
             if (isUnencryptedContentRejectedError(error)) {
-                Logger(
-                    getUnencryptedContentRejectionMessage("on-demand"),
-                    LOG_LEVEL_NOTICE,
-                    "unencrypted-content-rejected"
-                );
-                const rejection = getUnencryptedContentRejection(error);
-                const identifiers = rejection ? [rejection.documentId] : requestIDs;
-                Logger(
-                    `On-demand retrieval rejected unencrypted content: ${identifiers.join(", ")}`,
-                    LOG_LEVEL_VERBOSE
-                );
-            } else {
-                Logger("An error occurred while fetching remote chunks.", LOG_LEVEL_VERBOSE);
-                Logger(error, LOG_LEVEL_VERBOSE);
+                throw error;
+            }
+            throw new ContentReadError({ documentId: ids[0], resources: ["remote"], cause: error });
+        }
+    }
+
+    private async acceptFetchedChunks(
+        requestedIds: DocumentID[],
+        requestClaims: ReadonlyMap<DocumentID, PendingChunkFetch>,
+        requestCompletionVersion: number,
+        fetched: EntryLeaf[] | false
+    ): Promise<void> {
+        const activeIds = this.getActiveClaimIds(requestedIds, requestClaims);
+        this.touchClaims(activeIds, requestClaims);
+        if (!fetched) {
+            this.log(`No chunks were found for the following IDs: ${activeIds.join(", ")}`);
+            for (const chunkID of activeIds) {
+                this.chunkManager.emitEvent(EVENT_CHUNK_FAILED, {
+                    id: chunkID,
+                    failure: { resources: ["remote"], cause: false },
+                });
+            }
+            return;
+        }
+
+        const classification = classifyFetchedChunks(activeIds, fetched);
+        this.logFetchedChunks(activeIds, classification);
+        const { chunks, missingIds, invalidIds } = classification;
+        try {
+            if (chunks.length > 0) {
+                await this.storeFetchedChunks(chunks, activeIds, requestClaims);
             }
         } finally {
-            for (const [id, pending] of requestClaims) {
-                if (pending.inFlight) this.settleClaim(id, pending);
+            this.publishAcceptedChunks(chunks, invalidIds, requestClaims);
+        }
+
+        this.applyMissingChunkResults(missingIds, requestClaims, requestCompletionVersion);
+    }
+
+    private async storeFetchedChunks(
+        chunks: EntryLeaf[],
+        requestedIds: DocumentID[],
+        requestClaims: ReadonlyMap<DocumentID, PendingChunkFetch>
+    ): Promise<void> {
+        try {
+            if (this.options.source) {
+                await this.options.source.storeChunks(chunks);
+            } else {
+                this.log(`Writing fetched chunks (${chunks.length}) to the database...`);
+                const result = await this.chunkManager.write(
+                    chunks,
+                    {
+                        skipCache: true,
+                        force: true, // Force writing to ensure the chunks with existing _rev.
+                    },
+                    "ChunkFetcher" as DocumentID
+                );
+                this.touchClaims(requestedIds, requestClaims);
+                if (result.result === true) {
+                    this.log(`Fetched chunks were stored successfully: ${chunks.length}`, LOG_LEVEL_VERBOSE);
+                } else {
+                    this.log(
+                        `Fetched chunks could not be stored: ${chunks.map((chunk) => chunk._id).join(", ")}`,
+                        LOG_LEVEL_VERBOSE
+                    );
+                }
             }
-            this.currentProcessing--;
-            this.previousRequestTime = Date.now();
-            this.scheduleRequest();
+        } catch (error) {
+            this.log(`An error occurred while storing fetched chunks!`, LOG_LEVEL_VERBOSE);
+            this.log(error, LOG_LEVEL_VERBOSE);
+        }
+    }
+
+    private publishAcceptedChunks(
+        chunks: readonly EntryLeaf[],
+        invalidIds: readonly DocumentID[],
+        requestClaims: ReadonlyMap<DocumentID, PendingChunkFetch>
+    ): void {
+        // Emitting fetched chunks regardless of storage success preserves the existing refetch behaviour.
+        for (const chunk of chunks) {
+            this.chunkManager.emitEvent(EVENT_CHUNK_FETCHED, chunk);
+            this.settleClaim(chunk._id, requestClaims.get(chunk._id));
+        }
+        for (const invalidID of this.getActiveClaimIds(invalidIds, requestClaims)) {
+            this.chunkManager.emitEvent(EVENT_CHUNK_FAILED, {
+                id: invalidID,
+                failure: { resources: [], cause: new Error("Invalid remote Chunk") },
+            });
+            this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, invalidID);
+            this.settleClaim(invalidID, requestClaims.get(invalidID));
+        }
+    }
+
+    private publishUnsupportedReplicatorResult(requestedIds: readonly DocumentID[]): void {
+        for (const chunkID of requestedIds) {
+            this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
+        }
+    }
+
+    private publishRequestFailure(
+        requestIDs: readonly DocumentID[],
+        requestClaims: ReadonlyMap<DocumentID, PendingChunkFetch>,
+        error: unknown
+    ): void {
+        for (const id of this.getActiveClaimIds(requestIDs, requestClaims)) {
+            this.chunkManager.emitEvent(EVENT_CHUNK_FAILED, {
+                id,
+                failure:
+                    error instanceof ContentReadError
+                        ? { resources: error.failure.resources, cause: error.failure.cause }
+                        : { resources: [], cause: error },
+            });
+        }
+        if (isUnencryptedContentRejectedError(error)) {
+            this.log(
+                getUnencryptedContentRejectionMessage("on-demand"),
+                LOG_LEVEL_NOTICE,
+                "unencrypted-content-rejected"
+            );
+            const rejection = getUnencryptedContentRejection(error);
+            const identifiers = rejection ? [rejection.documentId] : requestIDs;
+            this.log(`On-demand retrieval rejected unencrypted content: ${identifiers.join(", ")}`, LOG_LEVEL_VERBOSE);
+        } else {
+            this.log("An error occurred while fetching remote chunks.", LOG_LEVEL_VERBOSE);
+            this.log(error, LOG_LEVEL_VERBOSE);
         }
     }
 }

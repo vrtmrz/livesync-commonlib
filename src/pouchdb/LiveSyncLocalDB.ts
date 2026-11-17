@@ -16,12 +16,12 @@ import {
     type diff_result_leaf,
     SuffixDatabaseName,
 } from "@lib/common/types.ts";
-import { Logger } from "@lib/common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 import { EVENT_CHUNK_FETCHED } from "@lib/managers/ChunkFetcher.ts";
 import type { LiveSyncEventHub } from "@lib/hub/hub.ts";
 import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
+import { LocalDatabaseReadScope } from "./LocalDatabaseReadScope.ts";
 import { LiveSyncManagers } from "@lib/managers/LiveSyncManagers.ts";
 import type { ChunkFetchSource } from "@lib/managers/chunkFetchSource.ts";
 import type { AutoMergeResult } from "@lib/managers/ConflictManager.ts";
@@ -73,6 +73,8 @@ export type GeneratedChunk = {
 
 /** Optional host IO bound afresh to each prepared database instance. */
 export interface LiveSyncLocalDBRuntimeOptions {
+    /** Physical database selection captured by the owning service before asynchronous retirement. */
+    createPouchDBInstance?: LiveSyncLocalDBEnv["services"]["database"]["createPouchDBInstance"];
     createChunkFetchSource?: (database: PouchDB.Database<EntryDoc>) => ChunkFetchSource;
 }
 
@@ -80,9 +82,23 @@ export class LiveSyncLocalDB {
     auth: Credential;
     dbname: string;
     settings!: RemoteDBSettings;
+    /**
+     * The raw PouchDB handle for replication, changes feeds, and maintenance.
+     *
+     * Direct reads bypass this owner's caller-wait retirement. Use
+     * {@link readDBEntry} for file contents, {@link getRaw} or {@link allDocsRaw}
+     * for raw documents, and {@link readFromDatabase} for other read-only Pouch
+     * operations. These entry points end caller waits when the owner retires;
+     * they do not cancel native I/O or automatically retry a failed operation.
+     *
+     * Integrations which require this handle must own their operation's
+     * retirement and completion. Keep writes and mixed read/write workflows
+     * outside {@link readFromDatabase}; started writes must actually finish.
+     */
     localDatabase!: PouchDB.Database<EntryDoc>;
     _log: LogFunction;
 
+    private readScope = new LocalDatabaseReadScope();
     private _managers?: LiveSyncManagers;
     get managers() {
         if (!this._managers) {
@@ -137,6 +153,8 @@ export class LiveSyncLocalDB {
     /** Notify dependent services at most once for each physical database lifecycle. */
     private notifyDatabaseUnload(): Promise<void> {
         if (!this.databaseUnloadNotification) {
+            // Publish the shared Promise before invoking hooks, which may re-enter close.
+            // This microtask prevents duplicate notification; it does not drain work.
             this.databaseUnloadNotification = Promise.resolve().then(async () => {
                 await this.env.services.databaseEvents.onUnloadDatabase(this);
             });
@@ -148,9 +166,29 @@ export class LiveSyncLocalDB {
         void this.notifyDatabaseUnload();
     }
 
+    /** End caller read waits before lifecycle hooks drain their owners; native IO is not cancelled. */
+    stopReads(): void {
+        this.readScope.close();
+    }
+
+    /**
+     * Run a read on the captured Pouch and end its caller wait when this owner retires.
+     *
+     * Use {@link getRaw} or {@link allDocsRaw} for document reads with known IDs.
+     * This callback also supports other read-only operations, including inspection
+     * of unvalidated stored IDs. It can continue after the caller wait rejects,
+     * so it must not perform writes or change application state after a read.
+     * No connection-health conclusion, recovery request, or retry is implied.
+     */
+    readFromDatabase<T>(operation: (database: PouchDB.Database<EntryDoc>) => Promise<T>): Promise<T> {
+        const database = this.localDatabase;
+        return this.readScope.run(() => operation(database));
+    }
+
     async close() {
         this._log("Database closed (by close)");
         this.isReady = false;
+        this.stopReads();
         this.offRemoteChunkFetchedHandler?.();
         this.offRemoteChunkFetchedHandler = undefined;
         await this.closeActiveReplication();
@@ -205,6 +243,7 @@ export class LiveSyncLocalDB {
         managers: LiveSyncManagers
     ): Promise<void> {
         this.isReady = false;
+        if (this.localDatabase === database) this.stopReads();
         this.offRemoteChunkFetchedHandler?.();
         this.offRemoteChunkFetchedHandler = undefined;
         const closeCleanup = this.databaseCloseCleanup?.database === database ? this.databaseCloseCleanup : undefined;
@@ -241,24 +280,30 @@ export class LiveSyncLocalDB {
     async initializeDatabase(): Promise<boolean> {
         await this._prepareHashFunctions();
         if (this.localDatabase != null) {
+            this.stopReads();
             this.localDatabase.removeAllListeners();
             await this.localDatabase.close();
         }
         this.localDatabase = null!;
+        this.readScope = new LocalDatabaseReadScope();
 
-        this.localDatabase = this.env.services.database.createPouchDBInstance<EntryDoc>(
-            this.dbname + SuffixDatabaseName,
-            {
-                auto_compaction: false,
-                revs_limit: 100,
-                deterministic_revs: true,
-            }
-        );
+        this.localDatabase = (
+            this.runtimeOptions.createPouchDBInstance ??
+            this.env.services.database.createPouchDBInstance.bind(this.env.services.database)
+        )<EntryDoc>(this.dbname + SuffixDatabaseName, {
+            auto_compaction: false,
+            revs_limit: 100,
+            deterministic_revs: true,
+        });
         this.activeReplicationClose = undefined;
         this.databaseUnloadNotification = undefined;
+        const openedDatabase = this.localDatabase;
+        const readScope = this.readScope;
+        this.databaseCloseCleanup = undefined;
 
         const manager = new LiveSyncManagers({
             database: this.localDatabase,
+            readScope,
             chunkFetchSource: this.runtimeOptions?.createChunkFetchSource?.(this.localDatabase),
             APIService: this.env.services.API,
             pathService: this.env.services.path,
@@ -268,10 +313,9 @@ export class LiveSyncLocalDB {
         });
 
         this._managers = manager;
-        const openedDatabase = this.localDatabase;
-        this.databaseCloseCleanup = undefined;
         try {
-            if (!(await this.env.services.databaseEvents.onDatabaseInitialisation(this))) {
+            const initialisationAccepted = await this.env.services.databaseEvents.onDatabaseInitialisation(this);
+            if (!initialisationAccepted) {
                 await this.rollbackFailedInitialisation(openedDatabase, manager);
                 this._log("Database initialisation was rejected by a required module.", LOG_LEVEL_NOTICE);
                 return false;
@@ -281,7 +325,8 @@ export class LiveSyncLocalDB {
             this._log("Database info", LOG_LEVEL_VERBOSE);
             this._log(JSON.stringify(await openedDatabase.info(), null, 2), LOG_LEVEL_VERBOSE);
             await manager.initialise();
-            openedDatabase.on("close", () => {
+            openedDatabase.on("closed", () => {
+                readScope.close();
                 this._log("Database closed.");
                 this.isReady = false;
                 openedDatabase.removeAllListeners();
@@ -417,11 +462,11 @@ export class LiveSyncLocalDB {
         this.isReady = false;
         await this.closeActiveReplication();
         if (!(await this.env.services.databaseEvents.onResetDatabase(this))) {
-            Logger("Database reset has been prevented or failed on some modules.", LOG_LEVEL_NOTICE);
+            this._log("Database reset has been prevented or failed on some modules.", LOG_LEVEL_NOTICE);
             return false;
         }
         await this.managers.teardownManagers();
-        Logger("Database closed for reset Database.");
+        this._log("Database closed for reset Database.");
         await this.localDatabase.destroy();
         //@ts-ignore
         this.localDatabase = null;
@@ -571,17 +616,18 @@ export class LiveSyncLocalDB {
             return true;
         } catch (ex) {
             if (isErrorOfMissingDoc(ex)) {
-                Logger(`Remove revision: Missing target revision, ${docId}-${revision}`, LOG_LEVEL_VERBOSE);
+                this._log(`Remove revision: Missing target revision, ${docId}-${revision}`, LOG_LEVEL_VERBOSE);
             }
         }
         return false;
     }
 
+    /** Read a raw document by its known ID, with caller-wait retirement owned by this database. */
     getRaw<T extends EntryDoc>(
         docId: DocumentID,
         options?: PouchDB.Core.GetOptions
     ): Promise<T & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta> {
-        return this.localDatabase.get<T>(docId, options || {});
+        return this.readFromDatabase((database) => database.get<T>(docId, options || {}));
     }
 
     removeRaw(docId: DocumentID, revision: string, options?: PouchDB.Core.Options): Promise<PouchDB.Core.Response> {
@@ -592,6 +638,7 @@ export class LiveSyncLocalDB {
         return this.localDatabase.put(doc, options || {});
     }
 
+    /** Read a raw document listing with caller-wait retirement owned by this database. */
     allDocsRaw<T extends EntryDoc | DatabaseEntry>(
         options?:
             | PouchDB.Core.AllDocsWithKeyOptions
@@ -599,7 +646,7 @@ export class LiveSyncLocalDB {
             | PouchDB.Core.AllDocsWithinRangeOptions
             | PouchDB.Core.AllDocsOptions
     ): Promise<PouchDB.Core.AllDocsResponse<T>> {
-        return this.localDatabase.allDocs<T>(options);
+        return this.readFromDatabase((database) => database.allDocs<T>(options));
     }
 
     bulkDocsRaw<T extends EntryDoc>(
@@ -629,9 +676,37 @@ export class LiveSyncLocalDB {
         includeDeleted = false,
         localOnly = false
     ): Promise<false | LoadedEntry> {
+        try {
+            return await this.readDBEntry(path, opt, dump, waitForReady, includeDeleted, localOnly);
+        } catch (error) {
+            this._log(error, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+    }
+    async readDBEntry(
+        path: FilePathWithPrefix | FilePath,
+        opt?: PouchDB.Core.GetOptions,
+        dump = false,
+        waitForReady = true,
+        includeDeleted = false,
+        localOnly = false
+    ): Promise<false | LoadedEntry> {
         return await this.managers.entryManager.getDBEntry(path, opt, dump, waitForReady, includeDeleted, localOnly);
     }
     async getDBEntryFromMeta(
+        meta: LoadedEntry | MetaEntry,
+        dump = false,
+        waitForReady = true,
+        localOnly = false
+    ): Promise<false | LoadedEntry> {
+        try {
+            return await this.readDBEntryFromMeta(meta, dump, waitForReady, localOnly);
+        } catch (error) {
+            this._log(error, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+    }
+    async readDBEntryFromMeta(
         meta: LoadedEntry | MetaEntry,
         dump = false,
         waitForReady = true,

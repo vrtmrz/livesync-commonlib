@@ -1,3 +1,4 @@
+import type { LocalDatabaseReadScope } from "@lib/pouchdb/LocalDatabaseReadScope.ts";
 import { LOG_LEVEL_VERBOSE, type EntryDoc } from "@lib/common/types";
 import { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters.ts";
 import { ChangeManager } from "@lib/managers/ChangeManager.ts";
@@ -18,6 +19,7 @@ import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/l
 
 export interface LiveSyncManagersOptions<TSettingService extends ISettingService = ISettingService> {
     database: PouchDB.Database<EntryDoc>;
+    readScope?: LocalDatabaseReadScope;
     databaseService: IDatabaseService;
     settingService: TSettingService;
     pathService: IPathService;
@@ -82,6 +84,7 @@ export class LiveSyncManagers {
     protected getManagerMembers() {
         this.log("Creating LiveSync Managers...");
         const database = this.options.database;
+        const readScope = this.options.readScope;
 
         const changeManager = new ChangeManager<EntryDoc>({
             database,
@@ -96,19 +99,24 @@ export class LiveSyncManagers {
         });
 
         const chunkManager = new ChunkManager({
+            log: createInstanceLogFunction("ChunkManager", this._APIService),
             changeManager: changeManager,
             database,
+            readScope,
             settingService: this.options.settingService,
             finiteReplicationActivity: this.options.replicatorService.finiteReplicationActivityCount,
         });
         const chunkFetcher = new ChunkFetcher({
+            log: createInstanceLogFunction("ChunkFetcher", this._APIService),
             chunkManager: chunkManager,
             source: this.options.chunkFetchSource,
             replicatorService: this.options.replicatorService,
             settingService: this.options.settingService,
         });
         const entryManager = new EntryManager({
+            log: createInstanceLogFunction("EntryManager", this._APIService),
             database,
+            readScope,
             hashManager: hashManager,
             chunkManager: chunkManager,
             splitter: splitter,

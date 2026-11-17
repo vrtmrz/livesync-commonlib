@@ -1,3 +1,4 @@
+import { withFileEventPaths } from "./locking";
 import { isFolderInfo } from "./storage";
 
 import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
@@ -42,7 +43,7 @@ export async function getProvenance(
     try {
         const record = await ctx.provenance.get(getProvenancePath(ctx, path));
         if (!record) return undefined;
-        const entry = await ctx.host.db().fetchEntryMeta(path, record.revision, true);
+        const entry = await ctx.host.db().readEntryMeta(path, record.revision, true);
         if (entry && !entry._deleted && !entry.deleted) {
             return record;
         }
@@ -412,7 +413,7 @@ async function classifyRecordedStorageContent(
     const loadedContentIsDecoded = currentLoaded?._rev === recordedRevision;
     const base = loadedContentIsDecoded
         ? currentLoaded
-        : await ctx.host.db().fetchEntry(file, recordedRevision, true, true, !requireReadableContent);
+        : await ctx.host.db().readEntry(file, recordedRevision, true, true, !requireReadableContent);
     if (
         base &&
         base._rev === recordedRevision &&
@@ -425,7 +426,7 @@ async function classifyRecordedStorageContent(
             : { kind: "edited", revision: recordedRevision };
     }
     if (!base) {
-        const meta = await ctx.host.db().fetchEntryMeta(file, recordedRevision, true);
+        const meta = await ctx.host.db().readEntryMeta(file, recordedRevision, true);
         if (requireReadableContent && meta && !meta.deleted && !meta._deleted) {
             throw new Error(
                 `Could not read the recorded file revision ${displayRev(recordedRevision)} for ${file.path}`
@@ -449,9 +450,51 @@ async function classifyLiveStorageContent(
     file: UXFileInfo,
     currentEntry: { _rev?: string; deleted?: boolean; _deleted?: boolean } | false
 ): Promise<StorageContentClassification> {
-    const matches = currentEntry ? await ctx.host.db().findLiveContentRevisions(file, file.body) : [];
+    const matches = currentEntry ? await ctx.host.db().readLiveContentRevisions(file, file.body) : [];
     if (matches.length) {
         return { kind: "matching-leaf", revision: matches.length === 1 ? matches[0] : undefined };
     }
     return { kind: "unknown" };
+}
+
+/**
+ * Confirm the exact displayed revision from current bytes and device-local evidence.
+ * @param ctx - Borrowed file-handler capabilities and provenance.
+ * @param path - Current Vault path of the retained reflection target.
+ * @param revision - Exact Metadata revision whose reflection is being checked.
+ * @returns True only when current bytes, provenance, and current Metadata agree.
+ * @remarks Uses existing document locking and snapshot validation. It fetches no
+ * Chunks and writes no records. Failed inspection rejects; missing evidence returns false.
+ */
+export async function inspectCurrentFileProvenance(
+    ctx: FileHandlerContext,
+    path: FilePathWithPrefix,
+    revision: string
+): Promise<boolean> {
+    if (!ctx.provenance || !revision) {
+        return false;
+    }
+    return await withFileEventPaths(ctx, [path], async () => {
+        const recorded = await readProvenanceSnapshot(ctx, path, true);
+        if (!hasContentHash(recorded) || recorded.revision !== revision) {
+            return false;
+        }
+        const stub = await ctx.host.storage().getStub(path);
+        if (!stub || isFolderInfo(stub)) {
+            return false;
+        }
+        const file = await ctx.host.readFileFromStub(stub);
+        const evidence = { contentHash: await computeFileContentHash(file.body), contentSize: file.body.size };
+        if (evidence.contentHash !== recorded.contentHash || evidence.contentSize !== recorded.contentSize) {
+            return false;
+        }
+        const current = await ctx.host.db().readEntryMeta(path, undefined, true);
+        return (
+            !!current &&
+            current._rev === revision &&
+            !current.deleted &&
+            !current._deleted &&
+            (await currentStorageSnapshotMatches(ctx, file, recorded, true))
+        );
+    });
 }

@@ -1,12 +1,24 @@
+import type { LocalDatabaseReadScope } from "@lib/pouchdb/LocalDatabaseReadScope.ts";
 import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
 import type { ISettingService } from "@lib/services/base/IService";
 import type { ChangeManager } from "@lib/managers/ChangeManager";
-import type { EVENT_CHUNK_FETCHED, EVENT_MISSING_CHUNK_REMOTE, EVENT_MISSING_CHUNKS } from "@lib/managers/ChunkFetcher";
+import type {
+    EVENT_CHUNK_FAILED,
+    EVENT_CHUNK_FETCHED,
+    EVENT_MISSING_CHUNK_REMOTE,
+    EVENT_MISSING_CHUNKS,
+} from "@lib/managers/ChunkFetcher";
 import type { ActivityCountSource } from "@lib/managers/ChunkDeliveryCoordinator";
+import type { ContentReadResource } from "@lib/interfaces/DatabaseFileAccess.ts";
+import type { LogFunction } from "@lib/services/lib/logUtils.ts";
+export type ChunkDeliveryFailure = { resources: readonly ContentReadResource[]; cause: unknown };
 
 export type ChunkManagerOptions = {
+    /** Host-owned logger; standalone instances default to the global logger. */
+    log?: LogFunction;
     database: PouchDB.Database<EntryDoc>;
+    readScope?: LocalDatabaseReadScope;
     changeManager: ChangeManager<EntryDoc>;
     // maxCacheSize?: number; // Maximum cache size
     settingService: ISettingService;
@@ -39,4 +51,5 @@ export type ChunkManagerEventMap = {
     [EVENT_MISSING_CHUNK_REMOTE]: DocumentID; // Event for missing chunk
     [EVENT_MISSING_CHUNKS]: DocumentID[]; // Event for multiple missing chunks
     [EVENT_CHUNK_FETCHED]: EntryLeaf; // Event for chunk arrival
+    [EVENT_CHUNK_FAILED]: { id: DocumentID; failure: ChunkDeliveryFailure };
 };

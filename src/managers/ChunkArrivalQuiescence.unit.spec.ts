@@ -246,18 +246,14 @@ describe("chunk arrival quiescence", () => {
     it("settles after a failed fetch claim completes", async () => {
         fetchRemoteChunks.mockRejectedValue(new Error("network failed"));
 
-        const result = await chunkManager.read(["chunk-1" as DocumentID], { waitForDelivery: true });
-
-        expect(result).toEqual([false]);
+        await expect(chunkManager.read(["chunk-1" as DocumentID], { waitForDelivery: true })).rejects.toMatchObject({ failure: { resources: ["remote"] } });
         await vi.waitFor(() => expect(boundedRemoteActivityCount.value).toBe(0));
     });
 
     it("releases a claim when no active replicator can service it", async () => {
         getActiveReplicator.mockReturnValue(undefined);
 
-        const result = await chunkManager.read(["chunk-1" as DocumentID], { waitForDelivery: true });
-
-        expect(result).toEqual([false]);
+        await expect(chunkManager.read(["chunk-1" as DocumentID], { waitForDelivery: true })).resolves.toEqual([false]);
         await vi.waitFor(() => expect(boundedRemoteActivityCount.value).toBe(0));
     });
 
@@ -271,9 +267,7 @@ describe("chunk arrival quiescence", () => {
         });
         fetchRemoteChunks.mockImplementation(() => new Promise<EntryLeaf[]>(() => undefined));
 
-        const result = await chunkManager.read(["chunk-1" as DocumentID], { waitForDelivery: true });
-
-        expect(result).toEqual([false]);
+        await expect(chunkManager.read(["chunk-1" as DocumentID], { waitForDelivery: true })).resolves.toEqual([false]);
         await vi.waitFor(() => expect(boundedRemoteActivityCount.value).toBe(0));
     });
 });

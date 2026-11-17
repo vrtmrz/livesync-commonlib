@@ -23,7 +23,7 @@ describe("ControlService unload", () => {
                 onAppUnload,
                 onUnload,
             },
-            databaseService: { localDatabaseDirect: { onunload: vi.fn(), close } },
+            databaseService: { closeDatabase: close },
             APIService: { addLog: vi.fn() },
         } as unknown as ControlServiceDependencies);
         await expect(service.onUnload()).rejects.toThrow("Unload preparation failed");
@@ -49,14 +49,9 @@ describe("ControlService unload", () => {
             replicatorService: { getActiveReplicator },
             settingService: {},
             databaseService: {
-                localDatabaseDirect: {
-                    onunload: vi.fn(() => {
-                        order.push("database-unload");
-                    }),
-                    close: vi.fn(async () => {
-                        order.push("database-close");
-                    }),
-                },
+                closeDatabase: vi.fn(async () => {
+                    order.push("database-close");
+                }),
             },
             fileProcessingService: {},
             APIService: { addLog: vi.fn() },
@@ -65,7 +60,7 @@ describe("ControlService unload", () => {
 
         await service.onUnload();
 
-        expect(order).toEqual(["lifecycle-unload", "database-unload", "database-close"]);
+        expect(order).toEqual(["lifecycle-unload", "database-close"]);
         expect(getActiveReplicator).not.toHaveBeenCalled();
         expect(closeReplication).not.toHaveBeenCalled();
     });

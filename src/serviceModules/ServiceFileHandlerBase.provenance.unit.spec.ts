@@ -80,8 +80,10 @@ async function fixture(revsLimit = 1000) {
     // methods to EntryManager. This fixture keeps only the actual PouchDB path.
     const localDatabase = {
         getDBEntry: entries.getDBEntry.bind(entries),
+                readDBEntry: entries.getDBEntry.bind(entries),
         getDBEntryMeta: entries.getDBEntryMeta.bind(entries),
         getDBEntryFromMeta: entries.getDBEntryFromMeta.bind(entries),
+                readDBEntryFromMeta: entries.getDBEntryFromMeta.bind(entries),
         putDBEntry: entries.putDBEntry.bind(entries),
         putDBEntryAsIndependentRoot: entries.putDBEntryAsIndependentRoot.bind(entries),
         getRaw: db.get.bind(db),

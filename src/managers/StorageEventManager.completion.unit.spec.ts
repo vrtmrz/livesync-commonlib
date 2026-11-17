@@ -853,4 +853,119 @@ describe("StorageEventManager local completion boundaries", () => {
             vi.useRealTimers();
         }
     });
+
+    it("pauses later dispatch until active processing finishes and dispatch resumes", async () => {
+        const { adapter, manager, processFileEvent } = createHarness();
+        const activeProcessing = deferred<boolean>();
+        const laterStarted = deferred<void>();
+        processFileEvent.mockImplementation(async (item) => {
+            if (item.key === "active") {
+                return await activeProcessing.promise;
+            }
+            laterStarted.resolve();
+            return true;
+        });
+        const dispatch = manager as unknown as {
+            pauseDispatch?: () => Promise<void>;
+            resumeDispatch?: () => void;
+        };
+        let paused = false;
+        let pausing: Promise<void> | undefined;
+        try {
+            manager.enqueue(event("active.md", "active"));
+            await waitUntil(() => processFileEvent.mock.calls.length === 1, "active processing");
+
+            expect(dispatch.pauseDispatch).toBeTypeOf("function");
+            expect(dispatch.resumeDispatch).toBeTypeOf("function");
+            pausing = dispatch.pauseDispatch!.call(manager).then(() => {
+                paused = true;
+            });
+            await manager.appendQueue([
+                { type: "CREATE", file: file("created.md") },
+                { type: "CHANGED", file: file("changed.md") },
+                { type: "DELETE", file: file("deleted.md") },
+                { type: "RENAME", file: file("renamed.md"), oldPath: "previous.md" },
+            ]);
+            await waitUntil(() => keys(adapter.persistence.snapshot).length === 5, "the admitted event snapshot");
+            expect(
+                (adapter.persistence.snapshot ?? []).flatMap((item) =>
+                    item.type === "SENTINEL_FLUSH" ? [] : [[item.type, item.args.file.path]]
+                )
+            ).toEqual([
+                ["CHANGED", "active.md"],
+                ["CREATE", "created.md"],
+                ["CHANGED", "changed.md"],
+                ["DELETE", "deleted.md"],
+                ["RENAME", "renamed.md"],
+            ]);
+            const rename = adapter.persistence.snapshot?.find((item) => item.type === "RENAME");
+            expect(rename?.type).toBe("RENAME");
+            if (rename?.type === "RENAME") expect(rename.args.oldPath).toBe("previous.md");
+
+            expect(paused).toBe(false);
+            expect(processFileEvent.mock.calls.map(([item]) => item.key)).toEqual(["active"]);
+            activeProcessing.resolve(true);
+            await pausing;
+
+            expect(paused).toBe(true);
+            expect(processFileEvent.mock.calls.map(([item]) => item.key)).toEqual(["active"]);
+            await dispatch.pauseDispatch!.call(manager);
+            expect(processFileEvent.mock.calls.map(([item]) => item.key)).toEqual(["active"]);
+            dispatch.resumeDispatch!.call(manager);
+            await laterStarted.promise;
+            await manager.waitForIdle();
+            expect(processFileEvent.mock.calls.map(([item]) => item.args.file.path).sort()).toEqual(
+                ["active.md", "changed.md", "created.md", "deleted.md", "renamed.md"].sort()
+            );
+            expect(keys(adapter.persistence.snapshot)).toEqual([]);
+
+            await dispatch.pauseDispatch!.call(manager);
+            manager.enqueue(event("next-cycle.md", "next-cycle"));
+            await waitUntil(() => keys(adapter.persistence.snapshot).includes("next-cycle"), "the next-cycle snapshot");
+            expect(processFileEvent).toHaveBeenCalledTimes(5);
+            dispatch.resumeDispatch!.call(manager);
+            dispatch.resumeDispatch!.call(manager);
+            await manager.waitForIdle();
+            expect(processFileEvent).toHaveBeenCalledTimes(6);
+            expect(keys(adapter.persistence.snapshot)).toEqual([]);
+        } finally {
+            activeProcessing.resolve(true);
+            dispatch.resumeDispatch?.call(manager);
+            await manager.waitForIdle().catch(() => {});
+        }
+    });
+
+    it("keeps stopWatching pending until paused work resumes", async () => {
+        const { adapter, manager, processFileEvent } = createHarness();
+        const dispatch = manager as unknown as {
+            pauseDispatch: () => Promise<void>;
+            resumeDispatch: () => void;
+        };
+        let stopped = false;
+        let stopping: Promise<void> | undefined;
+        try {
+            await dispatch.pauseDispatch.call(manager);
+            manager.enqueue(event("pending.md", "pending"));
+            await waitUntil(() => keys(adapter.persistence.snapshot).includes("pending"), "the paused snapshot");
+            stopping = manager.stopWatching().then(() => {
+                stopped = true;
+            });
+            await manager.appendQueue([{ type: "CREATE", file: file("after-stop.md") }]);
+            await pumpMicrotasks();
+
+            expect(stopped).toBe(false);
+            expect(manager.hasPendingFileEvent("after-stop.md" as FilePath)).toBe(false);
+            expect(processFileEvent).not.toHaveBeenCalled();
+
+            dispatch.resumeDispatch.call(manager);
+            await stopping;
+            expect(stopped).toBe(true);
+            expect(processFileEvent.mock.calls.map(([item]) => item.key)).toEqual(["pending"]);
+            expect(keys(adapter.persistence.snapshot)).toEqual([]);
+        } finally {
+            dispatch.resumeDispatch.call(manager);
+            await stopping;
+            await manager.waitForIdle().catch(() => {});
+        }
+    });
 });

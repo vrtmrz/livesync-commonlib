@@ -1,3 +1,4 @@
+import { withLock } from "octagonal-wheels/concurrency/lock";
 import type { IDatabaseService, IPathService, IVaultService, openDatabaseParameters } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
@@ -5,11 +6,17 @@ import { handlers } from "@lib/services/lib/HandlerUtils";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils.ts";
 import type PouchDB from "pouchdb-core";
 import type { PouchDBConstructor } from "@lib/pouchdb/PouchDBConstructor.ts";
-import { ExtraSuffixIndexedDB } from "@lib/common/models/shared.const.ts";
+import { ExtraSuffixIndexedDB, SuffixDatabaseName } from "@lib/common/models/shared.const.ts";
 import type { SettingService } from "./SettingService";
 import type { APIService } from "./APIService";
 import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 import { LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+
+type DatabaseSelection = {
+    vaultName: string;
+    name: string;
+    options: PouchDB.Configuration.DatabaseConfiguration;
+};
 
 export type DatabaseServiceDependencies = {
     /** PouchDB with the adapters required by the host runtime already registered. */
@@ -35,6 +42,12 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
     }
 
     protected _localDatabase: LiveSyncLocalDB | null = null;
+    private readonly databaseLock = Symbol("local-database-lifecycle");
+    private closingRequested = false;
+    private databaseSelection: DatabaseSelection | undefined;
+
+    /** Observes a failed local operation; handlers must not retry that operation. */
+    readonly onLocalDatabaseError = handlers<IDatabaseService>().allSettled("onLocalDatabaseError");
 
     protected services: DatabaseServiceDependencies;
 
@@ -87,11 +100,86 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
         return new this.services.pouchDB(optionPass.name, optionPass.options);
     }
 
+    private selectDatabase(): DatabaseSelection {
+        const vaultName = this.services.vault.getVaultName();
+        const resolved = this.modifyDatabaseOptions(
+            this.services.setting.currentSettings(),
+            vaultName + SuffixDatabaseName,
+            {}
+        );
+        return { vaultName, ...resolved };
+    }
+
+    private isSelectedDatabase(selection: DatabaseSelection): boolean {
+        const current = this.selectDatabase();
+        return current.name === selection.name && current.options.adapter === selection.options.adapter;
+    }
+
     async openDatabase(params: openDatabaseParameters): Promise<boolean> {
+        return await withLock(this.databaseLock, async () => {
+            this.closingRequested = false;
+            return await this.openDatabaseUnlocked(params);
+        });
+    }
+
+    /** Replace only the failed lifetime; a queued duplicate cannot close its replacement. */
+    async reopenDatabase(database: LiveSyncLocalDB, params: openDatabaseParameters): Promise<boolean> {
+        return await withLock(this.databaseLock, async () => {
+            if (this.closingRequested || this._localDatabase !== database) {
+                return false;
+            }
+            const selection = this.databaseSelection;
+            if (!selection || !this.isSelectedDatabase(selection)) {
+                return false;
+            }
+            database.isReady = false;
+            database.stopReads();
+            if (
+                params.databaseEvents?.onBeforeDatabaseRecovery &&
+                !(await params.databaseEvents.onBeforeDatabaseRecovery())
+            ) {
+                return false;
+            }
+            if (this.closingRequested || this._localDatabase !== database || !this.isSelectedDatabase(selection)) {
+                return false;
+            }
+            return await this.openDatabaseUnlocked(params, selection);
+        });
+    }
+
+    /** Check only an initialised, currently owned Pouch. This does not construct a Pouch instance. */
+    async canReadCurrentDatabaseInfo(): Promise<boolean> {
+        const database = this._localDatabase;
+        if (this.closingRequested || !database?.isReady || !database.localDatabase) {
+            return false;
+        }
+        await database.readFromDatabase((pouch) => pouch.info());
+        return !this.closingRequested && this._localDatabase === database && database.isReady;
+    }
+
+    /** Closing participates in the same owner lock as opening and recovery. */
+    async closeDatabase(): Promise<void> {
+        this.closingRequested = true;
+        await withLock(this.databaseLock, async () => {
+            const database = this._localDatabase;
+            if (database) {
+                database.onunload();
+                await database.close();
+                if (this._localDatabase === database) {
+                    this._localDatabase = null;
+                }
+            }
+        });
+    }
+
+    private async openDatabaseUnlocked(
+        params: openDatabaseParameters,
+        selection = this.selectDatabase()
+    ): Promise<boolean> {
         if (this._localDatabase != null) {
             await this._localDatabase.close();
         }
-        const vaultName = this.services.vault.getVaultName();
+        const { vaultName } = selection;
         this._log(this.context.translate("moduleLocalDatabase.logWaitingForReady"));
         const env = {
             services: {
@@ -101,7 +189,13 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
                 database: this,
             },
         };
-        const selectedDatabase = new LiveSyncLocalDB(vaultName, env);
+        const selectedDatabase = new LiveSyncLocalDB(vaultName, env, {
+            createPouchDBInstance: <T extends object>(
+                _name?: string,
+                options?: PouchDB.Configuration.DatabaseConfiguration
+            ) => new this.services.pouchDB<T>(selection.name, { ...options, ...selection.options }),
+        });
+        this.databaseSelection = selection;
         this._localDatabase = selectedDatabase;
         try {
             await this.onOpenDatabase(vaultName);
@@ -119,7 +213,7 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
     }
 
     isDatabaseReady(): boolean {
-        return this._localDatabase != null && this._localDatabase.isReady;
+        return !this.closingRequested && this._localDatabase != null && this._localDatabase.isReady;
     }
 
     private async discardFailedActiveDatabase(database: LiveSyncLocalDB): Promise<void> {
@@ -135,6 +229,16 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
     }
 
     async resetDatabase(): Promise<boolean> {
+        const selected = this._localDatabase;
+        return await withLock(this.databaseLock, () => {
+            if (this._localDatabase !== selected) {
+                return false;
+            }
+            return this.resetDatabaseUnlocked();
+        });
+    }
+
+    private async resetDatabaseUnlocked(): Promise<boolean> {
         if (!this._localDatabase) {
             return Promise.resolve(true);
         }

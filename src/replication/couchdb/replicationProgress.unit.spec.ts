@@ -9,6 +9,7 @@ import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { DEFAULT_REPLICATION_STATICS } from "@lib/common/models/shared.definition.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase.ts";
 import { LiveSyncCouchDBReplicator } from "./LiveSyncReplicator.ts";
+import { Logger } from "@lib/common/logger.ts";
 
 PouchDB.plugin(MemoryAdapter).plugin(Replication);
 
@@ -24,8 +25,14 @@ function fixture(localDatabase: object = {}) {
     const statistics = reactiveSource({ ...DEFAULT_REPLICATION_STATICS });
     const replicator = new LiveSyncCouchDBReplicator({
         services: {
+            API: { addLog: Logger },
             context: createServiceContext(),
-            database: { localDatabase: { localDatabase } },
+            database: {
+                localDatabase: {
+                    localDatabase,
+                    readFromDatabase: <T>(read: (pouch: typeof localDatabase) => Promise<T>) => read(localDatabase),
+                },
+            },
             replicator: {
                 replicationStatics: statistics,
                 runFiniteReplicationActivity: async <T>(run: () => Promise<T>) => await run(),

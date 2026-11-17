@@ -1,3 +1,4 @@
+import { isReflectionCompleted } from "@lib/interfaces/FileHandler";
 import {
     LOG_LEVEL_DEBUG,
     LOG_LEVEL_INFO,
@@ -8,6 +9,7 @@ import {
     type UXFileInfoStub,
     type ObsidianLiveSyncSettings,
     type FilePathWithPrefix,
+    type FilePath,
     type FilePathWithPrefixLC,
     type LOG_LEVEL,
 } from "@lib/common/types";
@@ -19,6 +21,33 @@ import type { VaultScanOptions } from "@lib/services/base/VaultScanResult";
 import { inspectMetadataDocumentIdentity } from "./metadata";
 import { getPathFromEntry, convertCase } from "./paths";
 import { FilePairProcessResults, MetadataDocumentIdentityStatuses, type FilePairProcessResult } from "./types";
+
+/** Finalise one selected scan reflection, including failures which reject. */
+async function reflectScannedEntry(
+    host: NecessaryServices<never, "fileHandler">,
+    entry: MetaEntry,
+    file: FilePath | null,
+    force: boolean,
+    options?: VaultScanOptions
+): Promise<FilePairProcessResult> {
+    const target = entry._rev ? { documentId: entry._id, revision: entry._rev } : undefined;
+    try {
+        const result = await host.serviceModules.fileHandler.reflectDatabaseEntry(
+            entry,
+            file,
+            force,
+            options?.reflectionOperation ?? (target ? { target, source: "scan" } : undefined)
+        );
+        return isReflectionCompleted(result) ? FilePairProcessResults.COMPLETED : FilePairProcessResults.SKIPPED;
+    } catch (error) {
+        // The owner notification is awaited after the reflection operation fails.
+        // Its rejection must remain a persistence failure, not another read failure.
+        if (target && options?.onReflectionFailed) {
+            await options.onReflectionFailed(target, error);
+        }
+        return FilePairProcessResults.FAILED;
+    }
+}
 
 /**
  * Synchronise a single file between database and storage based on freshness comparison.
@@ -58,16 +87,16 @@ export async function syncFileBetweenDBandStorage(
         case TARGET_IS_NEW:
             if (!host.services.vault.isFileSizeTooLarge(doc.size)) {
                 log("STORAGE <- DB :" + docPath);
-                if (await host.serviceModules.fileHandler.dbToStorage(doc, stripAllPrefixes(docPath), false)) {
+                const reflection = await reflectScannedEntry(host, doc, stripAllPrefixes(docPath), false, scanOptions);
+                if (reflection === FilePairProcessResults.COMPLETED) {
                     host.services.context.events.emitEvent("event-file-changed", {
                         file: file.path,
                         automated: true,
                     });
-                    return FilePairProcessResults.COMPLETED;
-                } else {
+                } else if (reflection === FilePairProcessResults.FAILED) {
                     log(`STORAGE <- DB : Cloud not read ${file.path}, possibly deleted`, LOG_LEVEL_NOTICE);
-                    return FilePairProcessResults.FAILED;
                 }
+                return reflection;
             } else {
                 log(
                     `STORAGE <- DB : ${file.path} has been skipped due to file size exceeding the limit`,
@@ -263,7 +292,8 @@ export async function updateToStorage(
     host: NecessaryServices<"vault" | "path", "fileHandler">,
     log: LogFunction,
     logLevel: LOG_LEVEL,
-    w: MetaEntry
+    w: MetaEntry,
+    scanOptions?: VaultScanOptions
 ): Promise<FilePairProcessResult> {
     // Exists in database but not in storage.
     const path = getPathFromEntry(host, w);
@@ -274,11 +304,13 @@ export async function updateToStorage(
                 log(`UPDATE STORAGE: ${path} has conflicts. skipped (x)`, LOG_LEVEL_INFO);
                 return FilePairProcessResults.SKIPPED;
             }
-            const reflected = await host.serviceModules.fileHandler.dbToStorage(path, null, true);
+            const reflected = await reflectScannedEntry(host, w, null, true, scanOptions);
             // Keep a failed reflection retryable. Treating it as success would let
             // the caller persist the database mtime as a locally observed file and
             // a later newer-wins scan could misclassify the missing file as deleted.
-            if (!reflected) return FilePairProcessResults.FAILED;
+            if (reflected !== FilePairProcessResults.COMPLETED) {
+                return reflected;
+            }
             host.services.context.events.emitEvent("event-file-changed", {
                 file: path,
                 automated: true,

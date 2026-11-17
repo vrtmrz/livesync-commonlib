@@ -2,6 +2,7 @@ import { withFileEventPaths } from "./locking";
 import {
     getProvenancePath,
     sameProvenance,
+    readProvenanceSnapshot,
     contentEvidence,
     currentStorageSnapshotMatches,
     hasContentHash,
@@ -12,7 +13,7 @@ import type { FileReflectionProvenanceRecord } from "@lib/interfaces/FileReflect
 
 import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 
-import type { FilePath, MetaEntry, UXFileInfo, UXFileInfoStub } from "@lib/common/types";
+import type { FilePath, FilePathWithPrefix, MetaEntry, UXFileInfo, UXFileInfoStub } from "@lib/common/types";
 import { isDocContentSame, readContent } from "@lib/common/utils";
 
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";

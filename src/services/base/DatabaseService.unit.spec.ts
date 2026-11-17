@@ -3,6 +3,7 @@ import type { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
 import { LiveSyncLocalDB as LiveSyncLocalDBClass } from "@lib/pouchdb/LiveSyncLocalDB";
 import { ServiceContext } from "./ServiceBase";
 import { DatabaseService } from "./DatabaseService";
+import { SuffixDatabaseName } from "@lib/common/models/shared.const.ts";
 import type { openDatabaseParameters } from "./IService";
 
 class TestDatabaseService extends DatabaseService {
@@ -14,7 +15,12 @@ class TestDatabaseService extends DatabaseService {
 function localDatabase(name: string, resetResult = true) {
     return {
         dbname: name,
+        stopReads: vi.fn(),
+        readFromDatabase<T>(read: (pouch: LiveSyncLocalDB["localDatabase"]) => Promise<T>): Promise<T> {
+            return read((this as unknown as LiveSyncLocalDB).localDatabase);
+        },
         close: vi.fn(async () => undefined),
+        onunload: vi.fn(),
         resetDatabase: vi.fn(async () => resetResult),
     } as unknown as LiveSyncLocalDB;
 }
@@ -64,6 +70,29 @@ describe("DatabaseService active database ownership", () => {
 });
 
 describe("DatabaseService reset ownership", () => {
+    it("does not reset a replacement selected while the reset waits for the lifecycle lock", async () => {
+        const service = createDatabaseService();
+        let finish!: () => void;
+        const gate = new Promise<boolean>((resolve) => {
+            finish = () => resolve(true);
+        });
+        const initialise = vi
+            .spyOn(LiveSyncLocalDBClass.prototype, "initializeDatabase")
+            .mockImplementationOnce(() => gate)
+            .mockResolvedValue(true);
+        vi.spyOn(LiveSyncLocalDBClass.prototype, "close").mockResolvedValue(undefined);
+        const reset = vi.spyOn(LiveSyncLocalDBClass.prototype, "resetDatabase").mockResolvedValue(true);
+        const first = service.openDatabase(openParameters);
+        await vi.waitFor(() => expect(initialise).toHaveBeenCalledOnce());
+        const next = service.openDatabase(openParameters);
+        const pendingReset = service.resetDatabase();
+        finish();
+        await first;
+        await next;
+        await expect(pendingReset).resolves.toBe(false);
+        expect(reset).not.toHaveBeenCalled();
+    });
+
     it("selects the settings-derived database before resetting it", async () => {
         const service = createDatabaseService("vault-current");
         const previous = localDatabase("vault-previous");
@@ -161,4 +190,136 @@ describe("DatabaseService reset ownership", () => {
         expect(reset.close).toHaveBeenCalledOnce();
         expect(service.localDatabaseDirect).toBeNull();
     });
+});
+
+describe("DatabaseService connection lifetime", () => {
+    it("serialises two opens until initialisation and the preceding close have settled", async () => {
+        const service = createDatabaseService();
+        let release!: () => void;
+        const pending = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const initialised: LiveSyncLocalDB[] = [];
+        vi.spyOn(LiveSyncLocalDBClass.prototype, "initializeDatabase").mockImplementation(async function () {
+            initialised.push(this);
+            if (initialised.length === 1) await pending;
+            this.isReady = true;
+            return true;
+        });
+        const close = vi.spyOn(LiveSyncLocalDBClass.prototype, "close").mockResolvedValue();
+        const first = service.openDatabase(openParameters);
+        const second = service.openDatabase(openParameters);
+        try {
+            await vi.waitFor(() => expect(initialised.length).toBeGreaterThan(0));
+            await Promise.resolve();
+            expect(initialised).toHaveLength(1);
+            expect(close).not.toHaveBeenCalled();
+        } finally {
+            release();
+        }
+        await expect(first).resolves.toBe(true);
+        await expect(second).resolves.toBe(true);
+        expect(initialised).toHaveLength(2);
+        expect(close).toHaveBeenCalledOnce();
+        expect(service.localDatabaseDirect).toBe(initialised[1]);
+    });
+
+    it("does not create a database just to check a missing or unready connection", async () => {
+        const service = createDatabaseService();
+        const open = vi.spyOn(service, "openDatabase");
+        await expect(service.canReadCurrentDatabaseInfo()).resolves.toBe(false);
+        const unready = localDatabase("vault-current");
+        Object.assign(unready, { isReady: false, localDatabase: { info: vi.fn() } });
+        service.setActiveDatabase(unready);
+        await expect(service.canReadCurrentDatabaseInfo()).resolves.toBe(false);
+        expect(unready.localDatabase.info).not.toHaveBeenCalled();
+        expect(open).not.toHaveBeenCalled();
+    });
+
+    it.each(["idb", "indexeddb"])("checks the existing %s instance and retains the original error", async (adapter) => {
+        const service = createDatabaseService();
+        const error = new DOMException("The database connection is closing.", "InvalidStateError");
+        const info = vi.fn().mockResolvedValueOnce({ adapter }).mockRejectedValueOnce(error);
+        const active = localDatabase("vault-current");
+        Object.assign(active, { isReady: true, localDatabase: { info } });
+        service.setActiveDatabase(active);
+        await expect(service.canReadCurrentDatabaseInfo()).resolves.toBe(true);
+        await expect(service.canReadCurrentDatabaseInfo()).rejects.toBe(error);
+        expect(service.localDatabaseDirect).toBe(active);
+        expect(active.close).not.toHaveBeenCalled();
+    });
+
+    it("reopens a failed lifetime once when duplicate recovery requests are queued", async () => {
+        const service = createDatabaseService();
+        const initialise = vi
+            .spyOn(LiveSyncLocalDBClass.prototype, "initializeDatabase")
+            .mockImplementation(async function () {
+                this.isReady = true;
+                return true;
+            });
+        const close = vi.spyOn(LiveSyncLocalDBClass.prototype, "close").mockResolvedValue(undefined);
+        await service.openDatabase(openParameters);
+        const active = service.localDatabase;
+        active.isReady = false;
+        initialise.mockClear();
+        await expect(
+            Promise.all([
+                service.reopenDatabase(active, openParameters),
+                service.reopenDatabase(active, openParameters),
+            ])
+        ).resolves.toEqual([true, false]);
+        expect(close).toHaveBeenCalledOnce();
+        expect(initialise).toHaveBeenCalledOnce();
+    });
+
+    it("does not reopen a retired database after an explicit close", async () => {
+        const service = createDatabaseService();
+        const active = localDatabase("vault-current");
+        service.setActiveDatabase(active);
+        await service.closeDatabase();
+        await expect(service.reopenDatabase(active, openParameters)).resolves.toBe(false);
+        expect(service.localDatabaseDirect).toBeNull();
+        expect(active.close).toHaveBeenCalledOnce();
+    });
+});
+
+it("rejects recovery when the selected database changes while work drains", async () => {
+    let useIndexedDBAdapter = false;
+    const pouchDB = vi.fn(function (name: string, options: { adapter?: string }) {
+        return { name, adapter: options.adapter ?? "idb" };
+    });
+    const service = new TestDatabaseService(new ServiceContext(), {
+        pouchDB: pouchDB as never,
+        path: {} as never,
+        vault: { getVaultName: () => "vault-current" } as never,
+        setting: { currentSettings: () => ({ useIndexedDBAdapter }) } as never,
+        API: { addLog: vi.fn() } as never,
+    });
+    vi.spyOn(LiveSyncLocalDBClass.prototype, "close").mockResolvedValue(undefined);
+    vi.spyOn(LiveSyncLocalDBClass.prototype, "initializeDatabase").mockImplementation(async function () {
+        const runtime = (
+            this as unknown as { runtimeOptions: { createPouchDBInstance?: typeof service.createPouchDBInstance } }
+        ).runtimeOptions;
+        const create =
+            runtime.createPouchDBInstance ??
+            this.env.services.database.createPouchDBInstance.bind(this.env.services.database);
+        this.localDatabase = create(this.dbname + SuffixDatabaseName);
+        this.isReady = true;
+        return true;
+    });
+    await service.openDatabase(openParameters);
+    const originalName = (service.localDatabase.localDatabase as unknown as { name: string }).name;
+    const active = service.localDatabase;
+    const params = {
+        databaseEvents: {
+            onBeforeDatabaseRecovery: async () => {
+                useIndexedDBAdapter = true;
+                return true;
+            },
+        },
+    } as openDatabaseParameters;
+    await expect(service.reopenDatabase(active, params)).resolves.toBe(false);
+    expect(service.localDatabase).toBe(active);
+    expect((service.localDatabase.localDatabase as unknown as { name: string }).name).toBe(originalName);
+    expect((service.localDatabase.localDatabase as unknown as { adapter: string }).adapter).toBe("idb");
 });

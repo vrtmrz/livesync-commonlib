@@ -257,7 +257,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     /**
      * Process a synchronisation result document.
      */
-    readonly processSynchroniseResult = handlers<IReplicationService>().anySuccess("processSynchroniseResult");
+    readonly processSynchroniseResult = handlers<IReplicationService>().firstApplicable("processSynchroniseResult");
 
     /**
      * Process a synchronisation result document for optional entries i.e., hidden files.
@@ -279,6 +279,10 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      * An event triggered before starting replication.
      */
     readonly onBeforeReplicate = handlers<IReplicationService>().bailFirstFailure("onBeforeReplicate");
+
+    readonly onFiniteReplicationCompleted = handlers<IReplicationService>().allSettled("onFiniteReplicationCompleted");
+
+    readonly onFileReflectionFailed = handlers<IReplicationService>().allOrThrow("onFileReflectionFailed");
 
     /** Provider preparation which applies only to the central remote. */
     readonly onPrepareCentralRemoteReplication = handlers<IReplicationService>().bailFirstFailure(

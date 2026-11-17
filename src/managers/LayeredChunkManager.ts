@@ -1,8 +1,14 @@
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
+import type { LogFunction } from "@lib/services/lib/logUtils.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import type { DocumentID, EntryDoc, EntryLeaf } from "@lib/common/types.ts";
 import type { ChangeManager } from "@lib/managers/ChangeManager.ts";
-import { EVENT_MISSING_CHUNK_REMOTE, EVENT_MISSING_CHUNKS, EVENT_CHUNK_FETCHED } from "@lib/managers/ChunkFetcher.ts";
+import {
+    EVENT_MISSING_CHUNK_REMOTE,
+    EVENT_MISSING_CHUNKS,
+    EVENT_CHUNK_FETCHED,
+    EVENT_CHUNK_FAILED,
+} from "@lib/managers/ChunkFetcher.ts";
 import { DatabaseReadLayer } from "./LayeredChunkManager/DatabaseReadLayer.ts";
 import { CacheLayer } from "./LayeredChunkManager/CacheLayer.ts";
 import { ArrivalWaitLayer } from "./LayeredChunkManager/ArrivalWaitLayer.ts";
@@ -24,6 +30,7 @@ import { ChunkDeliveryCoordinator } from "./ChunkDeliveryCoordinator.ts";
  */
 export class LayeredChunkManager {
     protected options: ChunkManagerOptions;
+    private readonly log: LogFunction;
     protected eventTarget: EventTarget = new EventTarget();
 
     // Middleware layers
@@ -73,19 +80,20 @@ export class LayeredChunkManager {
     protected initialised = Promise.resolve();
 
     async _initialise() {
-        Logger("ChunkManager initialised", LOG_LEVEL_VERBOSE);
+        this.log("ChunkManager initialised", LOG_LEVEL_VERBOSE);
         // TODO: Add chunkpack
         return await Promise.resolve();
     }
 
     constructor(options: ChunkManagerOptions) {
         this.options = options;
+        this.log = options.log ?? Logger;
         const settings = options.settingService.currentSettings();
         const maxCacheSize = settings.hashCacheMaxCount * 10;
 
         // Initialize cache layer
         this.cacheLayer = new CacheLayer(maxCacheSize);
-        this.databaseReadLayer = new DatabaseReadLayer(this.database);
+        this.databaseReadLayer = new DatabaseReadLayer(this.database, options.readScope);
 
         // Initialise the shared arrival/fetch activity coordinator and wait layer.
         this.deliveryCoordinator = new ChunkDeliveryCoordinator(options.finiteReplicationActivity);
@@ -101,7 +109,8 @@ export class LayeredChunkManager {
                     [...ids],
                     { preventRemoteRequest: true, skipCache: true, waitForDelivery: false },
                     (remaining) => Promise.resolve(remaining.map(() => false))
-                )
+                ),
+            this.log
         );
 
         // Build read layers pipeline: Cache → Database → ArrivalWait
@@ -120,6 +129,7 @@ export class LayeredChunkManager {
         this.offChangeHandler = this.changeManager.addCallback(this.onChangeHandler);
         this.addListener(EVENT_CHUNK_FETCHED, this.onChunkArrivedHandler, { signal: this.abort.signal });
         this.addListener(EVENT_MISSING_CHUNK_REMOTE, this.onMissingChunkRemoteHandler, { signal: this.abort.signal });
+        this.addListener(EVENT_CHUNK_FAILED, this.onChunkFailedHandler, { signal: this.abort.signal });
 
         this.initialised = this._initialise();
     }
@@ -284,6 +294,11 @@ export class LayeredChunkManager {
     }
     protected onMissingChunkRemoteHandler = this.onMissingChunkRemote.bind(this);
 
+    private onChunkFailed({ id, failure }: ChunkManagerEventMap[typeof EVENT_CHUNK_FAILED]): void {
+        this.arrivalWaitLayer.onChunkFailed(id, failure);
+    }
+    protected onChunkFailedHandler = this.onChunkFailed.bind(this);
+
     // Transaction management
     protected concurrentTransactions = 0;
     protected stabilised = Promise.resolve();
@@ -298,10 +313,10 @@ export class LayeredChunkManager {
         } finally {
             this.concurrentTransactions--;
             if (this.concurrentTransactions === 0) {
-                Logger(`All transactions completed. Performing stabilisation.`, LOG_LEVEL_VERBOSE);
+                this.log(`All transactions completed. Performing stabilisation.`, LOG_LEVEL_VERBOSE);
                 await this._stabilise();
             } else {
-                Logger(`Transaction completed. Remaining: ${this.concurrentTransactions}`, LOG_LEVEL_VERBOSE);
+                this.log(`Transaction completed. Remaining: ${this.concurrentTransactions}`, LOG_LEVEL_VERBOSE);
             }
         }
     }

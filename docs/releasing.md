@@ -79,6 +79,48 @@ on `ServiceFileAccessBase` inherit the adapter or listing fallback. The P2P
 client also exposes its closed provider state explicitly in its types. These
 source compatibility changes use the next minor version under the policy.
 
+### 0.6.0 integration changes
+
+Version 0.6.0 is an unreleased candidate with source compatibility changes to
+strict reads, file reflection, and database lifecycle integration. The standard
+base implementations supply the new members. Custom overrides must also follow
+the updated return and failure contracts.
+
+Direct interface implementations must provide these additional members:
+
+| Interface | Required members |
+| --- | --- |
+| `DatabaseFileAccess` | `readEntryMeta`, `readEntryFromMeta`, `readEntry`, `readConflictedRevs`, and `readLiveContentRevisions` |
+| `IFileHandler` | `reflectDatabaseEntry` |
+| `IDatabaseService` | `localDatabaseDirect`, `reopenDatabase`, `canReadCurrentDatabaseInfo`, and `closeDatabase` |
+| `IDatabaseEventService` | `onBeforeDatabaseResume`, `onBeforeDatabaseRecovery`, and `onAfterDatabaseRecovery` |
+| `IReplicationService` | `onFiniteReplicationCompleted` and `onFileReflectionFailed` |
+
+`IReplicationService.processSynchroniseResult()` now returns
+`Promise<FileReflectionResult | undefined>` instead of `Promise<boolean>`.
+Handlers return one of `FILE_REFLECTION_COMPLETED`, `FILE_REFLECTION_POLICY`, or
+`FILE_REFLECTION_CANCELLED`; `undefined` declines handling. These values and
+`isReflectionCompleted()` are exported from `@vrtmrz/livesync-commonlib/replication`.
+Only a completed result permits completion bookkeeping. Do not interpret every
+returned object as success: policy and cancellation do not establish completed
+reflection. Terminal failures reject to the operation owner.
+
+The strict read methods preserve ordinary absence while rejecting failed I/O or
+incomplete content. Existing Boolean and array-returning facades keep their
+compatibility conversions; changing a call to a strict method therefore also
+requires handling its rejection at the operation owner.
+
+Direct reads through `LiveSyncLocalDB.localDatabase` bypass caller-wait retirement.
+Use `readDBEntry()` for file content, `getRaw()` or `allDocsRaw()` for raw document
+reads, and `readFromDatabase()` for other read-only operations. A read callback
+must not perform writes or apply later results to application state: its underlying
+I/O can continue after its caller wait ends. Raw replication, changes-feed, and
+maintenance integrations retain responsibility for their own completion and lifetime.
+
+See [Local database lifecycle](database-lifecycle.md) and
+[Strict content reads and reflection](offline-scanner.md#unreleased-host-recovery-integration)
+for operation ownership and host integration.
+
 ## Preparing a release
 
 Choose the version explicitly. For the 0.2 line, start at 0.2.0. A stable candidate can use its final version on the `next` dist-tag, then be checked by exact source revision and tarball SHA-256 before the same version is promoted to `latest`. No `-next.N` or `-rc.N` version is required; use a separate prerelease version only when it is useful for a distinct candidate. Package-proof versions are local artefacts and cannot be staged.

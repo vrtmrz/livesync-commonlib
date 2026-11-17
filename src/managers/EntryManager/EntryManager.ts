@@ -1,3 +1,4 @@
+import type { LocalDatabaseReadScope } from "@lib/pouchdb/LocalDatabaseReadScope.ts";
 import {
     type FilePathWithPrefix,
     type FilePath,
@@ -12,6 +13,8 @@ import type { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters";
 import type { HashManager } from "@lib/managers/HashManager/HashManager";
 import type { GeneratedChunk } from "@lib/pouchdb/LiveSyncLocalDB";
 import type { IPathService, ISettingService } from "@lib/services/base/IService";
+import { Logger } from "octagonal-wheels/common/logger";
+import type { LogFunction } from "@lib/services/lib/logUtils.ts";
 import { assertDatabasePathIdentity } from "@lib/pouchdb/pathIdentityCompatibility";
 import {
     deleteDBEntryByPath,
@@ -31,18 +34,26 @@ export interface EntryManagerOptions {
     chunkManager: ChunkManager;
     splitter: ContentSplitter;
     database: PouchDB.Database<EntryDoc>;
+    readScope?: LocalDatabaseReadScope;
     settingService: ISettingService;
     pathService: IPathService;
+    /** Host-owned logger; standalone instances default to the global logger. */
+    log?: LogFunction;
 }
 
 export class EntryManager {
     options: EntryManagerOptions;
+    readonly log: LogFunction;
 
     constructor(options: EntryManagerOptions) {
         this.options = options;
+        this.log = options.log ?? Logger;
     }
     get localDatabase(): PouchDB.Database<EntryDoc> {
         return this.options.database;
+    }
+    get readScope(): LocalDatabaseReadScope | undefined {
+        return this.options.readScope;
     }
     get hashManager(): HashManager {
         return this.options.hashManager;

@@ -1,3 +1,4 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
 import type {
     UXFileInfoStub,
     FilePathWithPrefix,
@@ -43,6 +44,12 @@ type StoreRevisionTarget =
     | { mode: "live-base"; baseRevision: string }
     /** Import a fresh root under the same document ID without inferring any parent. */
     | { mode: "independent-root" };
+
+type PreparedStoreEntry = {
+    entry: SavingEntry;
+    fullPath: FilePathWithPrefix;
+    message: string;
+};
 
 export class ServiceDatabaseFileAccessBase
     extends ServiceModuleBase<ServiceDatabaseFileAccessDependencies>
@@ -187,16 +194,37 @@ export class ServiceDatabaseFileAccessBase
         onlyChunks?: boolean,
         revisionTarget: StoreRevisionTarget = { mode: "default" }
     ): Promise<true | false | PouchDB.Core.Response> {
-        if (!skipCheck) {
-            if (!(await this.checkIsTargetFile(file))) {
-                return true;
-            }
+        if (!skipCheck && !(await this.checkIsTargetFile(file))) {
+            return true;
         }
         if (!file) {
             this._log("File seems bad", LOG_LEVEL_VERBOSE);
             return false;
         }
-        // const path = getPathFromUXFileInfo(file);
+        const preparation = await this.prepareStoreEntry(file);
+        if (!preparation) {
+            return false;
+        }
+
+        const { entry, fullPath, message } = preparation;
+        // Preserve the existing comparison lock; revision writes retain their own policy.
+        const isNotChanged = await serialized("file-" + fullPath, async () => {
+            return await this.shouldSkipStoreEntryWrite(entry, fullPath, message, force, revisionTarget);
+        });
+        if (isNotChanged) {
+            this._log(message + " Skip " + fullPath, LOG_LEVEL_VERBOSE);
+            return true;
+        }
+
+        const ret = await this.writeStoreEntry(entry, onlyChunks, revisionTarget);
+        if (ret !== false) {
+            this._log(message + fullPath);
+            this.events.emitEvent(EVENT_FILE_SAVED);
+        }
+        return ret;
+    }
+
+    private async prepareStoreEntry(file: UXFileInfo): Promise<PreparedStoreEntry | false> {
         const isPlain = isPlainText(file.name);
         const possiblyLarge = !isPlain;
         const content = file.body;
@@ -206,12 +234,10 @@ export class ServiceDatabaseFileAccessBase
         const fullPath = getStoragePathFromUXFileInfo(file);
         const fullPathOnDB = getDatabasePathFromUXFileInfo(file);
 
-        if (possiblyLarge) this._log(`Processing: ${fullPath}`, LOG_LEVEL_VERBOSE);
+        if (possiblyLarge) {
+            this._log(`Processing: ${fullPath}`, LOG_LEVEL_VERBOSE);
+        }
 
-        // if (isInternalMetadata(fullPath)) {
-        //     this._log(`Internal file: ${fullPath}`, LOG_LEVEL_VERBOSE);
-        //     return false;
-        // }
         if (file.isInternal) {
             if (file.deleted) {
                 file.stat = {
@@ -246,74 +272,82 @@ export class ServiceDatabaseFileAccessBase
             type: datatype,
             eden: {},
         };
-        //upsert should locked
         const msg = `STORAGE -> DB (${datatype}) `;
-        const isNotChanged = await serialized("file-" + fullPath, async () => {
-            if (revisionTarget.mode !== "default") {
-                // Equality with the winner cannot cancel an explicit branch write:
-                // the selected parent, or the absence of a parent, is part of its intent.
-                return false;
-            }
-            if (force) {
-                this._log(msg + "Force writing " + fullPath, LOG_LEVEL_VERBOSE);
-                return false;
-            }
-            // Commented out temporarily: this checks that the file was made ourself.
-            // if (this.core.storageAccess.recentlyTouched(file)) {
-            //     return true;
-            // }
-            try {
-                const old = await this.database.localDatabase.getDBEntry(d.path, undefined, false, true, false);
-                if (old !== false) {
-                    const oldData = { data: old.data, deleted: old._deleted || old.deleted };
-                    const newData = { data: d.data, deleted: d._deleted || d.deleted };
-                    if (oldData.deleted != newData.deleted) return false;
-                    if (!(await isDocContentSame(old.data, newData.data))) return false;
-                    this._log(
-                        msg + "Skipped (not changed) " + fullPath + (d._deleted || d.deleted ? " (deleted)" : ""),
-                        LOG_LEVEL_VERBOSE
-                    );
-                    this.path.markChangesAreSame(old, d.mtime, old.mtime);
-                    return true;
-                    // d._rev = old._rev;
+        return { entry: d, fullPath, message: msg };
+    }
+
+    private async shouldSkipStoreEntryWrite(
+        entry: SavingEntry,
+        fullPath: FilePathWithPrefix,
+        message: string,
+        force: boolean,
+        revisionTarget: StoreRevisionTarget
+    ): Promise<boolean> {
+        if (revisionTarget.mode !== "default") {
+            // Equality with the winner cannot cancel an explicit branch write:
+            // the selected parent, or the absence of a parent, is part of its intent.
+            return false;
+        }
+        if (force) {
+            this._log(message + "Force writing " + fullPath, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+        try {
+            const old = await this.database.localDatabase.getDBEntry(entry.path, undefined, false, true, false);
+            if (old !== false) {
+                const oldData = { data: old.data, deleted: old._deleted || old.deleted };
+                const newData = { data: entry.data, deleted: entry._deleted || entry.deleted };
+                if (oldData.deleted != newData.deleted) {
+                    return false;
                 }
-            } catch (ex) {
+                if (!(await isDocContentSame(old.data, newData.data))) {
+                    return false;
+                }
                 this._log(
-                    msg +
-                        "Error, Could not check the diff for the old one." +
-                        (force ? "force writing." : "") +
+                    message +
+                        "Skipped (not changed) " +
                         fullPath +
-                        (d._deleted || d.deleted ? " (deleted)" : ""),
+                        (entry._deleted || entry.deleted ? " (deleted)" : ""),
                     LOG_LEVEL_VERBOSE
                 );
-                this._log(ex, LOG_LEVEL_VERBOSE);
-                return !force;
+                this.path.markChangesAreSame(old, entry.mtime, old.mtime);
+                return true;
             }
-            return false;
-        });
-        if (isNotChanged) {
-            this._log(msg + " Skip " + fullPath, LOG_LEVEL_VERBOSE);
-            return true;
+        } catch (ex) {
+            this._log(
+                message +
+                    "Error, Could not check the diff for the old one." +
+                    (force ? "force writing." : "") +
+                    fullPath +
+                    (entry._deleted || entry.deleted ? " (deleted)" : ""),
+                LOG_LEVEL_VERBOSE
+            );
+            this._log(ex, LOG_LEVEL_VERBOSE);
+            return !force;
         }
-        const ret: false | PouchDB.Core.Response =
-            revisionTarget.mode === "independent-root"
-                ? await this.database.localDatabase.putDBEntryAsIndependentRoot(d)
-                : revisionTarget.mode === "live-base"
-                ? await this.database.localDatabase.putDBEntryWithLiveBaseRevision(
-                      d,
-                      revisionTarget.baseRevision,
-                      onlyChunks
-                  )
-                : await this.database.localDatabase.putDBEntry(
-                      d,
-                      onlyChunks,
-                      revisionTarget.mode === "force-base" ? revisionTarget.baseRevision : undefined
-                  );
-        if (ret !== false) {
-            this._log(msg + fullPath);
-            this.events.emitEvent(EVENT_FILE_SAVED);
+        return false;
+    }
+
+    private async writeStoreEntry(
+        entry: SavingEntry,
+        onlyChunks: boolean | undefined,
+        revisionTarget: StoreRevisionTarget
+    ): Promise<false | PouchDB.Core.Response> {
+        if (revisionTarget.mode === "independent-root") {
+            return await this.database.localDatabase.putDBEntryAsIndependentRoot(entry);
         }
-        return ret;
+        if (revisionTarget.mode === "live-base") {
+            return await this.database.localDatabase.putDBEntryWithLiveBaseRevision(
+                entry,
+                revisionTarget.baseRevision,
+                onlyChunks
+            );
+        }
+        return await this.database.localDatabase.putDBEntry(
+            entry,
+            onlyChunks,
+            revisionTarget.mode === "force-base" ? revisionTarget.baseRevision : undefined
+        );
     }
 
     /** Reconstruct the immediate parent ID from revision history, or return `false` if unavailable. */
@@ -357,55 +391,73 @@ export class ServiceDatabaseFileAccessBase
             if (doc === false) {
                 return [];
             }
-            const revisions = (doc as LoadedEntry & { _revs_info?: { rev: string; status: string }[] })._revs_info;
-            const availableRevs = new Set((revisions || []).filter((e) => e.status === "available").map((e) => e.rev));
-            if (currentRev) {
-                availableRevs.add(currentRev);
-            }
-            type OpenRevision = { ok?: { _rev?: string } };
-            const leaves = (await this.database.localDatabase.getRaw(doc._id, {
-                open_revs: "all",
-            } as unknown as PouchDB.Core.GetOptions)) as unknown as OpenRevision[];
-            if (!Array.isArray(leaves)) {
-                return [];
-            }
-            for (const leaf of leaves) {
-                const leafRev = leaf.ok?._rev;
-                if (!leafRev) {
-                    continue;
-                }
-                const branch = await this.database.localDatabase.getDBEntryMeta(
-                    filename,
-                    { rev: leafRev, revs_info: true },
-                    true
-                );
-                if (branch === false) {
-                    continue;
-                }
-                const branchRevisions = (branch as LoadedEntry & { _revs_info?: { rev: string; status: string }[] })
-                    ._revs_info;
-                for (const revision of branchRevisions || []) {
-                    if (revision.status === "available") {
-                        availableRevs.add(revision.rev);
-                    }
-                }
-            }
-            const matchingRevisions: string[] = [];
-            for (const rev of availableRevs) {
-                const entry = await this.database.localDatabase.getDBEntry(filename, { rev }, false, true, true);
-                if (entry !== false && !entry._deleted && (await isDocContentSame(readContent(entry), content))) {
-                    matchingRevisions.push(rev);
-                    if (stopAfterFirstMatch) {
-                        return matchingRevisions;
-                    }
-                }
-            }
-            return matchingRevisions;
+            const availableRevs = await this.collectAvailableHistoryRevisions(filename, doc, currentRev);
+            return await this.matchRevisionContent(filename, availableRevs, content, stopAfterFirstMatch);
         } catch (ex) {
             this._log(`Could not check revision history for ${filename}`, LOG_LEVEL_VERBOSE);
             this._log(ex, LOG_LEVEL_VERBOSE);
         }
         return [];
+    }
+
+    private async collectAvailableHistoryRevisions(
+        filename: FilePathWithPrefix,
+        doc: LoadedEntry,
+        currentRev?: string
+    ): Promise<string[]> {
+        const revisions = (doc as LoadedEntry & { _revs_info?: { rev: string; status: string }[] })._revs_info;
+        const availableRevs = new Set((revisions || []).filter((e) => e.status === "available").map((e) => e.rev));
+        if (currentRev) {
+            availableRevs.add(currentRev);
+        }
+        type OpenRevision = { ok?: { _rev?: string } };
+        const leaves = (await this.database.localDatabase.getRaw(doc._id, {
+            open_revs: "all",
+        } as unknown as PouchDB.Core.GetOptions)) as unknown as OpenRevision[];
+        if (!Array.isArray(leaves)) {
+            return [];
+        }
+        for (const leaf of leaves) {
+            const leafRev = leaf.ok?._rev;
+            if (!leafRev) {
+                continue;
+            }
+            const branch = await this.database.localDatabase.getDBEntryMeta(
+                filename,
+                { rev: leafRev, revs_info: true },
+                true
+            );
+            if (branch === false) {
+                continue;
+            }
+            const branchRevisions = (branch as LoadedEntry & { _revs_info?: { rev: string; status: string }[] })
+                ._revs_info;
+            for (const revision of branchRevisions || []) {
+                if (revision.status === "available") {
+                    availableRevs.add(revision.rev);
+                }
+            }
+        }
+        return [...availableRevs];
+    }
+
+    private async matchRevisionContent(
+        filename: FilePathWithPrefix,
+        availableRevs: string[],
+        content: string | string[] | Blob | ArrayBuffer,
+        stopAfterFirstMatch: boolean
+    ): Promise<string[]> {
+        const matchingRevisions: string[] = [];
+        for (const rev of availableRevs) {
+            const entry = await this.database.localDatabase.getDBEntry(filename, { rev }, false, true, true);
+            if (entry !== false && !entry._deleted && (await isDocContentSame(readContent(entry), content))) {
+                matchingRevisions.push(rev);
+                if (stopAfterFirstMatch) {
+                    return matchingRevisions;
+                }
+            }
+        }
+        return matchingRevisions;
     }
 
     /** Find matching content throughout available history, including non-leaf revisions. */
@@ -431,35 +483,64 @@ export class ServiceDatabaseFileAccessBase
         file: UXFileInfoStub | FilePathWithPrefix,
         content: string | string[] | Blob | ArrayBuffer
     ): Promise<string[]> {
-        if (!(await this.checkIsTargetFile(file))) return [];
-        const filename = getDatabasePathFromUXFileInfo(file);
         try {
-            const current = await this.database.localDatabase.getDBEntryMeta(filename, undefined, true);
-            if (current === false) return [];
-            type OpenRevision = { ok?: { _rev?: string; deleted?: boolean; _deleted?: boolean } };
-            const leaves = (await this.database.localDatabase.getRaw(current._id, {
-                open_revs: "all",
-            } as PouchDB.Core.GetOptions)) as unknown as OpenRevision[];
-            if (!Array.isArray(leaves)) return [];
-            const matches: string[] = [];
-            for (const leaf of leaves) {
-                const rev = leaf.ok?._rev;
-                if (!rev || leaf.ok?.deleted || leaf.ok?._deleted) continue;
-                // The final argument makes this a local-only comparison, even with waitForReady set.
-                const entry = await this.database.localDatabase.getDBEntry(filename, { rev }, false, true, true, true);
-                if (entry !== false && !entry.deleted && !entry._deleted &&
-                    await isDocContentSame(readContent(entry), content)) {
-                    matches.push(rev);
-                }
-            }
-            return matches;
-        } catch (ex) {
-            // A changing revision tree or unavailable chunk leaves the base
-            // unknown; it never proves that a local file was unchanged.
-            this._log(`Could not check live revision content for ${filename}`, LOG_LEVEL_VERBOSE);
-            this._log(ex, LOG_LEVEL_VERBOSE);
+            return await this.readLiveContentRevisions(file, content);
+        } catch (error) {
+            this._log(error, LOG_LEVEL_VERBOSE);
             return [];
         }
+    }
+
+    /** Select current live leaves, independently of historical ancestor lookup. */
+    private async selectLiveContentLeaves(file: UXFileInfoStub | FilePathWithPrefix): Promise<string[]> {
+        const filename = getDatabasePathFromUXFileInfo(file);
+        const current = await this.readEntryMeta(file, undefined, true);
+        if (!current) {
+            return [];
+        }
+        type OpenRevision = { ok?: { _rev?: string; deleted?: boolean; _deleted?: boolean } };
+        let leaves: OpenRevision[];
+        try {
+            leaves = (await this.database.localDatabase.getRaw(current._id, {
+                open_revs: "all",
+            } as PouchDB.Core.GetOptions)) as unknown as OpenRevision[];
+        } catch (error) {
+            throw new ContentReadError({ documentId: current._id, resources: ["local-database"], cause: error });
+        }
+        if (!Array.isArray(leaves)) {
+            throw new ContentReadError({
+                documentId: current._id,
+                resources: [],
+                cause: new Error(`Invalid live revision response for ${filename}`),
+            });
+        }
+        return leaves.flatMap(({ ok }) => (ok?._rev && !ok.deleted && !ok._deleted ? [ok._rev] : []));
+    }
+
+    /** Compare selected leaves using local Chunks only; unreadable content rejects. */
+    async readLiveContentRevisions(
+        file: UXFileInfoStub | FilePathWithPrefix,
+        content: string | string[] | Blob | ArrayBuffer
+    ): Promise<string[]> {
+        if (!(await this.checkIsTargetFile(file))) {
+            return [];
+        }
+        const revisions = await this.selectLiveContentLeaves(file);
+        const matches: string[] = [];
+        for (const revision of revisions) {
+            const entry = await this.database.localDatabase.readDBEntry(
+                getDatabasePathFromUXFileInfo(file),
+                { rev: revision },
+                false,
+                true,
+                true,
+                true
+            );
+            if (entry && !entry.deleted && !entry._deleted && (await isDocContentSame(readContent(entry), content))) {
+                matches.push(revision);
+            }
+        }
+        return matches;
     }
 
     async hasContentInRevisionHistory(
@@ -474,15 +555,16 @@ export class ServiceDatabaseFileAccessBase
     }
 
     async getConflictedRevs(file: UXFileInfoStub | FilePathWithPrefix): Promise<string[]> {
+        return await this.readConflictedRevs(file);
+    }
+
+    async readConflictedRevs(file: UXFileInfoStub | FilePathWithPrefix): Promise<string[]> {
         if (!(await this.checkIsTargetFile(file))) {
             return [];
         }
         const filename = getDatabasePathFromUXFileInfo(file);
         const doc = await this.database.localDatabase.getDBEntryMeta(filename, { conflicts: true }, true);
-        if (doc === false) {
-            return [];
-        }
-        return doc._conflicts || [];
+        return doc ? doc._conflicts || [] : [];
     }
 
     async fetch(
@@ -523,48 +605,76 @@ export class ServiceDatabaseFileAccessBase
         rev?: string,
         skipCheck = false
     ): Promise<MetaEntry | false> {
-        const dbFileName = getDatabasePathFromUXFileInfo(file);
+        return await this.readEntryMeta(file, rev, skipCheck);
+    }
+
+    async readEntryMeta(
+        file: UXFileInfoStub | FilePathWithPrefix,
+        rev?: string,
+        skipCheck = false
+    ): Promise<MetaEntry | false> {
+        const filename = getDatabasePathFromUXFileInfo(file);
         if (skipCheck && !(await this.checkIsTargetFile(file))) {
             return false;
         }
-
-        const doc = await this.database.localDatabase.getDBEntryMeta(dbFileName, rev ? { rev: rev } : undefined, true);
-        if (doc === false) {
-            return false;
-        }
-        return doc as MetaEntry;
+        return (await this.database.localDatabase.getDBEntryMeta(filename, rev ? { rev } : undefined, true)) as
+            | MetaEntry
+            | false;
     }
+
     async fetchEntryFromMeta(
         meta: MetaEntry,
-        waitForReady: boolean = true,
+        waitForReady = true,
+        skipCheck = false,
+        localOnly = false
+    ): Promise<LoadedEntry | false> {
+        try {
+            return await this.readEntryFromMeta(meta, waitForReady, skipCheck, localOnly);
+        } catch (error) {
+            this._log(error, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+    }
+
+    async readEntryFromMeta(
+        meta: MetaEntry,
+        waitForReady = true,
         skipCheck = false,
         localOnly = false
     ): Promise<LoadedEntry | false> {
         if (skipCheck && !(await this.checkIsTargetFile(meta.path))) {
             return false;
         }
-        const doc = await this.database.localDatabase.getDBEntryFromMeta(meta, false, waitForReady, localOnly);
-        if (doc === false) {
-            return false;
-        }
-        return doc;
+        return await this.database.localDatabase.readDBEntryFromMeta(meta, false, waitForReady, localOnly);
     }
+
     async fetchEntry(
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
-        waitForReady: boolean = true,
+        waitForReady = true,
+        skipCheck = false,
+        localOnly = false
+    ): Promise<LoadedEntry | false> {
+        try {
+            return await this.readEntry(file, rev, waitForReady, skipCheck, localOnly);
+        } catch (error) {
+            this._log(error, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+    }
+
+    async readEntry(
+        file: UXFileInfoStub | FilePathWithPrefix,
+        rev?: string,
+        waitForReady = true,
         skipCheck = false,
         localOnly = false
     ): Promise<LoadedEntry | false> {
         if (skipCheck && !(await this.checkIsTargetFile(file))) {
             return false;
         }
-        const entry = await this.fetchEntryMeta(file, rev, true);
-        if (entry === false) {
-            return false;
-        }
-        const doc = await this.fetchEntryFromMeta(entry, waitForReady, true, localOnly);
-        return doc;
+        const entry = await this.readEntryMeta(file, rev, true);
+        return entry ? await this.readEntryFromMeta(entry, waitForReady, true, localOnly) : false;
     }
     async deleteFromDBbyPath(fullPath: FilePath | FilePathWithPrefix, rev?: string): Promise<boolean> {
         if (!(await this.checkIsTargetFile(fullPath))) {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import replication from "pouchdb-replication";
-import type { DocumentID, EntryDoc, FilePathWithPrefix, LoadedEntry, UXFileInfo } from "@lib/common/types";
+import type { DocumentID, EntryDoc, FilePathWithPrefix, LoadedEntry, MetaEntry, UXFileInfo } from "@lib/common/types";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import {
     ServiceDatabaseFileAccessBase,
@@ -36,10 +36,23 @@ type RevisionReader = (
     options?: PouchDB.Core.GetOptions,
     dump?: boolean,
     waitForReady?: boolean,
-    includeDeleted?: boolean
+    includeDeleted?: boolean,
+    localOnly?: boolean
 ) => Promise<LoadedEntry | false>;
+type MetadataReader = (
+    path: FilePathWithPrefix,
+    options?: PouchDB.Core.GetOptions,
+    includeDeleted?: boolean
+) => Promise<MetaEntry | false>;
+type RawReader = (id: DocumentID, options?: PouchDB.Core.GetOptions) => Promise<unknown>;
 
-function createService(database: PouchDB.Database<EntryDoc>, id: DocumentID, readRevision?: RevisionReader) {
+function createService(
+    database: PouchDB.Database<EntryDoc>,
+    id: DocumentID,
+    readRevision?: RevisionReader,
+    readMetadata?: MetadataReader,
+    readRaw?: RawReader
+) {
     const getEntry = async (_path: FilePathWithPrefix, options?: PouchDB.Core.GetOptions) => {
         try {
             return (await database.get(id, options)) as LoadedEntry;
@@ -55,15 +68,58 @@ function createService(database: PouchDB.Database<EntryDoc>, id: DocumentID, rea
         path: {},
         database: {
             localDatabase: {
-                getDBEntryMeta: getEntry,
+                getDBEntryMeta: readMetadata ?? getEntry,
                 getDBEntry: readRevision ?? getEntry,
-                getRaw: (documentId: DocumentID, options?: PouchDB.Core.GetOptions) =>
-                    database.get(documentId, options),
+                readDBEntry: readRevision ?? getEntry,
+                getRaw: readRaw ?? ((documentId: DocumentID, options?: PouchDB.Core.GetOptions) =>
+                    database.get(documentId, options)),
             },
         },
     } as unknown as ServiceDatabaseFileAccessDependencies;
     return new ServiceDatabaseFileAccessBase(dependencies);
 }
+
+describe("ServiceDatabaseFileAccessBase local database observers", () => {
+    const databases: PouchDB.Database<EntryDoc>[] = [];
+
+    afterEach(async () => {
+        await Promise.all(databases.splice(0).map((database) => database.destroy()));
+    });
+
+    it("reports a local InvalidStateError before live-content discovery returns no matches", async () => {
+        const id = "database-id-not-path" as DocumentID;
+        const path = "local-revision-read.md" as FilePathWithPrefix;
+        const database = new PouchDB<EntryDoc>(`local-revision-read-${++databaseSequence}`, { adapter: "memory" });
+        databases.push(database);
+        const metadata = {
+            _id: id,
+            _rev: "2-current",
+            path,
+            children: [],
+            type: "plain",
+        } as unknown as MetaEntry;
+        const failure = Object.assign(new Error("database is closed"), { name: "InvalidStateError" });
+        const readRaw = vi.fn().mockRejectedValue(failure);
+        const service = createService(database, id, undefined, async () => metadata, readRaw);
+        await expect(service.readLiveContentRevisions(path, "local bytes")).rejects.toMatchObject({
+            failure: { documentId: id, resources: ["local-database"], cause: failure },
+        });
+        expect(readRaw).toHaveBeenCalledExactlyOnceWith(id, { open_revs: "all" });
+        await expect(service.findLiveContentRevisions(path, "local bytes")).resolves.toEqual([]);
+    });
+
+    it("passes the per-call observer to conflicted-revision metadata reads", async () => {
+        const id = "local-conflicts.md" as DocumentID;
+        const path = "local-conflicts.md" as FilePathWithPrefix;
+        const database = new PouchDB<EntryDoc>(`local-conflicts-${++databaseSequence}`, { adapter: "memory" });
+        databases.push(database);
+        const metadata = { _id: id, _conflicts: ["2-other"] } as unknown as MetaEntry;
+        const readMetadata = vi.fn().mockResolvedValue(metadata);
+        const service = createService(database, id, undefined, readMetadata);
+        await expect(service.readConflictedRevs(path)).resolves.toEqual(["2-other"]);
+        expect(readMetadata).toHaveBeenCalledExactlyOnceWith(id, { conflicts: true }, true);
+    });
+});
 
 describe("ServiceDatabaseFileAccessBase.hasContentInRevisionHistory", () => {
     const databases: PouchDB.Database<EntryDoc>[] = [];

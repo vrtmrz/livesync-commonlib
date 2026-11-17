@@ -78,6 +78,11 @@ function createHandler(
     delete (storageStub as Partial<UXFileInfo>).body;
 
     const databaseFileAccess = {
+        get readEntryMeta() { return this.fetchEntryMeta; },
+        get readEntryFromMeta() { return this.fetchEntryFromMeta; },
+        get readEntry() { return this.fetchEntry; },
+        get readConflictedRevs() { return this.getConflictedRevs; },
+        get readLiveContentRevisions() { return this.findLiveContentRevisions; },
         fetchEntryMeta: vi.fn().mockResolvedValue(remoteMeta),
         getConflictedRevs: vi.fn().mockResolvedValue([]),
         fetchEntryFromMeta: vi.fn().mockResolvedValue(remoteEntry),
@@ -346,6 +351,11 @@ function createRenameHandler(
         return path === "new.md" ? false : oldEntry;
     };
     const databaseFileAccess = {
+        get readEntryMeta() { return this.fetchEntryMeta; },
+        get readEntryFromMeta() { return this.fetchEntryFromMeta; },
+        get readEntry() { return this.fetchEntry; },
+        get readConflictedRevs() { return this.getConflictedRevs; },
+        get readLiveContentRevisions() { return this.findLiveContentRevisions; },
         fetchEntryMeta: vi.fn(async (file: UXFileInfoStub | FilePathWithPrefix) => entryFor(pathOf(file))),
         getConflictedRevs: vi.fn().mockResolvedValue([]),
         fetchEntry: vi.fn(async (file: UXFileInfoStub | FilePathWithPrefix) => {
@@ -458,6 +468,11 @@ function createRestoredEventHandler(
         getPath: (entry: MetaEntry) => entry.path,
     };
     const databaseFileAccess = {
+        get readEntryMeta() { return this.fetchEntryMeta; },
+        get readEntryFromMeta() { return this.fetchEntryFromMeta; },
+        get readEntry() { return this.fetchEntry; },
+        get readConflictedRevs() { return this.getConflictedRevs; },
+        get readLiveContentRevisions() { return this.findLiveContentRevisions; },
         fetchEntryMeta: vi.fn(async (file: UXFileInfoStub | FilePathWithPrefix) => databaseEntry(file)),
         fetchEntry: vi.fn(async (file: UXFileInfoStub | FilePathWithPrefix) => {
             const entry = databaseEntry(file);
@@ -563,6 +578,11 @@ function createConflictedOperationHandler() {
     };
     const storageFile = createStorageFile("note.md", "edited displayed content");
     const databaseFileAccess = {
+        get readEntryMeta() { return this.fetchEntryMeta; },
+        get readEntryFromMeta() { return this.fetchEntryFromMeta; },
+        get readEntry() { return this.fetchEntry; },
+        get readConflictedRevs() { return this.getConflictedRevs; },
+        get readLiveContentRevisions() { return this.findLiveContentRevisions; },
         fetchEntry: vi.fn().mockImplementation(async (file: UXFileInfoStub | FilePathWithPrefix, rev?: string) => {
             const path = typeof file === "string" ? file : file.path;
             if (path === "new.md") return false;

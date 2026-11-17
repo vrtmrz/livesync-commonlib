@@ -237,7 +237,7 @@ describe.each(["Rebuild", "Standard Fetch", "Fast Fetch"] as const)(
             });
             try {
                 await seedPathIdentityDeletionCase(database, scenario);
-                const subject = Object.create(LiveSyncLocalDB.prototype) as LiveSyncLocalDB;
+                const subject = new LiveSyncLocalDB("deletion-preflight", { services } as never);
                 Object.assign(subject, { localDatabase: database });
                 services.database.localDatabase = subject as never;
                 services.storageAccess.getFileNames.mockResolvedValue(
@@ -630,8 +630,7 @@ describe("ServiceRebuilder fast fetch retry", () => {
 });
 
 describe("ServiceRebuilder fast fetch plaintext policy", () => {
-    const plaintextDocument = (id: string, data: string): EntryDoc =>
-        ({ _id: id, type: "leaf", data }) as EntryDoc;
+    const plaintextDocument = (id: string, data: string): EntryDoc => ({ _id: id, type: "leaf", data }) as EntryDoc;
 
     it("uses identity processing when E2EE is disabled", async () => {
         const { rebuilder, settings } = createRebuilder();

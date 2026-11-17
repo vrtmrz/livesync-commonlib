@@ -1,6 +1,6 @@
 import { defaultLogger, LOG_LEVEL_NOTICE, setGlobalLogFunction } from "@lib/common/logger.ts";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { ChunkFetcher, EVENT_MISSING_CHUNKS, EVENT_CHUNK_FETCHED, EVENT_MISSING_CHUNK_REMOTE } from "./ChunkFetcher";
+import { ChunkFetcher, EVENT_CHUNK_FAILED, EVENT_MISSING_CHUNKS, EVENT_CHUNK_FETCHED, EVENT_MISSING_CHUNK_REMOTE } from "./ChunkFetcher";
 import type { ChunkFetcherOptions } from "./ChunkFetcher";
 import type { DocumentID, EntryLeaf } from "@lib/common/types";
 import type { ChunkManager } from "./ChunkManager";
@@ -124,6 +124,39 @@ describe("ChunkFetcher", () => {
                 otherCoordinator.dispose();
             }
         });
+    });
+
+    it("keeps request diagnostics within the logger selected by each fetcher owner", async () => {
+        const firstLog = vi.fn();
+        const secondLog = vi.fn();
+        const globalLog = vi.fn();
+        const firstOptions = { ...chunkFetcher.options, log: firstLog };
+        chunkFetcher.destroy();
+        chunkFetcher = new ChunkFetcher(firstOptions);
+        const otherCoordinator = new ChunkDeliveryCoordinator();
+        const otherOptions = {
+            ...firstOptions,
+            log: secondLog,
+            chunkManager: { ...mockChunkManager, deliveryCoordinator: otherCoordinator } as ChunkManager,
+        };
+        const otherFetcher = new ChunkFetcher(otherOptions);
+        setGlobalLogFunction(globalLog);
+        try {
+            chunkFetcher.queue = ["first-owner" as DocumentID];
+            await chunkFetcher.requestMissingChunks();
+            expect(firstLog).toHaveBeenCalledWith("No active replicator was found to request missing chunks.");
+            expect(secondLog).not.toHaveBeenCalled();
+            otherFetcher.queue = ["second-owner" as DocumentID];
+            await otherFetcher.requestMissingChunks();
+            expect(secondLog).toHaveBeenCalledWith("No active replicator was found to request missing chunks.");
+            expect(firstLog).toHaveBeenCalledTimes(1);
+            expect(secondLog).toHaveBeenCalledTimes(1);
+            expect(globalLog).not.toHaveBeenCalled();
+        } finally {
+            otherFetcher.destroy();
+            otherCoordinator.dispose();
+            setGlobalLogFunction(defaultLogger);
+        }
     });
 
     describe("Initialization", () => {
@@ -749,7 +782,7 @@ describe("ChunkFetcher", () => {
             expect(chunkFetcher.queue).toHaveLength(50);
         });
 
-        it("should emit EVENT_MISSING_CHUNK_REMOTE when no chunks are fetched", async () => {
+        it("reports a rejected legacy remote-read result without treating it as confirmed absence", async () => {
             const mockReplicator = {
                 fetchRemoteChunks: vi.fn().mockResolvedValue(false),
             };
@@ -760,8 +793,8 @@ describe("ChunkFetcher", () => {
 
             await chunkFetcher.requestMissingChunks();
 
-            expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(EVENT_MISSING_CHUNK_REMOTE, "chunk-1");
-            expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(EVENT_MISSING_CHUNK_REMOTE, "chunk-2");
+            expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(EVENT_CHUNK_FAILED, { id: "chunk-1", failure: { resources: ["remote"], cause: false } });
+            expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(EVENT_CHUNK_FAILED, { id: "chunk-2", failure: { resources: ["remote"], cause: false } });
         });
     });
 });

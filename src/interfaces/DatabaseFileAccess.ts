@@ -1,6 +1,31 @@
-import type { FilePathWithPrefix, LoadedEntry, MetaEntry, UXFileInfo, UXFileInfoStub } from "@lib/common/types";
+import type {
+    DocumentID,
+    FilePathWithPrefix,
+    LoadedEntry,
+    MetaEntry,
+    UXFileInfo,
+    UXFileInfoStub,
+} from "@lib/common/types";
+
+export type ContentReadResource = "local-database" | "remote";
+
+/** Known recovery dependencies; unresolved or invalid content has no automatic retry dependency. */
+export interface ContentReadFailure {
+    documentId: DocumentID;
+    revision?: string;
+    /** Every listed dependency must recover; an empty list requires manual review. */
+    resources: readonly ContentReadResource[];
+    /** Original runtime diagnostics, which must not be persisted or inspected to choose recovery. */
+    cause: unknown;
+}
 
 export interface DatabaseFileAccess {
+    /** Strict reads preserve ordinary absence but reject failed I/O or incomplete content. */
+    readEntryMeta: DatabaseFileAccess["fetchEntryMeta"];
+    readEntryFromMeta: DatabaseFileAccess["fetchEntryFromMeta"];
+    readEntry: DatabaseFileAccess["fetchEntry"];
+    readConflictedRevs: DatabaseFileAccess["getConflictedRevs"];
+    readLiveContentRevisions: DatabaseFileAccess["findLiveContentRevisions"];
     delete: (file: UXFileInfoStub | FilePathWithPrefix, rev?: string) => Promise<boolean>;
     store: (file: UXFileInfo, force?: boolean, skipCheck?: boolean) => Promise<boolean>;
     /**
@@ -63,8 +88,8 @@ export interface DatabaseFileAccess {
      * available Chunks, without requesting remote data or waiting for missing Chunks to arrive.
      *
      * A unique match can recover provenance; several matches avoid a duplicate write but leave
-     * its origin ambiguous. An empty result means no match was confirmed, including when data
-     * could not be read. This read neither records provenance nor reserves a leaf for a later write.
+     * its origin ambiguous. An empty result means no match was confirmed. The strict read rejects
+     * failed I/O; this compatibility facade returns no matches on failure. This read neither records provenance nor reserves a leaf for a later write.
      */
     findLiveContentRevisions: (
         file: UXFileInfoStub | FilePathWithPrefix,
@@ -76,7 +101,12 @@ export interface DatabaseFileAccess {
         waitForReady?: boolean,
         skipCheck?: boolean
     ) => Promise<UXFileInfo | false>;
-    fetchEntryFromMeta: (meta: MetaEntry, waitForReady?: boolean, skipCheck?: boolean) => Promise<LoadedEntry | false>;
+    fetchEntryFromMeta: (
+        meta: MetaEntry,
+        waitForReady?: boolean,
+        skipCheck?: boolean,
+        localOnly?: boolean
+    ) => Promise<LoadedEntry | false>;
     fetchEntryMeta: (
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,

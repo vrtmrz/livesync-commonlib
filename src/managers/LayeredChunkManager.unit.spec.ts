@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { defaultLogger, LOG_LEVEL_VERBOSE, setGlobalLogFunction } from "@lib/common/logger.ts";
+import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import { LayeredChunkManager } from "./LayeredChunkManager";
@@ -21,6 +24,7 @@ function createMockLeaf(id: string, data: string = `data-${id}`): EntryLeaf {
 describe("LayeredChunkManager Integration Tests", () => {
     let db: PouchDB.Database<EntryDoc>;
     let chunkManager: LayeredChunkManager;
+    let managerOptions: ChunkManagerOptions;
     let changeManagerCallbacks: Set<(change: PouchDB.Core.ChangesResponseChange<EntryDoc>) => void>;
 
     beforeEach(() => {
@@ -47,18 +51,64 @@ describe("LayeredChunkManager Integration Tests", () => {
         };
 
         // Create ChunkManager
-        const options: ChunkManagerOptions = {
+        managerOptions = {
             database: db,
             changeManager: mockChangeManager as any,
             settingService: mockSettingService as any,
         };
 
-        chunkManager = new LayeredChunkManager(options);
+        chunkManager = new LayeredChunkManager(managerOptions);
     });
 
     afterEach(async () => {
         chunkManager.destroy();
         await db.destroy();
+    });
+
+    it("routes arrival recheck failures through the owning manager's logger", async () => {
+        const firstLog = vi.fn();
+        const secondLog = vi.fn();
+        const globalLog = vi.fn();
+        const activity = reactiveSource(1);
+        const firstOptions = { ...managerOptions, finiteReplicationActivity: activity, log: firstLog };
+        const secondOptions = { ...managerOptions, log: secondLog };
+        chunkManager.destroy();
+        setGlobalLogFunction(globalLog);
+        chunkManager = new LayeredChunkManager(firstOptions);
+        const otherManager = new LayeredChunkManager(secondOptions);
+        try {
+            expect(firstLog).toHaveBeenCalledWith("ChunkManager initialised", LOG_LEVEL_VERBOSE);
+            expect(secondLog).toHaveBeenCalledWith("ChunkManager initialised", LOG_LEVEL_VERBOSE);
+            firstLog.mockClear();
+            secondLog.mockClear();
+            const waiting = promiseWithResolvers<void>();
+            chunkManager.addListener(EVENT_MISSING_CHUNKS, () => waiting.resolve());
+            const pending = chunkManager.read(["h:logger-recheck" as DocumentID], { waitForDelivery: true });
+            await waiting.promise;
+            const failure = new Error("Local Chunk recheck failed");
+            vi.spyOn(db, "allDocs").mockRejectedValueOnce(failure);
+            const rejection = expect(pending).rejects.toMatchObject({
+                failure: {
+                    resources: ["local-database"],
+                    cause: expect.objectContaining({ failure: expect.objectContaining({ cause: failure }) }),
+                },
+            });
+            activity.value = 0;
+            await rejection;
+            expect(firstLog).toHaveBeenCalledWith(
+                "Could not recheck chunk availability after finite delivery activity completed.",
+                LOG_LEVEL_VERBOSE
+            );
+            expect(firstLog).toHaveBeenCalledWith(
+                expect.objectContaining({ failure: expect.objectContaining({ cause: failure }) }),
+                LOG_LEVEL_VERBOSE
+            );
+            expect(secondLog).not.toHaveBeenCalled();
+            expect(globalLog).not.toHaveBeenCalled();
+        } finally {
+            otherManager.destroy();
+            setGlobalLogFunction(defaultLogger);
+        }
     });
 
     describe("Initialization", () => {
@@ -346,6 +396,7 @@ describe("LayeredChunkManager Integration Tests", () => {
             // Emit missing chunk remote event
             await requestDispatched;
             chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, id);
+            claim.release();
 
             const results = await promise;
 

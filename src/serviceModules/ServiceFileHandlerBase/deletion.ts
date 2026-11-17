@@ -1,7 +1,9 @@
+import { isReflectionCompleted } from "@lib/interfaces/FileHandler";
+import { ContentReadError } from "@lib/common/LSError.ts";
 import { withFileEventPaths, queueConflictCheckFor } from "./locking";
 import { infoToStub } from "./storage";
 import { deleteProvenance, getProvenance, findUniqueContentRevision } from "./provenance";
-import { applyDatabaseEntryToStorage } from "./reflection";
+import { applyDatabaseEntryToStorage, IncompleteFileReflectionError } from "./reflection";
 
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 
@@ -161,9 +163,22 @@ export async function resolveConflictedByDeletingRevision(
     info: UXFileInfoStub | FilePath,
     rev: string
 ): Promise<boolean | undefined> {
-    return await withFileEventPaths(ctx, [getStoragePathFromUXFileInfo(info)], () =>
-        resolveConflictedByDeletingRevisionCore(ctx, info, rev)
-    );
+    let operationReturned = false;
+    try {
+        return await withFileEventPaths(ctx, [getStoragePathFromUXFileInfo(info)], async () => {
+            const result = await resolveConflictedByDeletingRevisionCore(ctx, info, rev);
+            operationReturned = true;
+            return result;
+        });
+    } catch (error) {
+        if (
+            !operationReturned &&
+            (error instanceof ContentReadError || error instanceof IncompleteFileReflectionError)
+        ) {
+            return false;
+        }
+        throw error;
+    }
 }
 
 /**
@@ -196,7 +211,7 @@ async function resolveConflictedByDeletingRevisionCore(
     // branches, so it cannot be used after the deletion. Preserve the old
     // ordering by applying the metadata captured before deletion, then
     // discard any provenance for the now non-live revision.
-    if (!(await applyDatabaseEntryToStorage(ctx, docEntry, file, true))) {
+    if (!isReflectionCompleted(await applyDatabaseEntryToStorage(ctx, docEntry, file, true))) {
         ctx.host.log(`Failed to apply the resolved revision ${rev} of ${path} to the storage`, LOG_LEVEL_VERBOSE);
         return false;
     }

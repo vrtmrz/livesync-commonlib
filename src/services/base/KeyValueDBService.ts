@@ -2,7 +2,7 @@ import type { SimpleStore } from "@lib/common/utils";
 import type { IKeyValueDBService, IVaultService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import type { KeyValueDatabase, KeyValueDatabaseFactory } from "@lib/interfaces/KeyValueDatabase";
-import { delay, yieldMicrotask } from "octagonal-wheels/promises";
+import { withLock } from "octagonal-wheels/concurrency/lock";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import type { InjectableDatabaseEventService } from "@lib/services/implements/injectable/InjectableDatabaseEventService";
@@ -24,6 +24,8 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
     implements IKeyValueDBService
 {
     private _kvDB: KeyValueDatabase | undefined;
+    private databaseKey: string | undefined;
+    private readonly lifecycleLock = Symbol("key-value-database-lifecycle");
     private _simpleStore: SimpleStore<unknown> | undefined;
     get simpleStore() {
         if (!this._simpleStore) {
@@ -44,66 +46,63 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
     private openKeyValueDatabase: KeyValueDatabaseFactory;
     private _log = createInstanceLogFunction("KeyValueDBService");
 
-    private async _everyOnResetDatabase(any: unknown): Promise<boolean> {
-        try {
-            const kvDBKey = "queued-files";
-            await this._kvDB?.del(kvDBKey);
-            // localStorage.removeItem(lsKey);
-            await this._kvDB?.destroy();
-            await yieldMicrotask();
-            this._kvDB = await this.openKeyValueDatabase(this.vault.getVaultName() + "-livesync-kv");
-            await delay(100);
-        } catch (e) {
-            this._kvDB = undefined!;
-            this._log("Failed to reset KeyValueDB", LOG_LEVEL_NOTICE);
-            this._log(e, LOG_LEVEL_VERBOSE);
-            return false;
-        }
-        return true;
+    private selectedDatabaseKey() {
+        return this.vault.getVaultName() + "-livesync-kv";
     }
 
-    private async tryCloseKvDB() {
+    private async _everyOnResetDatabase(): Promise<boolean> {
+        return await withLock(this.lifecycleLock, async () => {
+            const previous = this._kvDB;
+            this._kvDB = undefined;
+            this.databaseKey = undefined;
+            try {
+                await previous?.destroy();
+                return await this.openSelectedDatabase();
+            } catch (error) {
+                this._log("Failed to reset KeyValueDB", LOG_LEVEL_NOTICE);
+                this._log(error, LOG_LEVEL_VERBOSE);
+                return false;
+            }
+        });
+    }
+
+    private async closeKeyValueDB(): Promise<boolean> {
+        const previous = this._kvDB;
+        this._kvDB = undefined;
+        this.databaseKey = undefined;
         try {
-            await this._kvDB?.close();
+            await previous?.close();
             return true;
-        } catch (e) {
+        } catch (error) {
             this._log("Failed to close KeyValueDB", LOG_LEVEL_VERBOSE);
-            this._log(e);
+            this._log(error, LOG_LEVEL_VERBOSE);
             return false;
         }
-    }
-    private async openKeyValueDB(): Promise<boolean> {
-        await delay(10);
-        try {
-            await this.tryCloseKvDB();
-            await delay(10);
-            await yieldMicrotask();
-            this._kvDB = await this.openKeyValueDatabase(this.vault.getVaultName() + "-livesync-kv");
-            await yieldMicrotask();
-            await delay(100);
-        } catch (e) {
-            this._kvDB = undefined!;
-            this._log("Failed to open KeyValueDB", LOG_LEVEL_NOTICE);
-            this._log(e, LOG_LEVEL_VERBOSE);
-            return false;
-        }
-        return true;
-    }
-    // Called when another database; LiveSyncLocalDB, is being unloaded.
-    // We need to close our KeyValueDB to avoid IndexedDB locking issues.
-    private async _onOtherDatabaseUnload() {
-        if (this._kvDB) await this.tryCloseKvDB();
-        return Promise.resolve(true);
-    }
-    // Also, Called when another database; LiveSyncLocalDB, is being closed.
-    // We need to close our KeyValueDB to avoid IndexedDB locking issues.
-    private async _onOtherDatabaseClose() {
-        if (this._kvDB) await this.tryCloseKvDB();
-        return Promise.resolve(true);
     }
 
-    private _everyOnInitializeDatabase(any: unknown): Promise<boolean> {
-        return this.openKeyValueDB();
+    private async openSelectedDatabase(): Promise<boolean> {
+        const selectedKey = this.selectedDatabaseKey();
+        if (this._kvDB && this.databaseKey === selectedKey) {
+            // Pouch connection replacement does not change this store's ownership.
+            // Availability and persistence are established by each awaited KV operation.
+            return true;
+        }
+        if (!(await this.closeKeyValueDB())) {
+            return false;
+        }
+        try {
+            this._kvDB = await this.openKeyValueDatabase(selectedKey);
+            this.databaseKey = selectedKey;
+            return true;
+        } catch (error) {
+            this._log("Failed to open KeyValueDB", LOG_LEVEL_NOTICE);
+            this._log(error, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+    }
+
+    private openKeyValueDB(): Promise<boolean> {
+        return withLock(this.lifecycleLock, () => this.openSelectedDatabase());
     }
 
     private async _everyOnloadAfterLoadSettings(): Promise<boolean> {
@@ -123,9 +122,12 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
         if (dependencies.registerLifecycleHandlers ?? true) {
             this.databaseEvents.onResetDatabase.addHandler(this._everyOnResetDatabase.bind(this));
             this.appLifecycle.onSettingLoaded.addHandler(this._everyOnloadAfterLoadSettings.bind(this));
-            this.databaseEvents.onDatabaseInitialisation.addHandler(this._everyOnInitializeDatabase.bind(this));
-            this.databaseEvents.onUnloadDatabase.addHandler(this._onOtherDatabaseUnload.bind(this));
-            this.databaseEvents.onCloseDatabase.addHandler(this._onOtherDatabaseClose.bind(this));
+            this.databaseEvents.onDatabaseInitialisation.addHandler(() => this.openKeyValueDB());
+            // onBeforeUnload has settled file processing and saved pending work before this phase.
+            this.appLifecycle.onUnload.addHandler(
+                () => withLock(this.lifecycleLock, () => this.closeKeyValueDB()),
+                100
+            );
         }
     }
 

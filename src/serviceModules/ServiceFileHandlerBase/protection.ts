@@ -1,3 +1,5 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
+import type { StorageContentClassification } from "./provenance";
 import {
     readProvenanceSnapshot,
     currentStorageSnapshotMatches,
@@ -46,14 +48,26 @@ export async function preserveUnsyncedStorageAsConflict(
     if (!incomingEntry._rev) {
         return { preserved: false };
     }
-    const classification = await classifyStorageContent(
-        ctx,
-        readFile,
-        incomingEntry,
-        undefined,
-        observedProvenance,
-        incomingContent ? { _rev: incomingEntry._rev, data: incomingContent } : undefined
-    );
+    let classification: StorageContentClassification;
+    let unavailableRead: ContentReadError | undefined;
+    try {
+        classification = await classifyStorageContent(
+            ctx,
+            readFile,
+            incomingEntry,
+            undefined,
+            observedProvenance,
+            incomingContent ? { _rev: incomingEntry._rev, data: incomingContent } : undefined,
+            false
+        );
+    } catch (error) {
+        if (!(error instanceof ContentReadError)) {
+            throw error;
+        }
+        // Independent preservation remains safe without ancestry or a readable leaf.
+        unavailableRead = error;
+        classification = { kind: "unknown" };
+    }
     // Classification can await chunk reads or leaf discovery. Revalidate
     // before creating a branch so an edit during that wait is not lost.
     if (!(await currentStorageSnapshotMatches(ctx, readFile, observedProvenance))) {
@@ -72,6 +86,9 @@ export async function preserveUnsyncedStorageAsConflict(
             ? await ctx.host.db().storeWithBaseRevision(readFile, classification.revision, true)
             : await ctx.host.db().storeIndependentRevision(readFile, true);
     if (storedRevision === false) {
+        if (unavailableRead) {
+            throw unavailableRead;
+        }
         ctx.host.log(`Prevented overwriting unsynchronised local changes for ${path}`, LOG_LEVEL_NOTICE);
         return { preserved: true };
     }
@@ -110,7 +127,7 @@ export async function recheckIncomingStorage(
     if (
         !allowExistingConflicts &&
         !ctx.setting.currentSettings().writeDocumentsIfConflicted &&
-        (await ctx.host.db().getConflictedRevs(path)).length > 0
+        (await ctx.host.db().readConflictedRevs(path)).length > 0
     ) {
         await queueConflictCheckFor(ctx, path, true);
         return { preserved: true };

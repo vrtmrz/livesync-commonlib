@@ -22,7 +22,24 @@ export {
     supportedCapability,
 } from "./ReplicatorProvider.ts";
 export type { ReplicatorInstance } from "./ReplicatorInstance.ts";
-export { isUnencryptedContentRejectedError, UnencryptedContentRejectedError } from "./UnencryptedContentRejectedError.ts";
+export { ContentReadError } from "./contentRead.ts";
+export type { ContentReadFailure, ContentReadResource } from "./contentRead.ts";
+export {
+    FILE_REFLECTION_COMPLETED,
+    FILE_REFLECTION_POLICY,
+    FILE_REFLECTION_CANCELLED,
+    isReflectionCompleted,
+    isReflectionCancelled,
+} from "@lib/interfaces/FileHandler.ts";
+export type {
+    FileReflectionResult,
+    ReflectionTarget,
+    ReflectionOperationContext,
+} from "@lib/interfaces/FileHandler.ts";
+export {
+    isUnencryptedContentRejectedError,
+    UnencryptedContentRejectedError,
+} from "./UnencryptedContentRejectedError.ts";
 export type { UnencryptedContentKind } from "./UnencryptedContentRejectedError.ts";
 export type {
     ActiveReplicatorContext,

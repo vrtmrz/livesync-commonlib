@@ -65,12 +65,9 @@ describe("API cleanup in controlled shutdown", () => {
                 }),
             },
             databaseService: {
-                localDatabaseDirect: {
-                    onunload: vi.fn(),
-                    close: vi.fn(async () => {
-                        order.push("database-close");
-                    }),
-                },
+                closeDatabase: vi.fn(async () => {
+                    order.push("database-close");
+                }),
             },
             APIService: API,
         } as unknown as ControlServiceDependencies);

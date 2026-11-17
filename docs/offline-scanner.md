@@ -201,3 +201,49 @@ bodies or invokes physical deletion. All affected paths are revalidated by their
 handler. See [Deletion recovery](deletion-recovery.md) for completion, error,
 concurrency, and cost contracts. This opt-in extension is published in
 [Commonlib 0.4.2](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.4.2).
+
+
+## Unreleased host recovery integration
+
+The following extension was reviewed against Commonlib 0.5.0 and Self-hosted
+LiveSync 1.0.50. It is implemented on the working branch and is not yet published.
+
+`VaultScanOptions.onReflectionFailed(target, error)` receives a terminal ordinary DB-to-Vault reflection failure. The target is the selected input document ID and revision; a content error can separately identify the historical revision which could not be read. The scanner awaits the owner callback once. A callback rejection propagates as a persistence failure and is not converted into another content failure. Completed reflection, normal absence, and policy skips do not create failed work.
+
+Strict internal reads propagate `ContentReadError` with directly observed `local-database` or `remote` resources and the original `cause`. An empty resource list conveys no automatic recovery prerequisite. The contract does not classify transient failures from names, messages, status defaults, or cause chains. Local Chunk absence is ordinary while a fallback or finite producer can still supply the content. A terminal error is reported after the existing recheck and retry rules finish; a successful fallback discards intermediate failure evidence.
+
+`ReflectionOperationContext` carries the target, source policy, and optional checkpoint. `reflectDatabaseEntry` and `processSynchroniseResult` return `completed`, `policy`, or `cancelled`; uncontinuable failures reject the operation. Existing Boolean retrieval and `dbToStorage` facades retain their compatibility conversion at the outside boundary. They are not used to recover a lost cause from a second callback channel. `/replication` re-exports the neutral content and reflection contracts for consumers.
+
+A `policy` result means that applicable policy intentionally withheld ordinary
+file reflection, for example to preserve an unsynchronised edit as a conflict,
+queue conflict resolution, or leave an existing folder untouched. A host may
+also decline automatic file application. This is a normal policy decision;
+it does not certify completed reflection or schedule an automatic retry.
+Protection and conflict scheduling may already have occurred.
+
+The reflection result keeps its `status` shape, with shared immutable
+`FILE_REFLECTION_COMPLETED`, `FILE_REFLECTION_POLICY`, and
+`FILE_REFLECTION_CANCELLED` values. `isReflectionCompleted` and
+`isReflectionCancelled` express the corresponding caller decisions. The scanner
+converts reflection outcomes to its own pair result once, before applying
+completion events and observed-time bookkeeping.
+
+A host can use `IReplicationService.onFiniteReplicationCompleted` to schedule
+retained work after a successful, uncancelled CouchDB finite pull or bidirectional
+transfer, including the initial pull before continuous replication. Zero changed
+documents still qualify. Push-only operations, continuous events, failed attempts,
+and Chunk fetch completion do not emit this signal. Observer errors are diagnostic
+and do not change a successfully completed replication into a failed transfer.
+The notification runs inside the transfer owner, whose finite delivery activity
+may still be held. Handlers must acknowledge admission without awaiting file or
+Chunk operations which depend on that activity ending. The service itself stores
+no retry records and starts no additional replication.
+
+For one previously selected ordinary content target, `processFilePair` reuses
+existing scan policy without listing the Vault again. The host must supply fresh,
+identity-validated Metadata, a current storage stub or absence, and ordinary scan
+options; existing file-handler locking and revalidation still own writes. A retained retry passes its existing context through `VaultScanOptions.reflectionOperation`, including its pre-write checkpoint. Full
+scan deletion-recovery planning remains separate. The optional
+`fileHandler.inspectCurrentFileProvenance(path, revision)` checks current bytes against
+existing device-local provenance and current Metadata without retrieving Chunks.
+A missing or mismatched record is inconclusive; a failed inspection rejects instead of becoming a mismatch. Neither permits an overwrite. Hosts own retention, retry bounds, and user presentation.

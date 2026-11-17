@@ -1,5 +1,6 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
 import type { FilePathWithPrefix, MetaEntry, UXFolderInfo } from "@lib/common/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { preserveUnsyncedStorageAsConflict, recheckIncomingStorage } from "./protection";
 import {
@@ -29,6 +30,19 @@ describe("incoming storage protection", () => {
         expect(storage.readStubContent).toHaveBeenCalledTimes(2);
         expect(db.storeWithBaseRevision).not.toHaveBeenCalled();
         expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
+    });
+
+    it("completes independent preservation after an unreadable historical base without retaining failure", async () => {
+        const { ctx, db, files, provenanceRecords, storage } = createFileHandlerFixture();
+        const file = makeFile(path, "only local bytes");
+        files.set(path, file);
+        provenanceRecords.set(path, { revision: "1-history" });
+        const entry = makeMetaEntry(path, "3-incoming");
+        const error = new ContentReadError({ documentId: entry._id, revision: "1-history", resources: ["local-database"], cause: new Error("unreadable history") });
+        db.fetchEntry.mockRejectedValue(error);
+        await expect(preserveUnsyncedStorageAsConflict(ctx, path, makeFileStub(path), entry)).resolves.toEqual({ preserved: true });
+        expect(db.storeIndependentRevision).toHaveBeenCalledOnce();
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
     });
 

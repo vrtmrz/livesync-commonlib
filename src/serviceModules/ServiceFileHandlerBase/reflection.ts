@@ -1,3 +1,12 @@
+import { ContentReadError } from "@lib/common/LSError.ts";
+import {
+    FILE_REFLECTION_COMPLETED,
+    FILE_REFLECTION_POLICY,
+    FILE_REFLECTION_CANCELLED,
+    isReflectionCancelled,
+    type FileReflectionResult,
+    type ReflectionOperationContext,
+} from "@lib/interfaces/FileHandler";
 import { withFileEventPaths, queueConflictCheckFor } from "./locking";
 import { infoToStub, isFolderInfo, getParentPath } from "./storage";
 import {
@@ -23,6 +32,9 @@ import { getPathNormalizationVersion, normalisePathForIdentity } from "@lib/comm
 import type { FileReflectionProvenanceRecord } from "@lib/interfaces/FileReflectionProvenance";
 import type { FileHandlerContext, StorageSnapshot } from "./context";
 
+/** An incomplete attempt without a failed I/O boundary; its owner retains the target. */
+export class IncompleteFileReflectionError extends Error {}
+
 /**
  * Reflect one selected live revision under the storage document lock.
  *
@@ -30,7 +42,7 @@ import type { FileHandlerContext, StorageSnapshot } from "./context";
  * @param info - The supplied file observation or path.
  * @param rev - The exact selected database revision.
  * @param force - Whether the existing force policy bypasses ordinary unchanged-content checks.
- * @returns The selected live leaf reflection result, or false if the selected revision is no longer live.
+ * @returns The selected live leaf reflection result, or false if the selected revision is no longer live or its content is unreadable.
  * @remarks Core operations run under the caller's document lock. Storage protection and database advancement are revalidated at their established await boundaries.
  */
 export async function dbToStorageWithSpecificRev(
@@ -43,9 +55,23 @@ export async function dbToStorageWithSpecificRev(
         ctx.host.log(`Cannot select database revision ${rev} without a file path`, LOG_LEVEL_VERBOSE);
         return false;
     }
-    return await withFileEventPaths(ctx, [getStoragePathFromUXFileInfo(info)], () =>
-        dbToStorageWithSpecificRevCore(ctx, info, rev, force)
-    );
+    let operationReturned = false;
+    try {
+        return await withFileEventPaths(ctx, [getStoragePathFromUXFileInfo(info)], async () => {
+            const result = await dbToStorageWithSpecificRevCore(ctx, info, rev, force);
+            operationReturned = true;
+            return result;
+        });
+    } catch (error) {
+        if (
+            !operationReturned &&
+            (error instanceof ContentReadError || error instanceof IncompleteFileReflectionError)
+        ) {
+            ctx.host.log(error, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+        throw error;
+    }
 }
 
 /**
@@ -67,9 +93,9 @@ async function dbToStorageWithSpecificRevCore(
     const file = await infoToStub(ctx, info);
     const databaseTarget = file ?? info;
     const [docEntry, currentEntry, conflictedRevisions] = await Promise.all([
-        ctx.host.db().fetchEntryMeta(databaseTarget, rev, true),
-        ctx.host.db().fetchEntryMeta(databaseTarget, undefined, true),
-        ctx.host.db().getConflictedRevs(databaseTarget),
+        ctx.host.db().readEntryMeta(databaseTarget, rev, true),
+        ctx.host.db().readEntryMeta(databaseTarget, undefined, true),
+        ctx.host.db().readConflictedRevs(databaseTarget),
     ]);
     if (!docEntry) {
         ctx.host.log(`File ${tryGetFilePath(info)} is not exist on the database`, LOG_LEVEL_VERBOSE);
@@ -86,7 +112,7 @@ async function dbToStorageWithSpecificRevCore(
         );
         return false;
     }
-    return await applyDatabaseEntryToStorage(ctx, docEntry, file, force, true);
+    return !isReflectionCancelled(await applyDatabaseEntryToStorage(ctx, docEntry, file, force, true));
 }
 
 /**
@@ -105,8 +131,39 @@ export async function dbToStorage(
     info: UXFileInfoStub | UXFileInfo | FilePath | null,
     force?: boolean
 ): Promise<boolean> {
-    const pathFromEntryInfo = typeof entryInfo === "string" ? entryInfo : ctx.host.getPath(entryInfo);
-    return await withFileEventPaths(ctx, [pathFromEntryInfo], () => dbToStorageCore(ctx, entryInfo, info, force));
+    const path = typeof entryInfo === "string" ? entryInfo : ctx.host.getPath(entryInfo);
+    let operationReturned = false;
+    try {
+        const result = await withFileEventPaths(ctx, [path], async () => {
+            const outcome = await dbToStorageCore(ctx, entryInfo, info, force);
+            operationReturned = true;
+            return outcome;
+        });
+        return !isReflectionCancelled(result);
+    } catch (error) {
+        // Only adapt the operation's failure. A post-unlock hook can fail after
+        // successful reflection and must never turn that work into a retry.
+        if (
+            !operationReturned &&
+            (error instanceof ContentReadError || error instanceof IncompleteFileReflectionError)
+        ) {
+            ctx.host.log(error, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+        throw error;
+    }
+}
+
+/** Run one reflection using the target owner's immutable operation premises. */
+export async function reflectDatabaseEntry(
+    ctx: FileHandlerContext,
+    entryInfo: MetaEntry | FilePathWithPrefix,
+    info: UXFileInfoStub | UXFileInfo | FilePath | null,
+    force?: boolean,
+    operation?: ReflectionOperationContext
+): Promise<FileReflectionResult> {
+    const path = typeof entryInfo === "string" ? entryInfo : ctx.host.getPath(entryInfo);
+    return await withFileEventPaths(ctx, [path], () => dbToStorageCore(ctx, entryInfo, info, force, operation));
 }
 
 /**
@@ -116,23 +173,27 @@ export async function dbToStorage(
  * @param entryInfo - Current metadata or a path from which metadata is loaded.
  * @param info - The supplied file observation or path.
  * @param force - Whether the existing force policy bypasses ordinary unchanged-content checks.
- * @returns True after reflection or a safe conflict/absence skip; false on unreadable or unsafe observations.
+ * @returns The ordinary completion, policy hand-off, or owner cancellation outcome; failed reads reject.
  * @remarks Core operations run under the caller's document lock. Storage protection and database advancement are revalidated at their established await boundaries.
  */
 export async function dbToStorageCore(
     ctx: FileHandlerContext,
     entryInfo: MetaEntry | FilePathWithPrefix,
     info: UXFileInfoStub | UXFileInfo | FilePath | null,
-    force?: boolean
-): Promise<boolean> {
+    force?: boolean,
+    operation?: ReflectionOperationContext
+): Promise<FileReflectionResult> {
+    if (operation?.checkpoint?.() === false) {
+        return FILE_REFLECTION_CANCELLED;
+    }
     const file = await infoToStub(ctx, info);
     const pathFromEntryInfo = typeof entryInfo === "string" ? entryInfo : ctx.host.getPath(entryInfo);
-    const docEntry = await ctx.host.db().fetchEntryMeta(pathFromEntryInfo, undefined, true);
+    const docEntry = await ctx.host.db().readEntryMeta(pathFromEntryInfo, undefined, true);
     if (!docEntry) {
         ctx.host.log(`File ${pathFromEntryInfo} is not exist on the database`, LOG_LEVEL_VERBOSE);
-        return false;
+        throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
     }
-    return await applyDatabaseEntryToStorage(ctx, docEntry, file, force);
+    return await applyDatabaseEntryToStorage(ctx, docEntry, file, force, false, 0, operation);
 }
 
 /**
@@ -144,7 +205,7 @@ export async function dbToStorageCore(
  * @param force - Whether the existing force policy bypasses ordinary unchanged-content checks.
  * @param allowExistingConflicts - Whether the caller explicitly selected an existing live conflict leaf.
  * @param incomingRetry - The number of database-advancement rereads already consumed.
- * @returns True after reflection or a policy skip; false when content, path, or current-state validation refuses the effect.
+ * @returns The completed or policy outcome; incomplete content or unsafe observations reject.
  * @remarks Core operations run under the caller's document lock. Storage protection and database advancement are revalidated at their established await boundaries.
  */
 export async function applyDatabaseEntryToStorage(
@@ -153,12 +214,13 @@ export async function applyDatabaseEntryToStorage(
     file: UXFileInfoStub | UXFileInfo | null,
     force?: boolean,
     allowExistingConflicts: boolean = false,
-    incomingRetry = 0
-): Promise<boolean> {
+    incomingRetry = 0,
+    operation?: ReflectionOperationContext
+): Promise<FileReflectionResult> {
     const mode = file == null ? "create" : "modify";
     const path = ctx.host.getPath(docEntry);
     const settings = ctx.setting.currentSettings();
-    const revs = await ctx.host.db().getConflictedRevs(path);
+    const revs = await ctx.host.db().readConflictedRevs(path);
     if (revs.length > 0 && !allowExistingConflicts) {
         // Some conflicts are exist.
         if (settings.writeDocumentsIfConflicted) {
@@ -167,22 +229,21 @@ export async function applyDatabaseEntryToStorage(
         } else {
             // If not, then it should be checked. and will be processed later (i.e., after the conflict is resolved).
             await queueConflictCheckFor(ctx, path, true);
-            return true;
+            return FILE_REFLECTION_POLICY;
         }
     }
     let existDoc = await ctx.host.storage().getStub(path);
     if (isFolderInfo(existDoc)) {
         ctx.host.log(`Folder ${path} is already exist on the storage as a folder`, LOG_LEVEL_VERBOSE);
-        // We can do nothing, and other modules should also nothing to do.
-        return true;
+        return FILE_REFLECTION_POLICY;
     }
     const existOnDB = !(docEntry._deleted || docEntry.deleted || false);
     if (!existOnDB && !existDoc) {
         ctx.host.log(`File ${path} seems to be deleted, but already not on storage`, LOG_LEVEL_VERBOSE);
         await deleteProvenance(ctx, path);
-        return true;
+        return FILE_REFLECTION_COMPLETED;
     }
-    if (!existOnDB && existDoc)
+    if (!existOnDB && existDoc) {
         return await applyIncomingDeletion(
             ctx,
             docEntry,
@@ -191,17 +252,21 @@ export async function applyDatabaseEntryToStorage(
             settings,
             force,
             allowExistingConflicts,
-            incomingRetry
+            incomingRetry,
+            operation
         );
+    }
     if (existDoc && existDoc.path !== path) {
         const current = await reconcileStoragePath(ctx, existDoc, path, settings);
-        if (current === false) return false;
+        if (current === false) {
+            throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
+        }
         existDoc = current;
     }
-    const docRead = await ctx.host.db().fetchEntryFromMeta(docEntry);
+    const docRead = await ctx.host.db().readEntryFromMeta(docEntry);
     if (!docRead) {
         ctx.host.log(`File ${path} is not exist on the database`, LOG_LEVEL_VERBOSE);
-        return false;
+        throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
     }
     const docData = readContent(docRead);
     const reflectedContent = createBlob(docData);
@@ -213,7 +278,7 @@ export async function applyDatabaseEntryToStorage(
                 `File ${path} seems to be corrupted! Writing prevented. (${docRead.size} != ${reflectedContent.size})`,
                 LOG_LEVEL_NOTICE
             );
-            return false;
+            throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
         }
     }
     const reflectedEvidence = await contentEvidence(ctx, reflectedContent);
@@ -230,6 +295,7 @@ export async function applyDatabaseEntryToStorage(
         force,
         allowExistingConflicts,
         incomingRetry,
+        operation,
     };
     const preparation = await prepareIncomingStorageWrite(ctx, write);
     if (preparation.kind === "complete") return preparation.result;
@@ -254,21 +320,34 @@ async function reconcileAdvancedIncomingRevision(
     path: FilePathWithPrefix,
     force: boolean | undefined,
     allowExistingConflicts: boolean,
-    incomingRetry: number
-): Promise<boolean | undefined> {
+    incomingRetry: number,
+    operation?: ReflectionOperationContext
+): Promise<FileReflectionResult | undefined> {
     if (force || allowExistingConflicts) return undefined;
     // Protection above may await storage work, so the incoming metadata can
     // be stale even though it was current when this reflection began.
-    const current = await ctx.host.db().fetchEntryMeta(path, undefined, true);
-    if (!current) return false;
+    const current = await ctx.host.db().readEntryMeta(path, undefined, true);
+    if (!current) {
+        throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
+    }
     if (current._rev === incomingEntry._rev) return undefined;
     if (incomingRetry >= 2) {
         ctx.host.log(`Database kept changing while reflecting ${path}`, LOG_LEVEL_NOTICE);
-        return false;
+        throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
     }
     const storage = await ctx.host.storage().getStub(path);
-    if (isFolderInfo(storage)) return false;
-    return await applyDatabaseEntryToStorage(ctx, current, storage, force, allowExistingConflicts, incomingRetry + 1);
+    if (isFolderInfo(storage)) {
+        throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
+    }
+    return await applyDatabaseEntryToStorage(
+        ctx,
+        current,
+        storage,
+        force,
+        allowExistingConflicts,
+        incomingRetry + 1,
+        operation
+    );
 }
 
 /** Captured inputs retained through one incoming-reflection attempt. */
@@ -297,10 +376,11 @@ interface IncomingStorageWrite {
     readonly allowExistingConflicts: boolean;
     /** Existing database-advancement reread count. */
     readonly incomingRetry: number;
+    readonly operation?: ReflectionOperationContext;
 }
 /** Candidate overwrite plan; the write stage must revalidate any returned snapshot. */
 type IncomingStoragePreparation =
-    | { kind: "complete"; result: boolean }
+    | { kind: "complete"; result: FileReflectionResult }
     | { kind: "write"; snapshot: StorageSnapshot | undefined };
 /**
  * Protect storage and apply one incoming database deletion.
@@ -323,23 +403,28 @@ async function applyIncomingDeletion(
     settings: ObsidianLiveSyncSettings,
     force: boolean | undefined,
     allowExistingConflicts: boolean,
-    incomingRetry: number
-): Promise<boolean> {
+    incomingRetry: number,
+    operation?: ReflectionOperationContext
+): Promise<FileReflectionResult> {
     let safeDeletionSnapshot: StorageSnapshot | undefined;
     if (!force && !settings.writeDocumentsIfConflicted) {
-        let protection = await preserveUnsyncedStorageAsConflict(ctx, path, existDoc, docEntry);
-        if (protection.preserved) return true;
+        let protection = await preserveUnsyncedStorageAsConflict(ctx, path, existDoc, docEntry, undefined);
+        if (protection.preserved) {
+            return FILE_REFLECTION_POLICY;
+        }
         if (
             !protection.snapshot ||
             !(await currentStorageSnapshotMatches(ctx, protection.snapshot.file, protection.snapshot.revision))
         ) {
             protection = await recheckIncomingStorage(ctx, path, docEntry, undefined, allowExistingConflicts);
-            if (protection.preserved) return true;
+            if (protection.preserved) {
+                return FILE_REFLECTION_POLICY;
+            }
             if (
                 !protection.snapshot ||
                 !(await currentStorageSnapshotMatches(ctx, protection.snapshot.file, protection.snapshot.revision))
             ) {
-                return false;
+                throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
             }
         }
         safeDeletionSnapshot = protection.snapshot;
@@ -350,7 +435,8 @@ async function applyIncomingDeletion(
         path,
         force,
         allowExistingConflicts,
-        incomingRetry
+        incomingRetry,
+        operation
     );
     if (latest !== undefined) return latest;
     if (
@@ -358,12 +444,14 @@ async function applyIncomingDeletion(
         !(await currentStorageSnapshotMatches(ctx, safeDeletionSnapshot.file, safeDeletionSnapshot.revision))
     ) {
         const protection = await recheckIncomingStorage(ctx, path, docEntry, undefined, allowExistingConflicts);
-        if (protection.preserved) return true;
+        if (protection.preserved) {
+            return FILE_REFLECTION_POLICY;
+        }
         if (
             !protection.snapshot ||
             !(await currentStorageSnapshotMatches(ctx, protection.snapshot.file, protection.snapshot.revision))
         ) {
-            return false;
+            throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
         }
         safeDeletionSnapshot = protection.snapshot;
         latest = await reconcileAdvancedIncomingRevision(
@@ -372,16 +460,20 @@ async function applyIncomingDeletion(
             path,
             force,
             allowExistingConflicts,
-            incomingRetry
+            incomingRetry,
+            operation
         );
         if (latest !== undefined) return latest;
         if (!(await currentStorageSnapshotMatches(ctx, safeDeletionSnapshot.file, safeDeletionSnapshot.revision))) {
-            return false;
+            throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
         }
+    }
+    if (operation?.checkpoint?.() === false) {
+        return FILE_REFLECTION_CANCELLED;
     }
     await ctx.host.storage().deleteVaultItem(path);
     await deleteProvenance(ctx, path);
-    return true;
+    return FILE_REFLECTION_COMPLETED;
 }
 
 /**
@@ -452,8 +544,9 @@ async function prepareIncomingStorageWrite(
     write: IncomingStorageWrite
 ): Promise<IncomingStoragePreparation> {
     const { existDoc, force, allowExistingConflicts, docRead } = write;
-    if (allowExistingConflicts && existDoc && !force && (await acceptMatchingSelectedContent(ctx, write, existDoc)))
-        return { kind: "complete", result: true };
+    if (allowExistingConflicts && existDoc && !force && (await acceptMatchingSelectedContent(ctx, write, existDoc))) {
+        return { kind: "complete", result: FILE_REFLECTION_COMPLETED };
+    }
     if (existDoc && !force) return await prepareExistingStorageWrite(ctx, write, existDoc);
     ctx.host.log(`File ${docRead.path} ${existDoc ? "(new) " : ""} ${force ? " (forced)" : ""}`, LOG_LEVEL_VERBOSE);
     return { kind: "write", snapshot: undefined };
@@ -464,14 +557,14 @@ async function prepareIncomingStorageWrite(
  * @param ctx - Captured services, per-instance state, and dynamic public host seams.
  * @param write - The captured inputs and settings for this reflection attempt.
  * @param safeSnapshot - The overwrite-protection candidate, which remains subject to final revalidation.
- * @returns Whether incoming processing completed or safely stopped, including preservation or advanced-revision reconciliation; true does not guarantee a physical file write.
+ * @returns Completion or policy hand-off after preservation or advanced-revision reconciliation; incomplete work rejects.
  * @remarks The caller holds the document lock. The last recheck and write remain in this stage; physical writes retain the original touched/event/best-effort-provenance order.
  */
 async function commitIncomingStorageWrite(
     ctx: FileHandlerContext,
     write: IncomingStorageWrite,
     safeSnapshot: StorageSnapshot | undefined
-): Promise<boolean> {
+): Promise<FileReflectionResult> {
     const {
         docEntry,
         docRead,
@@ -483,16 +576,19 @@ async function commitIncomingStorageWrite(
         force,
         allowExistingConflicts,
         incomingRetry,
+        operation,
     } = write;
     await ctx.host.storage().ensureDir(path);
     if (safeSnapshot && !(await currentStorageSnapshotMatches(ctx, safeSnapshot.file, safeSnapshot.revision))) {
         const protection = await recheckIncomingStorage(ctx, path, docEntry, docData, allowExistingConflicts);
-        if (protection.preserved) return true;
+        if (protection.preserved) {
+            return FILE_REFLECTION_POLICY;
+        }
         if (
             !protection.snapshot ||
             !(await currentStorageSnapshotMatches(ctx, protection.snapshot.file, protection.snapshot.revision))
         ) {
-            return false;
+            throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
         }
         safeSnapshot = protection.snapshot;
     }
@@ -502,11 +598,15 @@ async function commitIncomingStorageWrite(
         path,
         force,
         allowExistingConflicts,
-        incomingRetry
+        incomingRetry,
+        operation
     );
     if (latest !== undefined) return latest;
     if (safeSnapshot && !(await currentStorageSnapshotMatches(ctx, safeSnapshot.file, safeSnapshot.revision))) {
-        return false;
+        throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
+    }
+    if (operation?.checkpoint?.() === false) {
+        return FILE_REFLECTION_CANCELLED;
     }
     const ret = await ctx.host.storage().writeFileAuto(path, docData, { ctime: docRead.ctime, mtime: docRead.mtime });
     await ctx.host.storage().touched(path);
@@ -517,11 +617,14 @@ async function commitIncomingStorageWrite(
         // Preserve that newer branch identity. A plain user edit leaves the
         // record unchanged, so the written revision remains its correct base.
         if (safeSnapshot && !sameProvenance(await readProvenanceSnapshot(ctx, path), safeSnapshot.revision)) {
-            return ret;
+            return FILE_REFLECTION_COMPLETED;
         }
         await setProvenance(ctx, path, docEntry._rev, storedStat?.mtime, reflectedContent, reflectedEvidence);
     }
-    return ret;
+    if (!ret) {
+        throw new IncompleteFileReflectionError("Storage rejected the reflected write");
+    }
+    return FILE_REFLECTION_COMPLETED;
 }
 
 /**
@@ -583,7 +686,7 @@ async function prepareExistingStorageWrite(
     if (!shouldApplied) {
         await setProvenance(ctx, path, docEntry._rev, existDoc.stat.mtime, reflectedContent, reflectedEvidence);
         ctx.host.log(`File ${docRead.path} is not changed`, LOG_LEVEL_VERBOSE);
-        return { kind: "complete", result: true };
+        return { kind: "complete", result: FILE_REFLECTION_COMPLETED };
     }
 
     return await prepareIncomingStorageProtection(ctx, write, current);
@@ -607,11 +710,17 @@ async function prepareIncomingStorageProtection(
     if (force || settings.writeDocumentsIfConflicted) return { kind: "write", snapshot: undefined };
 
     let protection = await preserveUnsyncedStorageAsConflict(ctx, path, existDoc, docEntry, docData);
-    if (protection.preserved) return { kind: "complete", result: true };
+    if (protection.preserved) {
+        return { kind: "complete", result: FILE_REFLECTION_POLICY };
+    }
     if (!protection.snapshot) {
         protection = await recheckIncomingStorage(ctx, path, docEntry, docData, allowExistingConflicts);
-        if (protection.preserved) return { kind: "complete", result: true };
-        if (!protection.snapshot) return { kind: "complete", result: false };
+        if (protection.preserved) {
+            return { kind: "complete", result: FILE_REFLECTION_POLICY };
+        }
+        if (!protection.snapshot) {
+            throw new IncompleteFileReflectionError("Storage changed during overwrite protection");
+        }
     }
     return { kind: "write", snapshot: protection.snapshot };
 }

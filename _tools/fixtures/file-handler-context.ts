@@ -166,6 +166,21 @@ export function createFileHandlerFixture(options: FileHandlerFixtureOptions = {}
         hasContentInRevisionHistory: vi.fn<DatabaseFileAccess["hasContentInRevisionHistory"]>(async () => false),
         findContentRevisions: vi.fn<DatabaseFileAccess["findContentRevisions"]>(async () => []),
         findLiveContentRevisions: vi.fn<DatabaseFileAccess["findLiveContentRevisions"]>(async () => []),
+        get readEntryMeta(): DatabaseFileAccess["readEntryMeta"] {
+            return this.fetchEntryMeta;
+        },
+        get readEntryFromMeta(): DatabaseFileAccess["readEntryFromMeta"] {
+            return this.fetchEntryFromMeta;
+        },
+        get readEntry(): DatabaseFileAccess["readEntry"] {
+            return this.fetchEntry;
+        },
+        get readConflictedRevs(): DatabaseFileAccess["readConflictedRevs"] {
+            return this.getConflictedRevs;
+        },
+        get readLiveContentRevisions(): DatabaseFileAccess["readLiveContentRevisions"] {
+            return this.findLiveContentRevisions;
+        },
         fetch: vi.fn<DatabaseFileAccess["fetch"]>(async () => false),
         fetchEntryFromMeta: vi.fn<DatabaseFileAccess["fetchEntryFromMeta"]>(async () => false),
         fetchEntryMeta: vi.fn<DatabaseFileAccess["fetchEntryMeta"]>(async () => false),

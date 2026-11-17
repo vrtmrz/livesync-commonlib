@@ -1,5 +1,5 @@
-import { Logger, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
-import { LiveSyncError } from "@lib/common/LSError";
+import type { LocalDatabaseReadScope } from "@lib/pouchdb/LocalDatabaseReadScope.ts";
+import { ContentReadError } from "@lib/common/LSError";
 import type { EntryLeaf, DocumentID, EntryDoc } from "@lib/common/types";
 import type { IReadLayer } from "./ChunkLayerInterfaces";
 import type { ChunkReadOptions } from "./types.ts";
@@ -9,20 +9,13 @@ import type { ChunkReadOptions } from "./types.ts";
  */
 
 export class DatabaseReadLayer implements IReadLayer {
-    constructor(private database: PouchDB.Database<EntryDoc>) {}
+    constructor(
+        private database: PouchDB.Database<EntryDoc>,
+        private readonly readScope?: LocalDatabaseReadScope
+    ) {}
 
     private isChunkDoc(doc: EntryDoc): doc is EntryLeaf {
         return doc && typeof doc._id === "string" && doc.type === "leaf";
-    }
-
-    private getError(error: unknown): Error | undefined {
-        if (error instanceof Error) {
-            return error;
-        }
-        if (typeof error === "object" && error !== null && "error" in error && error.error instanceof Error) {
-            return error.error;
-        }
-        return undefined;
     }
 
     private isMissingError(error: unknown): boolean {
@@ -34,9 +27,6 @@ export class DatabaseReadLayer implements IReadLayer {
         }
         if ("error" in error && error.error === "not_found") {
             return true;
-        }
-        if ("error" in error) {
-            return this.isMissingError(error.error);
         }
         return false;
     }
@@ -53,33 +43,47 @@ export class DatabaseReadLayer implements IReadLayer {
         const resultMap = new Map<DocumentID, EntryLeaf | false>();
         const remainingIds: DocumentID[] = [];
 
+        let results: PouchDB.Core.AllDocsWithKeysResponse<EntryDoc>;
         try {
-            const results = await this.database.allDocs({ keys: ids, include_docs: true });
+            const read = () => this.database.allDocs({ keys: ids, include_docs: true });
+            results = await (this.readScope ? this.readScope.run(read) : read());
+        } catch (error) {
+            const localFailure = new ContentReadError({
+                documentId: ids[0],
+                resources: ["local-database"],
+                cause: error,
+            });
+            // Retiring this connection must reach the caller's retention and cleanup,
+            // rather than entering a new delivery wait on the retired lifetime.
+            if (this.readScope?.isClosed) throw localFailure;
+            try {
+                const fallback = await next(ids);
+                if (fallback.every(Boolean)) {
+                    return fallback;
+                }
+            } catch (fallbackError) {
+                const resources = fallbackError instanceof ContentReadError ? fallbackError.failure.resources : [];
+                throw new ContentReadError({
+                    documentId: ids[0],
+                    resources: resources.length === 0 ? [] : [...new Set(["local-database" as const, ...resources])],
+                    cause: new AggregateError([error, fallbackError], "Local and fallback Chunk reads failed"),
+                });
+            }
+            throw localFailure;
+        }
 
-            for (const row of results.rows) {
-                if ("doc" in row && row.doc && this.isChunkDoc(row.doc)) {
-                    const chunk = row.doc;
-                    resultMap.set(chunk._id, chunk);
-                } else if (!this.isMissingError(row)) {
-                    throw new LiveSyncError(`Failed to read chunk ${row.key}`, {
-                        status: 404,
-                        cause: this.getError(row),
-                    });
-                } else {
-                    const idFromRow = typeof row.key === "string" ? (row.key as DocumentID) : undefined;
-                    if (idFromRow) {
-                        remainingIds.push(idFromRow);
-                    }
+        for (const row of results.rows) {
+            if ("doc" in row && row.doc && this.isChunkDoc(row.doc)) {
+                const chunk = row.doc;
+                resultMap.set(chunk._id, chunk);
+            } else if (!this.isMissingError(row)) {
+                throw new ContentReadError({ documentId: row.key as DocumentID, resources: [], cause: row });
+            } else {
+                const idFromRow = typeof row.key === "string" ? (row.key as DocumentID) : undefined;
+                if (idFromRow) {
+                    remainingIds.push(idFromRow);
                 }
             }
-        } catch (error) {
-            if (error instanceof LiveSyncError) {
-                throw error;
-            }
-            // For other errors, treat as database read failure
-            Logger(`Database read error!`, LOG_LEVEL_VERBOSE);
-            Logger(error, LOG_LEVEL_VERBOSE);
-            return ids.map(() => false);
         }
 
         // If all chunks were found, return immediately

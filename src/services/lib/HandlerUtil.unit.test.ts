@@ -967,3 +967,118 @@ describe("dispatcher exception values", () => {
         expect(following).toHaveBeenCalledTimes(1);
     });
 });
+
+describe("rejection-preserving dispatch", () => {
+    it("returns the first defined result in priority order and permits unregistering it", async () => {
+        const dispatch = handlers<{ read: () => Promise<string | undefined> }>().firstApplicable("read");
+        const later = vi.fn(async () => "later");
+        dispatch.addHandler(later, 10);
+        const remove = dispatch.addHandler(async () => "selected", -1);
+        expect(await dispatch()).toBe("selected");
+        expect(later).not.toHaveBeenCalled();
+        remove();
+        expect(await dispatch()).toBe("later");
+    });
+
+    it("treats false as a defined result rather than continuing to another handler", async () => {
+        const dispatch = handlers<{ read: () => Promise<boolean | undefined> }>().firstApplicable("read");
+        const later = vi.fn(async () => true);
+        dispatch.addHandler(async () => undefined);
+        dispatch.addHandler(async () => false);
+        dispatch.addHandler(later);
+        expect(await dispatch()).toBe(false);
+        expect(later).not.toHaveBeenCalled();
+    });
+
+    it("returns undefined when no handler applies", async () => {
+        const dispatch = handlers<{ read: () => Promise<string | undefined> }>().firstApplicable("read");
+        expect(await dispatch()).toBeUndefined();
+        dispatch.addHandler(async () => undefined);
+        expect(await dispatch()).toBeUndefined();
+    });
+
+    it("keeps the invocation's registration snapshot while a handler is running", async () => {
+        const dispatch = handlers<{ read: () => Promise<string | undefined> }>().firstApplicable("read");
+        const added = vi.fn(async () => "added");
+        dispatch.addHandler(async () => {
+            dispatch.addHandler(added);
+            return undefined;
+        });
+        expect(await dispatch()).toBeUndefined();
+        expect(await dispatch()).toBe("added");
+    });
+
+    it("propagates the original first-result rejection without invoking fallback handlers", async () => {
+        const dispatch = handlers<{ read: () => Promise<string | undefined> }>().firstApplicable("read");
+        const error = { diagnostic: "read failed" };
+        const later = vi.fn(async () => "fallback");
+        dispatch.addHandler(async () => {
+            throw error;
+        });
+        dispatch.addHandler(later);
+        await expect(dispatch()).rejects.toBe(error);
+        expect(later).not.toHaveBeenCalled();
+    });
+
+    it("settles boolean handlers sequentially and stops on false", async () => {
+        const dispatch = handlers<{ save: () => Promise<boolean> }>().allOrThrow("save");
+        const calls: number[] = [];
+        dispatch.addHandler(async () => {
+            calls.push(2);
+            return false;
+        }, 2);
+        dispatch.addHandler(async () => {
+            calls.push(1);
+            return true;
+        }, 1);
+        dispatch.addHandler(async () => {
+            calls.push(3);
+            return true;
+        }, 3);
+        expect(await dispatch()).toBe(false);
+        expect(calls).toEqual([1, 2]);
+    });
+
+    it("keeps the current boolean-handler snapshot when registrations change", async () => {
+        const dispatch = handlers<{ save: () => Promise<boolean> }>().allOrThrow("save");
+        const current = vi.fn(async () => true);
+        const added = vi.fn(async () => true);
+        const removeCurrent = dispatch.addHandler(current, 10);
+        dispatch.addHandler(async () => {
+            removeCurrent();
+            dispatch.addHandler(added, 20);
+            return true;
+        });
+
+        expect(await dispatch()).toBe(true);
+        expect(current).toHaveBeenCalledOnce();
+        expect(added).not.toHaveBeenCalled();
+
+        expect(await dispatch()).toBe(true);
+        expect(current).toHaveBeenCalledOnce();
+        expect(added).toHaveBeenCalledOnce();
+    });
+
+    it("succeeds when no boolean handler rejects the operation", async () => {
+        const dispatch = handlers<{ save: () => Promise<boolean> }>().allOrThrow("save");
+        expect(await dispatch()).toBe(true);
+        const handler = vi.fn(async () => true);
+        dispatch.addHandler(handler);
+        expect(await dispatch()).toBe(true);
+        dispatch.removeHandler(handler);
+        expect(await dispatch()).toBe(true);
+        expect(handler).toHaveBeenCalledOnce();
+    });
+
+    it("propagates the original synchronous notification failure without later callbacks", async () => {
+        const dispatch = handlers<{ save: () => Promise<boolean> }>().allOrThrow("save");
+        const error = new Error("snapshot failed");
+        const later = vi.fn(async () => true);
+        dispatch.addHandler(() => {
+            throw error;
+        });
+        dispatch.addHandler(later);
+        await expect(dispatch()).rejects.toBe(error);
+        expect(later).not.toHaveBeenCalled();
+    });
+});

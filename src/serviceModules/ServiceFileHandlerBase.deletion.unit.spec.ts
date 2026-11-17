@@ -93,8 +93,10 @@ function createPeer(deleteMetadataOfDeletedFiles: boolean) {
     // forwarding methods provided by LiveSyncLocalDB in maintained hosts.
     const localDatabase = {
         getDBEntry: entries.getDBEntry.bind(entries),
+                readDBEntry: entries.getDBEntry.bind(entries),
         getDBEntryMeta: entries.getDBEntryMeta.bind(entries),
         getDBEntryFromMeta: entries.getDBEntryFromMeta.bind(entries),
+                readDBEntryFromMeta: entries.getDBEntryFromMeta.bind(entries),
         putDBEntry: entries.putDBEntry.bind(entries),
         putDBEntryAsIndependentRoot: entries.putDBEntryAsIndependentRoot.bind(entries),
         deleteDBEntry: entries.deleteDBEntry.bind(entries),
@@ -159,7 +161,7 @@ async function fixture(hard: boolean) {
     source.files.set(oldPath, makeFile(oldPath, original));
     expect(await source.handler.storeFileToDB(source.files.get(oldPath)!)).toBe(true);
     for (const entry of await replicate(source, receiver)) {
-        expect(await receiver.handler._anyProcessReplicatedDoc(entry)).toBe(true);
+        expect(await receiver.handler._anyProcessReplicatedDoc(entry)).toEqual({ status: "completed" });
     }
     expect(receiver.reflection.get(oldPath)?.revision).toBe((await receiver.db.get(oldPath))._rev);
     expect(await receiver.access.getConflictedRevs(oldPath)).toEqual([]);
@@ -185,7 +187,7 @@ describe.each([false, true])("replicated deletion with deleteMetadataOfDeletedFi
         const incoming = await deleteAndReplicate(source, receiver, hard);
         expect(await receiver.access.getConflictedRevs(oldPath)).toEqual([]);
 
-        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toBe(true);
+        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toEqual({ status: "completed" });
 
         expect(receiver.files.has(oldPath)).toBe(false);
         expect(receiver.reflection.has(oldPath)).toBe(false);
@@ -203,7 +205,7 @@ describe.each([false, true])("replicated deletion with deleteMetadataOfDeletedFi
         expect(incoming.some((entry) => entry.path === newPath)).toBe(true);
 
         for (const entry of incoming) {
-            expect(await receiver.handler._anyProcessReplicatedDoc(entry)).toBe(true);
+            expect(await receiver.handler._anyProcessReplicatedDoc(entry)).toEqual({ status: "completed" });
         }
 
         expect(receiver.files.has(oldPath)).toBe(false);
@@ -219,7 +221,7 @@ describe.each([false, true])("replicated deletion with deleteMetadataOfDeletedFi
         expect(await source.handler.storeFileToDB(restored)).toBe(true);
         await replicate(source, receiver);
 
-        expect(await receiver.handler._anyProcessReplicatedDoc(staleDeletion)).toBe(true);
+        expect(await receiver.handler._anyProcessReplicatedDoc(staleDeletion)).toEqual({ status: "completed" });
 
         expect(receiver.storageAccess.deleteVaultItem).not.toHaveBeenCalled();
         expect(await receiver.files.get(oldPath)?.body.text()).toBe("Restored after deletion\n");
@@ -232,7 +234,7 @@ describe.each([false, true])("replicated deletion with deleteMetadataOfDeletedFi
         receiver.files.set(oldPath, makeFile(oldPath, edited, initialTime + 10_000));
         const incoming = await deleteAndReplicate(source, receiver, hard);
 
-        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toBe(true);
+        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toEqual({ status: "policy" });
 
         expect(receiver.storageAccess.deleteVaultItem).not.toHaveBeenCalled();
         expect(await receiver.files.get(oldPath)?.body.text()).toBe(edited);
@@ -261,7 +263,7 @@ describe("deleted-winner lookup races", () => {
             return deletedSnapshot;
         });
 
-        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toBe(true);
+        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toEqual({ status: "completed" });
 
         expect(indexRead).toHaveBeenCalled();
         expect(receiver.storageAccess.deleteVaultItem).not.toHaveBeenCalled();
@@ -276,11 +278,11 @@ describe("deleted-winner revalidation", () => {
         const incoming = await deleteAndReplicate(source, receiver, true);
         const restored = makeFile(oldPath, "Restored during final deletion check\n", initialTime + 10_000);
         expect(await source.access.storeWithBaseRevision(restored, incoming._rev, true)).not.toBe(false);
-        const fetchEntryMeta = receiver.access.fetchEntryMeta.bind(receiver.access);
+        const fetchEntryMeta = receiver.access.readEntryMeta.bind(receiver.access);
         const allDocs = receiver.db.allDocs.bind(receiver.db);
         let latestMetadataReads = 0;
         let restoredDuringFinalCheck = false;
-        vi.spyOn(receiver.access, "fetchEntryMeta").mockImplementation(async (file, rev, skipCheck) => {
+        vi.spyOn(receiver.access, "readEntryMeta").mockImplementation(async (file, rev, skipCheck) => {
             if (rev === undefined && ++latestMetadataReads === 2) {
                 vi.spyOn(receiver.db, "allDocs").mockImplementationOnce(async (options) => {
                     const deletedSnapshot = await allDocs(options);
@@ -294,7 +296,7 @@ describe("deleted-winner revalidation", () => {
             return await fetchEntryMeta(file, rev, skipCheck);
         });
 
-        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toBe(true);
+        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toEqual({ status: "completed" });
 
         expect(restoredDuringFinalCheck).toBe(true);
         const current = await receiver.db.get(oldPath);
@@ -309,7 +311,7 @@ describe("deleted-winner revalidation", () => {
         receiver.reflection.clear();
         const incoming = await deleteAndReplicate(source, receiver, true);
 
-        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toBe(true);
+        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toEqual({ status: "policy" });
 
         expect(receiver.storageAccess.deleteVaultItem).not.toHaveBeenCalled();
         expect(await receiver.files.get(oldPath)?.body.text()).toBe(original);
@@ -326,7 +328,7 @@ describe("deleted-winner revalidation", () => {
         await receiver.db.compact();
         await expect(receiver.db.get(oldPath, { rev: baseRevision })).rejects.toMatchObject({ status: 404 });
 
-        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toBe(true);
+        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toEqual({ status: mode === "unchanged" ? "completed" : "policy" });
 
         if (mode === "unchanged") {
             expect(receiver.storageAccess.deleteVaultItem).toHaveBeenCalledWith(oldPath);

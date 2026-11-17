@@ -125,3 +125,21 @@ export class LiveSyncError extends Error implements ErrorWithCause {
 }
 
 export class LiveSyncFatalError extends LiveSyncError {}
+
+/** A request failed at a known remote boundary, retaining its native unknown cause. */
+export class RemoteRequestError extends Error {
+    override name = "RemoteRequestError";
+    constructor(message?: string, options?: { cause?: unknown }) {
+        super(message, options);
+    }
+}
+
+/** Terminal content failure, carrying only directly observed resource facts. */
+export class ContentReadError extends Error {
+    override readonly name = "ContentReadError";
+    constructor(readonly failure: import("@lib/interfaces/DatabaseFileAccess").ContentReadFailure) {
+        super(`Could not read content for ${failure.documentId}${failure.revision ? ` (${failure.revision})` : ""}`, {
+            cause: failure.cause,
+        });
+    }
+}
