@@ -498,6 +498,9 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
                 expectedContext ??= context;
                 return runDirectionalReplication(context, attemptSetting, direction, showingNotice);
             });
+            // The admitted operation has released its reservation. A rebuild
+            // download can now report the format failure to Fetch before the
+            // generic connection-recovery path reduces the outcome to a boolean.
             if (
                 direction === DIRECTIONAL_REPLICATION.DOWNLOAD &&
                 admission === DIRECTIONAL_REPLICATION_ADMISSION.EXPLICIT_REBUILD &&

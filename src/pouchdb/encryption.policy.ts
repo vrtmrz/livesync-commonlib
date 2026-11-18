@@ -140,6 +140,8 @@ export function assertUnencryptedContentPolicy(
     for (const contentKind of contentKinds) {
         if (contentKind !== "eden" && record.e_ === true) {
             if (forceV1DecryptsMarkedData || dataIsHandledByExistingDecryptor) continue;
+            // The encryption marker puts this data outside the plaintext
+            // policy. Acceptance requires a reader that can decode this shape.
             throw new UnsupportedEncryptedDocumentFormatError();
         }
         if (

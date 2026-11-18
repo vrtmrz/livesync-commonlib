@@ -169,8 +169,9 @@ async function* genReplication(
     void s.on("denied", (err) => push(["denied", err]));
     void s.on("error", (err) => push(["error", err]));
     void s.on("paused", (err) => push(["paused", err]));
-    // PouchDB Sync omits the error when it forwards a child Replication's paused event.
-    // Listen at the pull owner so a policy rejection cannot turn into a transport retry.
+    // With retries enabled, PouchDB emits requestError before pausing. The
+    // combined Sync forwards the pause without the child error. Listen on the
+    // pull itself to settle a receive-policy rejection before PouchDB retries.
     const requestSource = (s as { pull?: PouchDB.Replication.Replication<EntryDoc> }).pull ?? s;
     let policyFailureReported = false;
     const onRequestError = (error: unknown) => {
@@ -701,6 +702,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     case "error": {
                         const unsupportedFormat = UnsupportedEncryptedDocumentFormatError.findIn(e);
                         this.replicationErrored(unsupportedFormat ?? e, databaseOwner);
+                        // The host needs the format rejection to guide recovery.
+                        // The reader rejects this representation at any batch size.
                         if (unsupportedFormat) return unsupportedFormat;
                         if (isUnencryptedContentRejectedError(e)) return "FAILED";
                         this.log("Replication stopped.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
@@ -729,6 +732,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         this.log(`Unexpected synchronization status:${JSON.stringify(e)}`);
                 }
             }
+            // External cancellation can end the event stream before a terminal
+            // event arrives. The error handlers return their failure directly.
             if (reportCancelledAsDone) {
                 return "DONE";
             }

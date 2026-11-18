@@ -2522,6 +2522,7 @@ describe("E2EE receipt policy failures", () => {
 
     it("keeps an explicitly stopped one-shot cancelled when a request error arrives", async () => {
         const replicator = createOneShotReplicator({ close: vi.fn(async () => undefined) });
+        // Restore the real stop so the controller is aborted before the late request error.
         vi.mocked(replicator.terminateSync).mockImplementation(LiveSyncCouchDBReplicator.prototype.terminateSync);
         const unresolved = new Promise<void>(() => undefined);
         const handler = Object.assign(new EventEmitter(), {
