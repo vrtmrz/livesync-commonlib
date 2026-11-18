@@ -41,6 +41,7 @@ export {
     UnencryptedContentRejectedError,
 } from "./UnencryptedContentRejectedError.ts";
 export type { UnencryptedContentKind } from "./UnencryptedContentRejectedError.ts";
+export { UnsupportedEncryptedDocumentFormatError } from "./UnsupportedEncryptedDocumentFormatError.ts";
 export type {
     ActiveReplicatorContext,
     CapabilitySupport,

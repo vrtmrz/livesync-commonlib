@@ -1,8 +1,10 @@
+import { UnsupportedEncryptedDocumentFormatError } from "@lib/replication/UnsupportedEncryptedDocumentFormatError.ts";
 import { NFC_PATH_IDENTITY_FEATURE, REMOTE_FEATURE_GENERATION } from "@lib/pouchdb/remoteFeatureCompatibility.ts";
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
+import { createError } from "pouchdb-errors";
 import HttpAdapter from "pouchdb-adapter-http";
 import Checkpointer from "pouchdb-checkpointer";
 import generateReplicationId from "pouchdb-generate-replication-id";
@@ -2441,7 +2443,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
     });
 });
 
-describe("plaintext receipt policy failures", () => {
+describe("E2EE receipt policy failures", () => {
     it.each(["sync", "pullOnly"] as const)("stops %s after a plaintext rejection from requestError", async (mode) => {
         const replicator = createOneShotReplicator({ close: vi.fn(async () => undefined) });
         replicator.env.services.remote = { hadLastPostFailedBySize: false } as never;
@@ -2478,6 +2480,42 @@ describe("plaintext receipt policy failures", () => {
             setGlobalLogFunction(defaultLogger);
         }
     });
+
+    it.each(["requestError", "error"] as const)(
+        "retains an unsupported encrypted format in the finite download outcome after %s",
+        async (event) => {
+            const close = vi.fn(async () => undefined);
+            const replicator = createOneShotReplicator({ close });
+            const onLocalDatabaseError = vi.fn();
+            Object.assign(replicator.env.services.database, { localDatabaseDirect: {}, onLocalDatabaseError });
+            replicator.env.services.remote = { hadLastPostFailedBySize: true } as never;
+            const unresolved = new Promise<void>(() => undefined);
+            const handler = Object.assign(new EventEmitter(), {
+                cancel: vi.fn(),
+                then: unresolved.then.bind(unresolved),
+            });
+            const error = createError(new UnsupportedEncryptedDocumentFormatError());
+            expect(error).not.toBeInstanceOf(UnsupportedEncryptedDocumentFormatError);
+            const localDatabase = replicator.rawDatabase as {
+                replicate: { from: ReturnType<typeof vi.fn> };
+            };
+            localDatabase.replicate.from.mockImplementation(() => {
+                queueMicrotask(() => {
+                    handler.emit(event, error);
+                    handler.emit("complete", { ok: true });
+                });
+                return handler;
+            });
+
+            const outcome = await replicator.replicateAllFromServerWithOutcome({ useRequestAPI: true } as RemoteDBSettings);
+            expect(outcome).toEqual({ status: "failed", error: expect.any(UnsupportedEncryptedDocumentFormatError) });
+            expect(localDatabase.replicate.from).toHaveBeenCalledOnce();
+            expect(handler.cancel).toHaveBeenCalledOnce();
+            expect(handler.listenerCount("requestError")).toBe(0);
+            expect(close).toHaveBeenCalledOnce();
+            expect(onLocalDatabaseError).not.toHaveBeenCalled();
+        }
+    );
 
     it("preserves normal transport retry events until replication completes", async () => {
         const replicator = createOneShotReplicator({ close: vi.fn(async () => undefined) });
