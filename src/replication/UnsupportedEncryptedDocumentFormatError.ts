@@ -4,8 +4,8 @@ const UNSUPPORTED_FORMAT_ERROR_NAME = "UnsupportedEncryptedDocumentFormatError";
 export class UnsupportedEncryptedDocumentFormatError extends Error {
     override readonly name = UNSUPPORTED_FORMAT_ERROR_NAME;
 
-    constructor() {
-        super("Encrypted file content uses a representation which this E2EE reader cannot decrypt.");
+    constructor(options?: { cause?: unknown }) {
+        super("Encrypted file content uses a representation which this E2EE reader cannot decrypt.", options);
     }
 
     static findIn(error: unknown): UnsupportedEncryptedDocumentFormatError | undefined {
@@ -15,7 +15,7 @@ export class UnsupportedEncryptedDocumentFormatError extends Error {
             if (current instanceof UnsupportedEncryptedDocumentFormatError) return current;
             // PouchDB recreates replication errors with their own properties.
             if (current instanceof Error && current.name === UNSUPPORTED_FORMAT_ERROR_NAME) {
-                return new UnsupportedEncryptedDocumentFormatError();
+                return new UnsupportedEncryptedDocumentFormatError({ cause: current });
             }
             seen.add(current);
             current = "cause" in current ? current.cause : undefined;
