@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Hosts can identify an unsupported E2EE format when a CouchDB Fetch stops
+  and present recovery instructions. ([Self-hosted LiveSync #1365](https://github.com/vrtmrz/obsidian-livesync/issues/1365))
+
 ## 0.6.0
 
 17th November, 2026

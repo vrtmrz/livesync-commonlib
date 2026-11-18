@@ -1,8 +1,10 @@
+import { UnsupportedEncryptedDocumentFormatError } from "@lib/replication/UnsupportedEncryptedDocumentFormatError.ts";
 import { NFC_PATH_IDENTITY_FEATURE, REMOTE_FEATURE_GENERATION } from "@lib/pouchdb/remoteFeatureCompatibility.ts";
 import { EventEmitter } from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
+import { createError } from "pouchdb-errors";
 import HttpAdapter from "pouchdb-adapter-http";
 import Checkpointer from "pouchdb-checkpointer";
 import generateReplicationId from "pouchdb-generate-replication-id";
@@ -2441,7 +2443,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
     });
 });
 
-describe("plaintext receipt policy failures", () => {
+describe("E2EE receipt policy failures", () => {
     it.each(["sync", "pullOnly"] as const)("stops %s after a plaintext rejection from requestError", async (mode) => {
         const replicator = createOneShotReplicator({ close: vi.fn(async () => undefined) });
         replicator.env.services.remote = { hadLastPostFailedBySize: false } as never;
@@ -2477,6 +2479,65 @@ describe("plaintext receipt policy failures", () => {
             replicator.controller?.abort();
             setGlobalLogFunction(defaultLogger);
         }
+    });
+
+    it.each(["requestError", "error"] as const)(
+        "retains an unsupported encrypted format in the finite download outcome after %s",
+        async (event) => {
+            const close = vi.fn(async () => undefined);
+            const replicator = createOneShotReplicator({ close });
+            const onLocalDatabaseError = vi.fn();
+            Object.assign(replicator.env.services.database, { localDatabaseDirect: {}, onLocalDatabaseError });
+            replicator.env.services.remote = { hadLastPostFailedBySize: true } as never;
+            const unresolved = new Promise<void>(() => undefined);
+            const handler = Object.assign(new EventEmitter(), {
+                cancel: vi.fn(),
+                then: unresolved.then.bind(unresolved),
+            });
+            const error = createError(new UnsupportedEncryptedDocumentFormatError());
+            expect(error).not.toBeInstanceOf(UnsupportedEncryptedDocumentFormatError);
+            const localDatabase = replicator.rawDatabase as {
+                replicate: { from: ReturnType<typeof vi.fn> };
+            };
+            localDatabase.replicate.from.mockImplementation(() => {
+                queueMicrotask(() => {
+                    handler.emit(event, error);
+                    handler.emit("complete", { ok: true });
+                });
+                return handler;
+            });
+
+            const outcome = await replicator.replicateAllFromServerWithOutcome({ useRequestAPI: true } as RemoteDBSettings);
+            assert(outcome.status === "failed", "The finite download should fail");
+            assert(outcome.error instanceof UnsupportedEncryptedDocumentFormatError, "The failure should retain its type");
+            expect(outcome.error.cause).toBe(error);
+            expect(replicator.syncStatus).toBe("ERRORED");
+            expect(localDatabase.replicate.from).toHaveBeenCalledOnce();
+            expect(handler.cancel).toHaveBeenCalledOnce();
+            expect(handler.listenerCount("requestError")).toBe(0);
+            expect(close).toHaveBeenCalledOnce();
+            expect(onLocalDatabaseError).not.toHaveBeenCalled();
+        }
+    );
+
+    it("keeps an explicitly stopped one-shot cancelled when a request error arrives", async () => {
+        const replicator = createOneShotReplicator({ close: vi.fn(async () => undefined) });
+        // Restore the real stop so the controller is aborted before the late request error.
+        vi.mocked(replicator.terminateSync).mockImplementation(LiveSyncCouchDBReplicator.prototype.terminateSync);
+        const unresolved = new Promise<void>(() => undefined);
+        const handler = Object.assign(new EventEmitter(), {
+            cancel: vi.fn(),
+            then: unresolved.then.bind(unresolved),
+        });
+
+        const result = replicator.processSync(handler as never, false, 0, 0, "pullOnly", false, false);
+        const stopping = replicator.closeReplication();
+        handler.emit("requestError", createError(new UnsupportedEncryptedDocumentFormatError()));
+        await stopping;
+
+        await expect(result).resolves.toBe("CANCELLED");
+        expect(replicator.syncStatus).toBe("CLOSED");
+        expect(handler.cancel).toHaveBeenCalledOnce();
     });
 
     it("preserves normal transport retry events until replication completes", async () => {

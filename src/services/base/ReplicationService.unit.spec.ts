@@ -1,3 +1,4 @@
+import { UnsupportedEncryptedDocumentFormatError } from "@lib/replication/UnsupportedEncryptedDocumentFormatError.ts";
 import { describe, expect, it, vi } from "vitest";
 import { ReplicationService, type ReplicationServiceDependencies } from "./ReplicationService.ts";
 import { ServiceContext } from "./ServiceBase.ts";
@@ -991,6 +992,21 @@ describe("ReplicationService rebuild maintenance", () => {
         await expect(service.replicateAllFromRemoteForRebuild()).resolves.toBe(false);
 
         expect(replicateAllFromServer).toHaveBeenCalledOnce();
+    });
+
+    it.each([false, true])("passes the unsupported format to Standard Fetch (after retry: %s)", async (retry) => {
+        const { replicateAllFromServer, service } = createMaintenanceService();
+        const failure = new UnsupportedEncryptedDocumentFormatError();
+        const recoverConnection = vi.fn(async () => "CHECKAGAIN" as const);
+        service.checkConnectionFailure.addHandler(recoverConnection);
+        if (retry) {
+            replicateAllFromServer.mockResolvedValueOnce(false);
+        }
+        replicateAllFromServer.mockRejectedValueOnce(failure);
+
+        await expect(service.replicateAllFromRemoteForRebuild()).rejects.toBe(failure);
+        expect(recoverConnection).toHaveBeenCalledTimes(retry ? 1 : 0);
+        expect(replicateAllFromServer).toHaveBeenCalledTimes(retry ? 2 : 1);
     });
 
     it("admits a P2P-style rebuild download without requiring an upload operation", async () => {

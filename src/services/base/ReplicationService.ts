@@ -1,3 +1,4 @@
+import { UnsupportedEncryptedDocumentFormatError } from "@lib/replication/UnsupportedEncryptedDocumentFormatError.ts";
 import {
     LOG_LEVEL_INFO,
     LOG_LEVEL_NOTICE,
@@ -497,6 +498,17 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
                 expectedContext ??= context;
                 return runDirectionalReplication(context, attemptSetting, direction, showingNotice);
             });
+            // The admitted operation has released its reservation. A rebuild
+            // download can now report the format failure to Fetch before the
+            // generic connection-recovery path reduces the outcome to a boolean.
+            if (
+                direction === DIRECTIONAL_REPLICATION.DOWNLOAD &&
+                admission === DIRECTIONAL_REPLICATION_ADMISSION.EXPLICIT_REBUILD &&
+                admitted?.status === "failed" &&
+                admitted.error instanceof UnsupportedEncryptedDocumentFormatError
+            ) {
+                throw admitted.error;
+            }
             if (admitted) return admitted;
             this._log(`Active replicator not found during directional ${direction}`, LOG_LEVEL_NOTICE);
             return replicationBlocked("no-active-replicator");
@@ -545,6 +557,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      *
      * This concrete maintenance entry point is intentionally absent from `IReplicationService`;
      * it is not a general application-readiness bypass.
+     * @throws {UnsupportedEncryptedDocumentFormatError} When the remote format prevents the download.
      */
     async replicateAllFromRemoteForRebuild(showingNotice: boolean = false): Promise<boolean> {
         if (!this.databaseService.isDatabaseReady()) {

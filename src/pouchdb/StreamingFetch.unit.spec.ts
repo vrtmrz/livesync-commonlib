@@ -8,7 +8,8 @@ import {
     type FilePathWithPrefix,
     type PlainEntry,
 } from "@lib/common/types";
-import { getConfiguredFunctionsForEncryption } from "./encryption";
+import { UnsupportedEncryptedDocumentFormatError } from "@lib/replication/UnsupportedEncryptedDocumentFormatError.ts";
+import { encryptHKDF, getConfiguredFunctionsForEncryption } from "./encryption";
 import { checkRemoteFeaturesForInitialSync, fetchChangesForInitialSync } from "./StreamingFetch";
 
 PouchDB.plugin(MemoryAdapter);
@@ -281,6 +282,57 @@ describe("fetchChangesForInitialSync", () => {
         });
         expect(checkpointSequences).toEqual([]);
     });
+
+    it.each([false, true])(
+        "keeps Fetch incomplete for the Issue #1365 shape (accept plaintext: %s)",
+        async (acceptUnencryptedContent) => {
+            const localDB = createLocalDatabase(`streaming-fetch-unrecognised-shape-${acceptUnencryptedContent}`);
+            const salt = new Uint8Array(16).fill(7);
+            const passphrase = "issue-1365-fast-fetch-secret";
+            const content = "# Synthetic inline note\nEncrypted content: café.\n";
+            // Match the reported shape without attributing it to a particular writer.
+            const document = {
+                _id: "h:0123456789abcdef0123456789abcdef" as DocumentID,
+                type: "plain",
+                e_: true,
+                path: await encryptHKDF("notes/synthetic-inline.md", passphrase, salt),
+                data: await encryptHKDF(content, passphrase, salt),
+                ctime: 1_700_000_000_000,
+                mtime: 1_700_000_000_000,
+                size: new TextEncoder().encode(content).byteLength,
+                eden: {},
+            };
+            const { outgoing } = getConfiguredFunctionsForEncryption(
+                passphrase,
+                false,
+                false,
+                async () => salt,
+                E2EEAlgorithms.V2,
+                false,
+                undefined,
+                acceptUnencryptedContent
+            );
+            queueChangesFeed(1, 1, [
+                JSON.stringify({
+                    seq: 1,
+                    id: document._id,
+                    changes: [{ rev: "1-synthetic" }],
+                    doc: { ...document, _rev: "1-synthetic", _revisions: { start: 1, ids: ["synthetic"] } },
+                }),
+            ]);
+            const checkpoints: Array<string | number> = [];
+
+            await expect(
+                fetchInitial(localDB, outgoing, (sequence) => checkpoints.push(sequence))
+            ).rejects.toMatchObject({
+                stage: "decryption",
+                retryable: false,
+                cause: expect.any(UnsupportedEncryptedDocumentFormatError),
+            });
+            expect(checkpoints).toEqual([]);
+            expect((await localDB.info()).doc_count).toBe(0);
+        }
+    );
 
     it("aborts the continuous request when document processing fails terminally", async () => {
         const localDB = createLocalDatabase("streaming-fetch-terminal-abort");

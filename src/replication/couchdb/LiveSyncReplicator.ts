@@ -4,6 +4,7 @@ import {
     getUnencryptedContentRejection,
     isUnencryptedContentRejectedError,
 } from "@lib/replication/UnencryptedContentRejectedError.ts";
+import { UnsupportedEncryptedDocumentFormatError } from "@lib/replication/UnsupportedEncryptedDocumentFormatError.ts";
 import type PouchDB from "pouchdb-core";
 import type { CouchDBReplicationProgress, ReplicationStatics } from "@lib/common/models/shared.definition.ts";
 import { observeReplicationProgress } from "./replicationProgress.ts";
@@ -111,7 +112,17 @@ const selectorOnDemandPull = { selector: { type: { $ne: "leaf" } } };
 const DEFAULT_ONE_SHOT_CONNECTIVITY_TIMEOUT_MS = 60_000;
 const ONE_SHOT_REPLICATION_ALREADY_RUNNING = Symbol("one-shot-replication-already-running");
 
-type OneShotReplicationExecution = boolean | typeof ONE_SHOT_REPLICATION_ALREADY_RUNNING;
+type SyncProcessingResult =
+    | "DONE"
+    | "NEED_RETRY"
+    | "NEED_RESURRECT"
+    | "FAILED"
+    | "CANCELLED"
+    | UnsupportedEncryptedDocumentFormatError;
+type OneShotReplicationExecution =
+    | boolean
+    | UnsupportedEncryptedDocumentFormatError
+    | typeof ONE_SHOT_REPLICATION_ALREADY_RUNNING;
 type OneShotReplicationContinuation = () => Promise<OneShotReplicationExecution>;
 
 class OneShotConnectivityPreflightTimeoutError extends Error {
@@ -158,12 +169,14 @@ async function* genReplication(
     void s.on("denied", (err) => push(["denied", err]));
     void s.on("error", (err) => push(["error", err]));
     void s.on("paused", (err) => push(["paused", err]));
-    // PouchDB Sync omits the error when it forwards a child Replication's paused event.
-    // Listen at the pull owner so a policy rejection cannot turn into a transport retry.
+    // With retries enabled, PouchDB emits requestError before pausing. The
+    // combined Sync forwards the pause without the child error. Listen on the
+    // pull itself to settle a receive-policy rejection before PouchDB retries.
     const requestSource = (s as { pull?: PouchDB.Replication.Replication<EntryDoc> }).pull ?? s;
     let policyFailureReported = false;
     const onRequestError = (error: unknown) => {
-        if (policyFailureReported || !isUnencryptedContentRejectedError(error)) return;
+        if (policyFailureReported) return;
+        if (!isUnencryptedContentRejectedError(error) && !UnsupportedEncryptedDocumentFormatError.findIn(error)) return;
         policyFailureReported = true;
         push(["error", error]);
     };
@@ -468,6 +481,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 // only one OneShot at a time; this protects overlap with other work.
                 return replicationBlocked("replication-in-progress");
             }
+            if (result instanceof UnsupportedEncryptedDocumentFormatError) {
+                return replicationFailed(result);
+            }
             return outcomeFromFiniteOpenReplication(result, centralCompatibilityRecoveryHint(decision));
         } catch (error) {
             return replicationFailed(error, centralCompatibilityRecoveryHint(decision));
@@ -587,7 +603,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             }
             return;
         }
-        this.requestCurrentDatabaseInspection(e, database);
+        if (!(e instanceof UnsupportedEncryptedDocumentFormatError)) {
+            this.requestCurrentDatabaseInspection(e, database);
+        }
         this.log("Replication error", LOG_LEVEL_NOTICE, "sync");
         this.log(e, LOG_LEVEL_VERBOSE);
     }
@@ -605,7 +623,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         syncMode: "sync" | "pullOnly" | "pushOnly",
         retrying: boolean,
         reportCancelledAsDone = true
-    ): Promise<"DONE" | "NEED_RETRY" | "NEED_RESURRECT" | "FAILED" | "CANCELLED"> {
+    ): Promise<SyncProcessingResult> {
         const databaseOwner = this.env.services.database?.localDatabaseDirect;
         const controller = new AbortController();
         if (this.controller) {
@@ -681,8 +699,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     case "denied":
                         this.replicationDenied(e);
                         return "FAILED";
-                    case "error":
-                        this.replicationErrored(e, databaseOwner);
+                    case "error": {
+                        const unsupportedFormat = UnsupportedEncryptedDocumentFormatError.findIn(e);
+                        this.replicationErrored(unsupportedFormat ?? e, databaseOwner);
+                        // The host needs the format rejection to guide recovery.
+                        // The reader rejects this representation at any batch size.
+                        if (unsupportedFormat) return unsupportedFormat;
                         if (isUnencryptedContentRejectedError(e)) return "FAILED";
                         this.log("Replication stopped.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
                         if (this.env.services.remote.hadLastPostFailedBySize) {
@@ -700,6 +722,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                             this.log(e, LOG_LEVEL_VERBOSE);
                         }
                         return "FAILED";
+                    }
                     case "paused":
                         this.replicationPaused();
                         break;
@@ -709,14 +732,17 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         this.log(`Unexpected synchronization status:${JSON.stringify(e)}`);
                 }
             }
+            // External cancellation can end the event stream before a terminal
+            // event arrives. The error handlers return their failure directly.
             if (reportCancelledAsDone) {
                 return "DONE";
             }
             return "CANCELLED";
         } catch (ex) {
-            if (isUnencryptedContentRejectedError(ex)) {
-                this.replicationErrored(ex, databaseOwner);
-                return "FAILED";
+            const unsupportedFormat = UnsupportedEncryptedDocumentFormatError.findIn(ex);
+            if (unsupportedFormat || isUnencryptedContentRejectedError(ex)) {
+                this.replicationErrored(unsupportedFormat ?? ex, databaseOwner);
+                return unsupportedFormat ?? "FAILED";
             }
             this.requestCurrentDatabaseInspection(ex, databaseOwner);
             this.log(`Unexpected synchronization exception`);
@@ -997,8 +1023,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             recordCompatibilityDecision,
             cancellationRequested
         );
-        // The legacy contract has no neutral blocked arm.
-        return result === ONE_SHOT_REPLICATION_ALREADY_RUNNING ? false : result;
+        return result === true;
     }
 
     /**
@@ -1026,7 +1051,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
         let ownsSharedAttempt = false;
-        let next: boolean | OneShotReplicationContinuation;
+        let next: boolean | UnsupportedEncryptedDocumentFormatError | OneShotReplicationContinuation;
         try {
             next = await shareRunningResult("oneShotReplication", async () => {
                 ownsSharedAttempt = true;
@@ -1122,10 +1147,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         }
                         return true;
                     }
-                    if (syncResult == "CANCELLED") {
-                        return false;
+                    if (syncResult instanceof UnsupportedEncryptedDocumentFormatError) {
+                        return syncResult;
                     }
-                    if (syncResult == "FAILED") {
+                    if (syncResult == "CANCELLED" || syncResult == "FAILED") {
                         return false;
                     }
                     if (syncResult == "NEED_RESURRECT") {
@@ -1185,10 +1210,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         if (!ownsSharedAttempt) {
             return ONE_SHOT_REPLICATION_ALREADY_RUNNING;
         }
-        if (typeof next === "boolean") {
-            return next;
-        }
-        return await next();
+        return typeof next === "function" ? await next() : next;
     }
 
     private async checkOneShotReplicationConnectivity(

@@ -14,6 +14,7 @@ import {
     IDPrefixes,
 } from "@lib/common/types";
 import { isEncryptedChunkEntry, isSyncInfoEntry, isObfuscatedEntry } from "@lib/common/utils";
+import { UnsupportedEncryptedDocumentFormatError } from "@lib/replication/UnsupportedEncryptedDocumentFormatError.ts";
 import {
     UnencryptedContentRejectedError,
     type UnencryptedContentKind,
@@ -139,7 +140,9 @@ export function assertUnencryptedContentPolicy(
     for (const contentKind of contentKinds) {
         if (contentKind !== "eden" && record.e_ === true) {
             if (forceV1DecryptsMarkedData || dataIsHandledByExistingDecryptor) continue;
-            throw new Error("Encrypted file content uses a representation which this E2EE reader cannot decrypt.");
+            // The encryption marker puts this data outside the plaintext
+            // policy. Acceptance requires a reader that can decode this shape.
+            throw new UnsupportedEncryptedDocumentFormatError();
         }
         if (
             contentKind === "chunk" &&
