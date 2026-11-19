@@ -221,8 +221,9 @@ describe("RemoteService opening transport failure", () => {
     it("allows a subclass connect override to delegate to the default without opening twice", async () => {
         const called = vi.fn();
         class DelegatingRemoteService extends TestRemoteService {
-            override connect(...args: Parameters<RemoteService["connect"]>) {
+            override async connect(...args: Parameters<RemoteService["connect"]>) {
                 called();
+                await Promise.resolve();
                 return super.connect(...args);
             }
         }
@@ -243,6 +244,7 @@ describe("RemoteService opening transport failure", () => {
     it.each([false, true])("preserves a delegated transport failure unless the host replaces it (%s)", async (veto) => {
         class DelegatingRemoteService extends TestRemoteService {
             override async connect(...args: Parameters<RemoteService["connect"]>) {
+                await Promise.resolve();
                 const opened = await super.connect(...args);
                 return veto ? "Host rejected the connection" : opened;
             }

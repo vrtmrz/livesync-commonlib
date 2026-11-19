@@ -469,10 +469,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     async startContinuousReplication(setting: RemoteDBSettings, onStartSettled: SettleContinuousStart) {
         if (this.openReplication !== LiveSyncCouchDBReplicator.prototype.openReplication) {
-            const { result, delegated } = continuousSuperCall.invoke(this, () =>
+            const { result: opened, delegated } = await continuousSuperCall.invoke(this, () =>
                 this.openReplication(setting, true, false, false)
             );
-            const opened = await result;
             if (opened !== false) {
                 if (delegated.value) {
                     this.observeContinuousStart(delegated.value, onStartSettled);

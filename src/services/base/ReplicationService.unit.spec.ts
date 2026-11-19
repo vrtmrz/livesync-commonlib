@@ -509,6 +509,7 @@ describe("ReplicationService typed provider roles", () => {
         dependencies.APIService.isOnline = false;
         const service = new (class extends TestReplicationService {
             override async isReplicationReady(showMessage?: boolean): Promise<boolean> {
+                await Promise.resolve();
                 return await super.isReplicationReady(showMessage);
             }
         })(new ServiceContext(), dependencies);

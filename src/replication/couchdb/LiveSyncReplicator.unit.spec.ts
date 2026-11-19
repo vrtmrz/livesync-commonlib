@@ -1104,6 +1104,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         async (status) => {
             class DelegatingReplicator extends LiveSyncCouchDBReplicator {
                 override async openReplication(...args: Parameters<LiveSyncCouchDBReplicator["openReplication"]>) {
+                    await Promise.resolve();
                     return await super.openReplication(...args);
                 }
             }

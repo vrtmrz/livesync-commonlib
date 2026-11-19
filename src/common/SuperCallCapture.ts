@@ -1,31 +1,38 @@
 /**
- * Correlate a legacy override with a base method it calls before yielding.
+ * Correlate a legacy override with a base method it calls before settling.
  * The base method can record its result after an asynchronous operation.
  */
 export class SuperCallCapture<T> {
-    private readonly recorders = new WeakMap<object, (value: T) => void>();
+    private readonly recorders = new WeakMap<object, ((value: T) => void)[]>();
 
-    invoke<R>(owner: object, override: () => R): { result: R; delegated: { value?: T } } {
-        const previous = this.recorders.get(owner);
+    async invoke<R>(owner: object, override: () => Promise<R>): Promise<{ result: R; delegated: { value?: T } }> {
+        const recorders = this.recorders.get(owner) ?? [];
         const delegated: { value?: T } = {};
-        this.recorders.set(owner, (value) => {
+        const record = (value: T) => {
             delegated.value = value;
-        });
+        };
+        recorders.push(record);
+        this.recorders.set(owner, recorders);
         try {
-            const result = override();
+            const result = await override();
             return { result, delegated };
         } finally {
-            if (previous) {
-                this.recorders.set(owner, previous);
-            } else {
-                this.recorders.delete(owner);
+            const index = recorders.indexOf(record);
+            if (index !== -1) {
+                recorders.splice(index, 1);
+                if (recorders.length === 0) {
+                    this.recorders.delete(owner);
+                }
             }
         }
     }
 
     takeRecorder(owner: object): ((value: T) => void) | undefined {
-        const record = this.recorders.get(owner);
-        this.recorders.delete(owner);
+        const recorders = this.recorders.get(owner);
+        const record = recorders?.pop();
+        if (recorders?.length === 0) {
+            this.recorders.delete(owner);
+        }
         return record;
     }
 }
