@@ -57,7 +57,9 @@ import { asCopy } from "@lib/common/utils.object.ts";
  */
 const REPLICATION_ON_EVENT_FORECASTED_TIME = 5000;
 
-const readinessSuperCall = new SuperCallCapture<Awaited<ReturnType<ReplicationReadinessEvaluator>>>();
+const readinessSuperCall = new SuperCallCapture<Awaited<ReturnType<ReplicationReadinessEvaluator>>>(
+    "isReplicationReady"
+);
 
 const DIRECTIONAL_REPLICATION = Object.freeze({
     UPLOAD: "upload",
@@ -218,11 +220,6 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     databaseService: IDatabaseService;
     constructor(context: T, dependencies: ReplicationServiceDependencies) {
         super(context);
-        readinessSuperCall.instrumentReceiver(
-            this,
-            "isReplicationReady",
-            ReplicationService.prototype.isReplicationReady
-        );
         this.appLifecycleService = dependencies.appLifecycleService;
         this.settingService = dependencies.settingService;
         this.replicatorService = dependencies.replicatorService;

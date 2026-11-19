@@ -1,8 +1,15 @@
-import { promiseWithResolvers } from "octagonal-wheels/promises";
-
-type AsyncMethod = (...args: never[]) => Promise<unknown>;
 type Recorder<T> = (value: T) => void;
-type RecorderFrame<T> = { recorder: Recorder<T> | null; executing: boolean };
+type RecorderFrame<T> = { owner: object; name?: string; recorder?: Recorder<T> };
+
+let nextCaptureId = 0;
+
+function methodOwner(owner: object, method: PropertyKey): object | null {
+    let current: object | null = owner;
+    while (current && !Object.hasOwn(current, method)) {
+        current = Reflect.getPrototypeOf(current);
+    }
+    return current;
+}
 
 interface AsyncContext<T> {
     run<R>(store: T, callback: () => R): R;
@@ -33,54 +40,44 @@ function createAsyncContext<T>(): AsyncContext<T> | undefined {
  * Use one capture per legacy method.
  */
 export class SuperCallCapture<T> {
-    private readonly context = createAsyncContext<WeakMap<object, Recorder<T>>>();
+    private readonly context = createAsyncContext<RecorderFrame<T>>();
     private readonly originals = new WeakMap<object, object>();
-    private readonly frames = new WeakMap<object, RecorderFrame<T>[]>();
-    private readonly pending = new WeakMap<object, Promise<void>>();
+    private readonly prefix = `__liveSyncSuperCall_${++nextCaptureId}_`;
+    private readonly stackFrame = new RegExp(`^ *at (?:async )?(?:Object\\.)?(${this.prefix}\\d+__) \\(`, "m");
+    private readonly frames = new Map<string, RecorderFrame<T>>();
+    private nextFrameId = 0;
+    private synchronousFrame?: RecorderFrame<T>;
 
-    instrumentReceiver<Key extends PropertyKey>(
-        owner: Record<Key, AsyncMethod>,
-        method: Key,
-        baseMethod: AsyncMethod
-    ): void {
-        if (this.context) {
-            return;
-        }
-        const original = owner[method];
-        if (original === baseMethod || this.originals.has(original)) {
-            return;
-        }
+    constructor(private readonly method: PropertyKey) {}
 
-        let definingObject: object | null = owner;
-        while (definingObject && !Object.hasOwn(definingObject, method)) {
-            definingObject = Reflect.getPrototypeOf(definingObject);
-        }
+    private instrumentReceiver<Args extends unknown[], R>(
+        owner: object,
+        original: (...args: Args) => Promise<R>
+    ): boolean {
+        const method = this.method;
+        const definingObject = methodOwner(owner, method);
         const descriptor = definingObject && Object.getOwnPropertyDescriptor(definingObject, method);
         if (!descriptor || descriptor.value !== original) {
-            return;
+            return false;
         }
 
         const capture = this;
-        function wrapped(this: typeof owner, ...args: unknown[]): Promise<unknown> {
+        function wrapped(this: object, ...args: Args): Promise<R> {
             const call = () => Reflect.apply(original, this, args);
-            // An instrumented ancestor reached through super shares the current invocation.
-            if (this[method] !== wrapped) {
-                return call();
+            // An ancestor reached via super belongs to the current invocation.
+            if (Reflect.get(this, method) !== wrapped) {
+                const frame = capture.currentFrame();
+                return frame?.owner === this && frame.name ? capture.runFrame(frame.name, frame, call) : call();
             }
-            // Only calls on the synchronous stack can be identified as re-entrant.
-            if (capture.frames.get(this)?.some((frame) => frame.executing)) {
-                return capture.runFrame(this, null, call);
+            return capture.runFrame(`${capture.prefix}0__`, { owner: this }, call);
+        }
+        if (!Reflect.defineProperty(definingObject, method, { ...descriptor, value: wrapped })) {
+            if (definingObject === owner || !Reflect.defineProperty(owner, method, { ...descriptor, value: wrapped })) {
+                return false;
             }
-            return capture.enqueue(this, null, call);
         }
-        if (Reflect.defineProperty(definingObject, method, { ...descriptor, value: wrapped })) {
-            this.originals.set(wrapped, original);
-        } else if (
-            definingObject !== owner &&
-            Reflect.defineProperty(owner, method, { configurable: true, writable: true, value: wrapped })
-        ) {
-            this.originals.set(wrapped, original);
-        }
+        this.originals.set(wrapped, original);
+        return true;
     }
 
     async invoke<Args extends unknown[], R>(
@@ -89,77 +86,87 @@ export class SuperCallCapture<T> {
         ...args: NoInfer<Args>
     ): Promise<{ result: R; delegated: { value?: T } }> {
         const delegated: { value?: T } = {};
-        const recorder: Recorder<T> = (value) => {
-            delegated.value = value;
+        const frame: RecorderFrame<T> = {
+            owner,
+            recorder: (value) => {
+                delegated.value = value;
+            },
         };
         if (this.context) {
-            const recorders = new WeakMap([[owner, recorder]]);
-            const result = await this.context.run(recorders, async () => {
+            const result = await this.context.run(frame, async () => {
                 try {
                     return await Reflect.apply(override, owner, args);
                 } finally {
-                    recorders.delete(owner);
+                    frame.recorder = undefined;
                 }
             });
             return { result, delegated };
         }
 
-        // The typed entry already owns the queue turn. Apply the original method with its receiver and home object.
-        const original = (this.originals.get(override) as typeof override | undefined) ?? override;
-        const result = await this.enqueue(owner, recorder, () => Reflect.apply(original, owner, args));
-        return { result, delegated };
-    }
-
-    private async enqueue<R>(owner: object, recorder: Recorder<T> | null, call: () => Promise<R>): Promise<R> {
-        const previous = this.pending.get(owner);
-        const turn = promiseWithResolvers<void>();
-        this.pending.set(owner, turn.promise);
+        const original = this.originals.get(override) as typeof override | undefined;
+        const call = () => Reflect.apply(original ?? override, owner, args);
+        const name = `${this.prefix}${++this.nextFrameId}__`;
+        frame.name = name;
+        // Install the direct-call boundary after subclass fields have been initialised.
+        if (original || this.instrumentReceiver(owner, override)) {
+            this.frames.set(name, frame);
+        }
         try {
-            if (previous) {
-                await previous;
-            }
-            return await this.runFrame(owner, recorder, call);
+            const result = await this.runFrame(name, frame, call);
+            return { result, delegated };
         } finally {
-            if (this.pending.get(owner) === turn.promise) {
-                this.pending.delete(owner);
-            }
-            turn.resolve();
+            this.frames.delete(name);
         }
     }
 
-    private async runFrame<R>(owner: object, recorder: Recorder<T> | null, call: () => Promise<R>): Promise<R> {
-        const frames = this.frames.get(owner) ?? [];
-        const frame = { recorder, executing: true };
-        frames.push(frame);
-        this.frames.set(owner, frames);
+    private runFrame<R>(name: string, frame: RecorderFrame<T>, call: () => Promise<R>): Promise<R> {
+        const capture = this;
+        // V8 includes named async awaiters in Error.stack. A direct call uses an
+        // unregistered name so it shields a re-entrant call from its typed caller.
+        return {
+            async [name]() {
+                return await capture.callSynchronously(frame, call);
+            },
+        }[name]();
+    }
+
+    private callSynchronously<R>(frame: RecorderFrame<T>, call: () => Promise<R>): Promise<R> {
+        const previous = this.synchronousFrame;
+        this.synchronousFrame = frame;
         try {
-            let result: Promise<R>;
-            try {
-                result = call();
-            } finally {
-                frame.executing = false;
-            }
-            return await result;
+            return call();
         } finally {
-            frames.splice(frames.indexOf(frame), 1);
-            if (frames.length === 0) {
-                this.frames.delete(owner);
-            }
+            this.synchronousFrame = previous;
+        }
+    }
+
+    private currentFrame(): RecorderFrame<T> | undefined {
+        if (this.context) {
+            return this.context.getStore();
+        }
+        if (this.synchronousFrame) {
+            return this.synchronousFrame;
+        }
+        if (this.frames.size === 0) {
+            return;
+        }
+        // Error.stack can be unavailable, truncated, or host-formatted.
+        try {
+            const stack = new Error().stack;
+            const name = typeof stack === "string" ? this.stackFrame.exec(stack)?.[1] : undefined;
+            return name ? this.frames.get(name) : undefined;
+        } catch {
+            // A host stack formatter can throw. Keep the legacy result.
         }
     }
 
     takeRecorder(receiver: object): Recorder<T> | undefined {
-        if (this.context) {
-            const recorders = this.context.getStore();
-            const recorder = recorders?.get(receiver);
-            recorders?.delete(receiver);
-            return recorder;
+        const frame = this.currentFrame();
+        if (frame?.owner !== receiver) {
+            return;
         }
-        const frame = this.frames.get(receiver)?.at(-1);
-        const recorder = frame?.recorder;
-        if (frame) {
-            frame.recorder = null;
-        }
-        return recorder ?? undefined;
+        const recorder = frame.recorder;
+        frame.recorder = undefined;
+        return recorder;
     }
 }

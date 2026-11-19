@@ -293,9 +293,9 @@ describe("RemoteService opening transport failure", () => {
             const requests = gates.map((_, index) =>
                 fallback && index === directIndex ? service.connect(...args) : service.openCouchDBConnection(...args)
             );
-            expect(entered).toBe(fallback ? 1 : 2);
+            expect(entered).toBe(2);
 
-            for (const index of reverse && !fallback ? [1, 0] : [0, 1]) {
+            for (const index of reverse ? [1, 0] : [0, 1]) {
                 APIService.isOnline = index === 0;
                 gates[index].resolve();
                 const result = await requests[index];

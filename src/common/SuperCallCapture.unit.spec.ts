@@ -6,20 +6,21 @@ function createFallbackCapture() {
     vi.stubGlobal("process", undefined);
     vi.stubGlobal("require", undefined);
     try {
-        return new SuperCallCapture<string>();
+        return new SuperCallCapture<string>("legacy");
     } finally {
         vi.unstubAllGlobals();
     }
 }
 
 describe("SuperCallCapture", () => {
-    it("serialises a receiver's captures without host async context and advances after rejection", async () => {
+    it.each([false, true])("isolates overlapping captures across rejection (reverse: %s)", async (reverse) => {
         const capture = createFallbackCapture();
 
         const gate = promiseWithResolvers<void>();
         const entered = promiseWithResolvers<void>();
         const failure = new Error("override failed");
-        const nextOverride = vi.fn();
+        const nextEntered = promiseWithResolvers<void>();
+        const nextGate = promiseWithResolvers<void>();
         const owner = {
             async legacy(value: string) {
                 if (value === "first") {
@@ -28,8 +29,8 @@ describe("SuperCallCapture", () => {
                     capture.takeRecorder(this)?.(value);
                     throw failure;
                 }
-                nextOverride();
-                await Promise.resolve();
+                nextEntered.resolve();
+                await nextGate.promise;
                 capture.takeRecorder(this)?.(value);
                 return false;
             },
@@ -39,10 +40,17 @@ describe("SuperCallCapture", () => {
         const second = capture.invoke(owner, owner.legacy, "second");
 
         await entered.promise;
-        expect(nextOverride).not.toHaveBeenCalled();
-        gate.resolve();
-        await rejection;
-        await expect(second).resolves.toEqual({ result: false, delegated: { value: "second" } });
+        await nextEntered.promise;
+        const secondResult = expect(second).resolves.toEqual({ result: false, delegated: { value: "second" } });
+        const completions = [
+            [gate, rejection],
+            [nextGate, secondResult],
+        ] as const;
+        for (const index of reverse ? [1, 0] : [0, 1]) {
+            const [pending, completion] = completions[index];
+            pending.resolve();
+            await completion;
+        }
         expect(capture.takeRecorder(owner)).toBeUndefined();
     });
 
@@ -56,10 +64,6 @@ describe("SuperCallCapture", () => {
             const directGate = promiseWithResolvers<void>();
 
             class Base {
-                constructor() {
-                    capture.instrumentReceiver(this, "legacy", Base.prototype.legacy);
-                }
-
                 async legacy(value: string) {
                     capture.takeRecorder(this)?.(value);
                     return false;
@@ -69,14 +73,14 @@ describe("SuperCallCapture", () => {
             class Override extends Base {
                 #receiver = this;
 
-                override async legacy(value: string) {
+                override legacy = async (value: string) => {
                     expect(this.#receiver).toBe(owner);
                     const typed = value === "typed";
                     (typed ? typedEntered : directEntered).resolve();
                     await (typed ? typedGate : directGate).promise;
                     expect(this.#receiver).toBe(owner);
                     return super.legacy(value);
-                }
+                };
             }
 
             const owner = new Override();
@@ -85,14 +89,10 @@ describe("SuperCallCapture", () => {
             const first = directFirst ? startDirect() : startTyped();
             await (directFirst ? directEntered : typedEntered).promise;
             const second = directFirst ? startTyped() : startDirect();
-            const secondEntered = vi.fn();
-            void (directFirst ? typedEntered : directEntered).promise.then(secondEntered);
-            await Promise.resolve();
-            expect(secondEntered).not.toHaveBeenCalled();
-
-            // Make the second gate ready first. The queued invocation must still enter second.
-            (directFirst ? typedGate : directGate).resolve();
-            (directFirst ? directGate : typedGate).resolve();
+            await (directFirst ? typedEntered : directEntered).promise;
+            directGate.resolve();
+            await (directFirst ? first : second);
+            typedGate.resolve();
 
             const [firstResult, secondResult] = await Promise.all([first, second]);
             expect(directFirst ? firstResult : secondResult).toBe(false);
@@ -103,13 +103,36 @@ describe("SuperCallCapture", () => {
         }
     );
 
+    it("keeps legacy completion when async stacks are unavailable", async () => {
+        const capture = createFallbackCapture();
+        const owner = {
+            async legacy(wait: boolean) {
+                if (wait) {
+                    await Promise.resolve();
+                }
+                capture.takeRecorder(this)?.("base");
+                return false;
+            },
+        };
+        const stackTraceLimit = Error.stackTraceLimit;
+        Error.stackTraceLimit = 0;
+        try {
+            await expect(capture.invoke(owner, owner.legacy, false)).resolves.toEqual({
+                result: false,
+                delegated: { value: "base" },
+            });
+            await expect(capture.invoke(owner, owner.legacy, true)).resolves.toEqual({
+                result: false,
+                delegated: {},
+            });
+        } finally {
+            Error.stackTraceLimit = stackTraceLimit;
+        }
+    });
+
     it("shields a re-entrant call and an instrumented ancestor from the outer recorder", async () => {
         const capture = createFallbackCapture();
         class Base {
-            constructor() {
-                capture.instrumentReceiver(this, "legacy", Base.prototype.legacy);
-            }
-
             async legacy(value: string) {
                 capture.takeRecorder(this)?.(value);
                 return value;
@@ -125,13 +148,17 @@ describe("SuperCallCapture", () => {
         const owner = new (class extends Parent {
             override async legacy(value: string) {
                 if (value === "outer") {
-                    await expect(this.legacy("inner")).resolves.toBe("inner");
+                    await Promise.resolve();
+                    expect(await this.legacy("inner")).toBe("inner");
                 }
                 return super.legacy(value);
             }
         })();
 
-        await expect(parent.legacy("direct")).resolves.toBe("direct");
+        await expect(capture.invoke(parent, parent.legacy, "parent")).resolves.toEqual({
+            result: "parent",
+            delegated: { value: "parent" },
+        });
         await expect(capture.invoke(owner, owner.legacy, "outer")).resolves.toEqual({
             result: "outer",
             delegated: { value: "outer" },

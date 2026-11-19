@@ -1154,11 +1154,8 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             );
 
             try {
-                expect(entered).toBe(fallback ? 1 : 2);
-                if (fallback) {
-                    gates[1].resolve();
-                }
-                for (const index of reverse && !fallback ? [1, 0] : [0, 1]) {
+                expect(entered).toBe(2);
+                for (const index of reverse ? [1, 0] : [0, 1]) {
                     gates[index].resolve();
                     await expect(requests[index]).resolves.toBeUndefined();
                 }

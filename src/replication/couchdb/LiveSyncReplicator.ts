@@ -147,7 +147,7 @@ type ContinuousStep = ContinuousExecution | (() => Promise<ContinuousExecution>)
 
 type SettleContinuousStart = (result: ContinuousReplicationStartResult) => void;
 
-const continuousSuperCall = new SuperCallCapture<Promise<ContinuousReplicationStartResult>>();
+const continuousSuperCall = new SuperCallCapture<Promise<ContinuousReplicationStartResult>>("openReplication");
 
 const COUCHDB_REPLICATION_FAILED = { status: "failed" } as const;
 
@@ -300,11 +300,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     constructor(env: LiveSyncCouchDBReplicatorEnv) {
         super(env);
-        continuousSuperCall.instrumentReceiver(
-            this,
-            "openReplication",
-            LiveSyncCouchDBReplicator.prototype.openReplication
-        );
         this.env = env;
     }
 

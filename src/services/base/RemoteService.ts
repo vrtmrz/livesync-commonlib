@@ -167,7 +167,7 @@ const FetchMethod = {
 
 type FetchMethod = (typeof FetchMethod)[keyof typeof FetchMethod];
 
-const connectSuperCall = new SuperCallCapture<CouchDBConnectionOpenResult<EntryDoc>>();
+const connectSuperCall = new SuperCallCapture<CouchDBConnectionOpenResult<EntryDoc>>("connect");
 
 /**
  * The RemoteService provides methods for interacting with the remote database.
@@ -191,7 +191,6 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
 
     constructor(context: T, dependencies: RemoteServiceDependencies) {
         super(context);
-        connectSuperCall.instrumentReceiver(this, "connect", RemoteService.prototype.connect);
         this._pouchDB = dependencies.pouchDB;
         this._APIService = dependencies.APIService;
         this._appLifecycleService = dependencies.appLifecycle;
