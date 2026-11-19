@@ -929,9 +929,9 @@ function connectContinuousTestReplicator(
     return { openCouchDBConnection, closeConnections, getSalt };
 }
 
-function stubContinuousRemoteCompatibility() {
-    const versionCheck = vi.spyOn(negotiation, "checkRemoteVersion").mockResolvedValue(true);
-    const compatibilityCheck = vi.spyOn(compatibility, "ensureDatabaseIsCompatible").mockResolvedValue("OK");
+function stubContinuousRemoteCompatibility(negotiationModule = negotiation, compatibilityModule = compatibility) {
+    const versionCheck = vi.spyOn(negotiationModule, "checkRemoteVersion").mockResolvedValue(true);
+    const compatibilityCheck = vi.spyOn(compatibilityModule, "ensureDatabaseIsCompatible").mockResolvedValue("OK");
     return () => {
         compatibilityCheck.mockRestore();
         versionCheck.mockRestore();
@@ -1097,14 +1097,35 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         expect(start).not.toHaveBeenCalled();
     });
 
-    it.each([false, true])(
-        "observes actual startup for overlapping legacy openings (reverse order: %s)",
-        async (reverse) => {
+    it.each([
+        ["typed overlap", false],
+        ["typed overlap", true],
+        ["typed first", true],
+        ["direct first", true],
+    ] as const)(
+        "observes actual startup for overlapping legacy openings (%s, reverse order: %s)",
+        async (order, reverse) => {
+            const fallback = order !== "typed overlap";
+            const directIndex = order === "direct first" ? 0 : 1;
+            let Base = LiveSyncCouchDBReplicator;
+            if (fallback) {
+                vi.resetModules();
+                const loadBuiltin = vi.spyOn(process, "getBuiltinModule").mockReturnValue(undefined);
+                try {
+                    Base = (await import("./LiveSyncReplicator.ts")).LiveSyncCouchDBReplicator;
+                } finally {
+                    loadBuiltin.mockRestore();
+                }
+            }
             const gates = [promiseWithResolvers<void>(), promiseWithResolvers<void>()];
             let entered = 0;
-            class DelegatingReplicator extends LiveSyncCouchDBReplicator {
+            class DelegatingReplicator extends Base {
+                #receiver = this;
+
                 override async openReplication(...args: Parameters<LiveSyncCouchDBReplicator["openReplication"]>) {
+                    expect(this.#receiver).toBe(replicator);
                     await gates[entered++].promise;
+                    expect(this.#receiver).toBe(replicator);
                     return super.openReplication(...args);
                 }
             }
@@ -1118,14 +1139,26 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             const remoteDatabase = new PouchDB<EntryDoc>(crypto.randomUUID(), { adapter: "memory" });
             const { replicator } = createContinuousTestReplicator(localDatabase, DelegatingReplicator);
             connectContinuousTestReplicator(replicator, remoteDatabase);
-            const restoreCompatibility = stubContinuousRemoteCompatibility();
+            const restoreCompatibility = fallback
+                ? stubContinuousRemoteCompatibility(
+                      await import("@lib/pouchdb/negotiation.ts"),
+                      await import("@lib/pouchdb/LiveSyncDBFunctions.ts")
+                  )
+                : stubContinuousRemoteCompatibility();
             const callbacks = [vi.fn(), vi.fn()];
             const settings = continuousSettings();
-            const requests = callbacks.map((callback) => replicator.startContinuousReplication(settings, callback));
+            const requests = callbacks.map((callback, index) =>
+                fallback && index === directIndex
+                    ? replicator.openReplication(settings, true, false, false)
+                    : replicator.startContinuousReplication(settings, callback)
+            );
 
             try {
-                expect(entered).toBe(2);
-                for (const index of reverse ? [1, 0] : [0, 1]) {
+                expect(entered).toBe(fallback ? 1 : 2);
+                if (fallback) {
+                    gates[1].resolve();
+                }
+                for (const index of reverse && !fallback ? [1, 0] : [0, 1]) {
                     gates[index].resolve();
                     await expect(requests[index]).resolves.toBeUndefined();
                 }
@@ -1135,8 +1168,12 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
                 }
                 catchUpHandle.settle("error");
                 await vi.waitFor(() => {
-                    for (const callback of callbacks) {
-                        expect(callback).toHaveBeenCalledExactlyOnceWith({ status: "failed" });
+                    for (const [index, callback] of callbacks.entries()) {
+                        if (fallback && index === directIndex) {
+                            expect(callback).not.toHaveBeenCalled();
+                        } else {
+                            expect(callback).toHaveBeenCalledExactlyOnceWith({ status: "failed" });
+                        }
                     }
                 });
                 expect(localDatabase.replicate.from).toHaveBeenCalledOnce();

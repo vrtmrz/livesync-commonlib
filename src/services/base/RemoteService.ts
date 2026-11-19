@@ -191,6 +191,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
 
     constructor(context: T, dependencies: RemoteServiceDependencies) {
         super(context);
+        connectSuperCall.instrumentReceiver(this, "connect", RemoteService.prototype.connect);
         this._pouchDB = dependencies.pouchDB;
         this._APIService = dependencies.APIService;
         this._appLifecycleService = dependencies.appLifecycle;
@@ -288,9 +289,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
         ...args: Parameters<IRemoteService["connect"]>
     ): Promise<CouchDBConnectionOpenResult<EntryDoc>> {
         if (this.connect !== RemoteService.prototype.connect) {
-            const { result: opened, delegated } = await connectSuperCall.invoke(this, (receiver) =>
-                receiver.connect(...args)
-            );
+            const { result: opened, delegated } = await connectSuperCall.invoke(this, this.connect, ...args);
             if (typeof opened !== "string") {
                 return opened;
             }

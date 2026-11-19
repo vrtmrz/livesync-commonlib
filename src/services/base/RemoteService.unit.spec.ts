@@ -247,14 +247,35 @@ describe("RemoteService opening transport failure", () => {
         expect(webCompatFetch).toHaveBeenCalledOnce();
     });
 
-    it.each([false, true])(
-        "keeps overlapping delegated connection failures paired (reverse order: %s)",
-        async (reverse) => {
+    it.each([
+        ["typed overlap", false],
+        ["typed overlap", true],
+        ["typed first", false],
+        ["direct first", false],
+    ] as const)(
+        "keeps overlapping delegated connection failures paired (%s, reverse order: %s)",
+        async (order, reverse) => {
+            const fallback = order !== "typed overlap";
+            const directIndex = order === "direct first" ? 0 : 1;
+            let Base: typeof RemoteService<ServiceContext> = TestRemoteService;
+            if (fallback) {
+                vi.resetModules();
+                const loadBuiltin = vi.spyOn(process, "getBuiltinModule").mockReturnValue(undefined);
+                try {
+                    Base = (await import("./RemoteService.ts")).RemoteService;
+                } finally {
+                    loadBuiltin.mockRestore();
+                }
+            }
             const gates = [promiseWithResolvers<void>(), promiseWithResolvers<void>()];
             let entered = 0;
-            class DelegatingRemoteService extends TestRemoteService {
+            class DelegatingRemoteService extends Base {
+                #receiver = this;
+
                 override async connect(...args: Parameters<RemoteService["connect"]>) {
+                    expect(this.#receiver).toBe(service);
                     await gates[entered++].promise;
+                    expect(this.#receiver).toBe(service);
                     return super.connect(...args);
                 }
             }
@@ -266,15 +287,24 @@ describe("RemoteService opening transport failure", () => {
                 DelegatingRemoteService
             );
             const args = connectionArguments(false, { allowNativeFallback: false });
-            const requests = [service.openCouchDBConnection(...args), service.openCouchDBConnection(...args)];
-            expect(entered).toBe(2);
+            const readFailure = fallback
+                ? (await import("@lib/replication/remoteTransportFailure.ts")).getReplicationNetworkFailure
+                : getReplicationNetworkFailure;
+            const requests = gates.map((_, index) =>
+                fallback && index === directIndex ? service.connect(...args) : service.openCouchDBConnection(...args)
+            );
+            expect(entered).toBe(fallback ? 1 : 2);
 
-            for (const index of reverse ? [1, 0] : [0, 1]) {
+            for (const index of reverse && !fallback ? [1, 0] : [0, 1]) {
                 APIService.isOnline = index === 0;
                 gates[index].resolve();
                 const result = await requests[index];
-                assert("error" in result);
-                expect(getReplicationNetworkFailure(result.error)).toEqual({
+                if (fallback && index === directIndex) {
+                    expect(typeof result).toBe("string");
+                    continue;
+                }
+                assert(typeof result !== "string" && "error" in result);
+                expect(readFailure(result.error)).toEqual({
                     reason: index === 0 ? "remote-transport" : "offline",
                     hostOnlineAtFailure: index === 0,
                     failedAt: expect.any(Number),

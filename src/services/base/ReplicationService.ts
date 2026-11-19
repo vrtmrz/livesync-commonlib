@@ -218,6 +218,11 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     databaseService: IDatabaseService;
     constructor(context: T, dependencies: ReplicationServiceDependencies) {
         super(context);
+        readinessSuperCall.instrumentReceiver(
+            this,
+            "isReplicationReady",
+            ReplicationService.prototype.isReplicationReady
+        );
         this.appLifecycleService = dependencies.appLifecycleService;
         this.settingService = dependencies.settingService;
         this.replicatorService = dependencies.replicatorService;
@@ -261,8 +266,11 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             currentSettings: () => this.settingService.currentSettings(),
             checkReadiness: async (showMessage, requirements) => {
                 if (this.isReplicationReady !== ReplicationService.prototype.isReplicationReady) {
-                    const { result, delegated } = await readinessSuperCall.invoke(this, (receiver) =>
-                        receiver.isReplicationReady(showMessage, requirements)
+                    const { result, delegated } = await readinessSuperCall.invoke(
+                        this,
+                        this.isReplicationReady,
+                        showMessage,
+                        requirements
                     );
                     if (result) {
                         return true;
