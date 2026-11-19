@@ -26,7 +26,7 @@ import { Computed } from "octagonal-wheels/dataobject/Computed";
 import type { JsonLike, RpcRequestContext, RpcRoom, RpcWireMessage, TransportAdapter } from "@lib/rpc";
 import { resolveTrysteroRpcOptions } from "@lib/rpc/transports/TrysteroTransport";
 import { subscribeTrysteroPeerEvents } from "@lib/rpc/transports/trysteroRoomEvents";
-import { formatRpcProtocolWarning, toRpcMethodName } from "./rpcCompat";
+import { toRpcMethodName } from "./rpcCompat";
 import { generateJoinRoomOptions } from "@lib/rpc/transports/trysteroUtils";
 import { subscribeConnectionStatus, subscribeFailureDiagnosis } from "@lib/rpc/transports/DiagRTCPeerConnections";
 import { type DiagRTCStats } from "@lib/rpc/transports/DiagRTCPeerConnections.types";
@@ -451,8 +451,7 @@ export class TrysteroReplicatorP2PServer {
                 return (await this.isAcceptablePeer(peerId)) === true;
             },
             onProtocolWarning: (message, peerId) => {
-                const warning = formatRpcProtocolWarning(message);
-                Logger(`RPC Protocol warning${peerId ? ` from ${peerId}` : ""}: ${warning}`, LOG_LEVEL_VERBOSE);
+                Logger(`RPC Protocol warning${peerId ? ` from ${peerId}` : ""}: ${message}`, LOG_LEVEL_VERBOSE);
             },
         });
         const advertisementAction = room.makeAction<Advertisement>("ad");

@@ -9,56 +9,111 @@ import {
     type RpcRoomOptions,
 } from "@vrtmrz/rpc/p2p";
 import { asRpcErrorShape, RpcError } from "@lib/rpc/errors";
-import { formatRpcCallbackFailure } from "./rpcCompat";
+import { formatRpcProtocolWarning } from "./rpcCompat";
 
-const responseErrors = new WeakMap<RpcErrorShape, RpcErrorShape>();
+const responseErrors = new WeakMap<RpcErrorShape, unknown>();
 
 class HostedRpcError extends RpcError {
-    constructor(
-        private readonly originalError: unknown,
-        method: string
-    ) {
-        super("REMOTE_ERROR", formatRpcCallbackFailure(method));
+    constructor(private readonly originalError: unknown) {
+        super("REMOTE_ERROR", "Commonlib RPC callback failed");
     }
 
     override toShape(): RpcErrorShape {
-        const original = asRpcErrorShape(this.originalError);
-        const safe = { code: original.code, message: this.message };
-        responseErrors.set(safe, original);
+        const safe = super.toShape();
+        responseErrors.set(safe, this.originalError);
         return safe;
     }
 }
 
-function redactCallbackErrors<Args extends unknown[], Result>(
-    handler: (...args: Args) => Result | Promise<Result>,
-    getMethod: (...args: Args) => string
-) {
+function redactCallbackErrors<Args extends unknown[], Result>(handler: (...args: Args) => Result | Promise<Result>) {
     return async (...args: Args): Promise<Result> => {
         try {
             return await handler(...args);
         } catch (error) {
-            throw new HostedRpcError(error, getMethod(...args));
+            throw new HostedRpcError(error);
         }
     };
+}
+
+function getResponseError(safe: RpcErrorShape): RpcErrorShape {
+    try {
+        const { code, message, details } = asRpcErrorShape(responseErrors.get(safe));
+        return { code, message, details };
+    } catch {
+        return safe;
+    }
 }
 
 /** Adapts Fancy Kit's text diagnostics while retaining its wire responses. */
 export class TrysteroRpcRoom extends RpcRoom<AbortSignal> {
     constructor(options: Omit<RpcRoomOptions<AbortSignal>, "codec">) {
         const codec = createJsonCodec();
-        const { canAcceptRequest } = options;
+        const { canAcceptRequest, onProtocolWarning } = options;
+        let notificationMethod: string | undefined;
+        let minorMismatch: { message: string; peerId?: string } | undefined;
+        const emitWarning = async (message: string, peerId?: string) => {
+            try {
+                await onProtocolWarning?.(message, peerId);
+            } catch {
+                // Match Fancy Kit's isolation of diagnostic observers.
+            }
+        };
+
         super({
             ...options,
-            canAcceptRequest: canAcceptRequest && redactCallbackErrors(canAcceptRequest, (_peerId, method) => method),
+            canAcceptRequest: canAcceptRequest && redactCallbackErrors(canAcceptRequest),
+            onProtocolWarning(message, peerId) {
+                if (message.startsWith("RPC minor mismatch: ")) {
+                    const warning = { message, peerId };
+                    minorMismatch = warning;
+                    // Only associate a mismatch with a method read in the same turn.
+                    queueMicrotask(() => {
+                        if (minorMismatch === warning) {
+                            minorMismatch = undefined;
+                            void emitWarning(message, peerId);
+                        }
+                    });
+                    return;
+                }
+                return onProtocolWarning?.(formatRpcProtocolWarning(message, notificationMethod), peerId);
+            },
             codec: {
-                ...codec,
+                decode(payload) {
+                    const envelope = codec.decode(payload);
+                    if (envelope.kind !== "request") {
+                        return envelope;
+                    }
+                    const { method, expectsResponse } = envelope;
+                    return {
+                        ...envelope,
+                        get method() {
+                            // Fancy Kit 0.1.0 reads the method immediately before emitting a
+                            // notification failure and immediately after a minor mismatch.
+                            // Neither path yields between the read and the warning.
+                            notificationMethod = expectsResponse === false ? method : undefined;
+                            if (minorMismatch) {
+                                const { message, peerId } = minorMismatch;
+                                minorMismatch = undefined;
+                                void emitWarning(
+                                    expectsResponse === false
+                                        ? `RPC notification ${method}: protocol minor version mismatch`
+                                        : message,
+                                    peerId
+                                );
+                            }
+                            return method;
+                        },
+                    };
+                },
                 encode(envelope) {
                     if (envelope.kind !== "response" || envelope.ok !== false) {
                         return codec.encode(envelope);
                     }
                     // Fancy Kit 0.1.0 passes the same shape to the response codec.
-                    const original = responseErrors.get(envelope.error);
-                    return codec.encode(original ? { ...envelope, error: original } : envelope);
+                    if (!responseErrors.has(envelope.error)) {
+                        return codec.encode(envelope);
+                    }
+                    return codec.encode({ ...envelope, error: getResponseError(envelope.error) });
                 },
             },
         });
@@ -69,7 +124,7 @@ export class TrysteroRpcRoom extends RpcRoom<AbortSignal> {
         handler: RpcMethodHandler<Args, Result>,
         options?: RpcRegisterOptions
     ): void {
-        super.register(method, redactCallbackErrors(handler, () => method), options);
+        super.register(method, redactCallbackErrors(handler), options);
     }
 
     override registerCancellable<Args extends JsonLike[], Result>(
@@ -77,6 +132,6 @@ export class TrysteroRpcRoom extends RpcRoom<AbortSignal> {
         handler: RpcCancellationAwareMethodHandler<Args, Result, AbortSignal>,
         options?: RpcRegisterOptions
     ): void {
-        super.registerCancellable(method, redactCallbackErrors(handler, () => method), options);
+        super.registerCancellable(method, redactCallbackErrors(handler), options);
     }
 }

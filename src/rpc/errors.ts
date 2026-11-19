@@ -1,6 +1,11 @@
 import { asRpcErrorShape as asP2pRpcErrorShape, RpcError as P2pRpcError } from "@vrtmrz/rpc/p2p";
 import type { JsonLike, RpcErrorCode, RpcErrorShape } from "./types";
 
+// Sessions construct Fancy Kit errors directly. Preserve the legacy shape for those errors too.
+P2pRpcError.prototype.toShape = function (): RpcErrorShape {
+    return { code: this.code, message: this.message, details: this.details };
+};
+
 /** The Commonlib error contract used by both RPC implementations. */
 export interface RpcError extends Error {
     code: RpcErrorCode;
@@ -17,10 +22,6 @@ export const RpcError: {
             Function.prototype[Symbol.hasInstance].call(this, value) ||
             (this === RpcError && value instanceof P2pRpcError)
         );
-    }
-
-    override toShape(): RpcErrorShape {
-        return { code: this.code, message: this.message, details: this.details };
     }
 };
 
