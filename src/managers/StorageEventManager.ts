@@ -228,7 +228,7 @@ export abstract class StorageEventManagerBase<
         this.adapter = adapter;
         this.setting = dependencies.setting;
         this.vaultService = dependencies.vaultService;
-        this.admission.isTargetInternal = dependencies.isTargetInternalFile;
+        this.admission.isTargetInternal = dependencies.isTargetInternalFile?.bind(dependencies);
         this.fileProcessing = dependencies.fileProcessing;
         this.storageAccess = dependencies.storageAccessManager;
         this._log = createInstanceLogFunction("StorageEventManager", dependencies.APIService);

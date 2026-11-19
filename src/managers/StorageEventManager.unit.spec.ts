@@ -23,7 +23,8 @@ import type { IAPIService, IAppLifecycleService, ISettingService, IVaultService 
 import type { SettingService } from "@lib/services/base/SettingService";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService";
 import { DEFAULT_SETTINGS, FlagFilesHumanReadable } from "@lib/common/types";
-import { isTargetFile } from "@lib/managers/EntryManager/EntryManagerImpls";
+import { EntryManager } from "@lib/managers/EntryManager/EntryManager";
+import { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
 import { useTargetFilters } from "@lib/serviceFeatures/targetFilter";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { InjectableDatabaseEventService } from "@lib/services/implements/injectable/InjectableDatabaseEventService";
@@ -812,9 +813,13 @@ describe("StorageEventManagerBase", () => {
             const API = dependencies.APIService as TargetFilterHost["services"]["API"];
             const vault = new InjectableVaultServiceCompat(context, { settingService: setting, APIService: API });
             const databaseEvents = new InjectableDatabaseEventService(context);
-            const localDatabase: Pick<TargetFilterHost["services"]["database"]["localDatabase"], "isTargetFile"> = {
-                isTargetFile: (path, internalFileEvent) =>
-                    isTargetFile({ services: { setting }, serviceModules: {} }, path, internalFileEvent),
+            const entryManager = {
+                serviceHost: { services: { setting }, serviceModules: {} },
+                isTargetFile: EntryManager.prototype.isTargetFile,
+            };
+            const localDatabase = {
+                managers: { entryManager },
+                isTargetFile: LiveSyncLocalDB.prototype.isTargetFile,
             };
             const storageAccess: Pick<StorageAccess, "findPathIdentityCandidates"> = {
                 findPathIdentityCandidates: async (path) => [path],
@@ -826,7 +831,7 @@ describe("StorageEventManagerBase", () => {
                     setting,
                     vault,
                     databaseEvents,
-                    database: { localDatabase } as TargetFilterHost["services"]["database"],
+                    database: { localDatabase } as unknown as TargetFilterHost["services"]["database"],
                     appLifecycle: {
                         onLoaded: handlers<IAppLifecycleService>().bailFirstFailure("onLoaded"),
                     } as TargetFilterHost["services"]["appLifecycle"],
@@ -836,9 +841,9 @@ describe("StorageEventManagerBase", () => {
             });
             await databaseEvents.onDatabaseHasReady();
 
-            const isTargetInternalFile = vi.fn((path: FilePath) =>
-                vault.isTargetFile(path, { internalFileEvent: true })
-            );
+            const isTargetInternalFile = vi.fn(function (this: StorageEventManagerBaseDependencies, path: FilePath) {
+                return this.vaultService.isTargetFile(path, { internalFileEvent: true });
+            });
             manager = new TestStorageEventManager(adapter, {
                 ...dependencies,
                 vaultService: vault,

@@ -148,7 +148,9 @@ async function selectOrdinaryEvent(
         param.type === "INTERNAL" && effects.isTargetInternal
             ? !shouldBeIgnored(path) && (await effects.isTargetInternal(path))
             : await isSelectedPath(path, settings, effects);
-    if (!selected) return null;
+    if (!selected) {
+        return null;
+    }
     if (param.type !== "INTERNAL") {
         const size = (param.file as UXFileInfoStub).stat.size;
         if (effects.isTooLarge(size) && (param.type === "CREATE" || param.type === "CHANGED")) {
