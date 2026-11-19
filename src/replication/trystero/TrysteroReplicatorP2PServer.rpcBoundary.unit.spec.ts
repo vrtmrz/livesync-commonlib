@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import PouchDB from "pouchdb-core";
+import MemoryAdapter from "pouchdb-adapter-memory";
 
 import { AutoAccepting, DEFAULT_SETTINGS, type P2PSyncSetting } from "@lib/common/types";
 import { defaultLogger, setGlobalLogFunction } from "@lib/common/logger";
@@ -7,8 +9,16 @@ import type { Confirm } from "@lib/interfaces/Confirm";
 import type { SimpleStore } from "@lib/common/utils";
 import type { JoinError, Room, joinRoom } from "@trystero-p2p/nostr";
 import { passthroughMessageTranslator } from "@lib/services/base/MessageTranslator";
-import { RpcError, type RpcEnvelope, type RpcWireMessage } from "@lib/rpc";
-import { RpcRoom as FancyKitRpcRoom } from "@vrtmrz/rpc/p2p";
+import {
+    exposeDB,
+    RpcError,
+    RpcPouchDBProxy,
+    RpcRoom,
+    RpcSession,
+    type RpcEnvelope,
+    type RpcWireMessage,
+} from "@lib/rpc";
+import { RpcRoom as FancyKitRpcRoom, RpcSession as FancyKitRpcSession } from "@vrtmrz/rpc/p2p";
 import type { P2PDiagnosticEvent } from "@lib/p2p/p2pDiagnostics";
 
 import {
@@ -18,6 +28,8 @@ import {
     TrysteroReplicatorP2PServer,
 } from "./TrysteroReplicatorP2PServer";
 import type { BindableObject, ReplicatorHostEnv } from "./types";
+
+PouchDB.plugin(MemoryAdapter);
 
 type FakeActionHandler = (data: unknown, context: { peerId: string }) => void | Promise<void>;
 type FakeAction = {
@@ -514,9 +526,9 @@ describe("TrysteroReplicatorP2PServer RPC boundaries", () => {
         }
     );
 
-    it("uses the installed RPC room and transmits structured errors from Commonlib handlers", async () => {
-        const failure = new RpcError("PROTOCOL_ERROR", "Operation rejected", { reason: "fixture" });
-        const { caller, target } = await createConnectedPair(() => undefined, [
+    it("transmits structured errors from Commonlib handlers", async () => {
+        const failure = new RpcError("PROTOCOL_ERROR", 'Operation rejected: "review"', { reason: "fixture" });
+        const { caller, target, targetRoom } = await createConnectedPair(() => undefined, [
             {
                 fail: () => {
                     throw failure;
@@ -524,8 +536,7 @@ describe("TrysteroReplicatorP2PServer RPC boundaries", () => {
             },
         ]);
 
-        expect(caller.rpcRoom).toBeInstanceOf(FancyKitRpcRoom);
-        expect(target.rpcRoom).toBeInstanceOf(FancyKitRpcRoom);
+        expect(target.rpcRoom).toBeInstanceOf(RpcRoom);
         const client = caller.getConnection(target.serverPeerId);
         const error = await client.invokeRemoteFunction("fail", []).catch((reason: unknown) => reason);
         expect(error).toBeInstanceOf(RpcError);
@@ -534,19 +545,77 @@ describe("TrysteroReplicatorP2PServer RPC boundaries", () => {
             message: failure.message,
             details: failure.details,
         });
+        expect(rpcEnvelopes(targetRoom)).toContainEqual(
+            expect.objectContaining({ kind: "response", ok: false, error: failure.toShape() })
+        );
     });
 
-    it.each(["admission", "handler"] as const)(
-        "omits exception details from a notification warning during %s",
-        async (stage) => {
-            const method = "events.changed";
-            const exceptionText = "fixture-only exception detail";
+    it("exposes hosted rooms and sessions as instances of the public RPC classes", async () => {
+        const { caller, target } = await createConnectedPair(() => undefined);
+        const room = caller.rpcRoom;
+        const session = room?.session(target.serverPeerId);
+        class CustomRoom extends RpcRoom {}
+
+        expect(room).toBeInstanceOf(RpcRoom);
+        expect(room).toBeInstanceOf(FancyKitRpcRoom);
+        expect(room).not.toBeInstanceOf(CustomRoom);
+        expect(session).toBeInstanceOf(RpcSession);
+        expect(session).toBeInstanceOf(FancyKitRpcSession);
+        expect(RpcSession).toBe(FancyKitRpcSession);
+    });
+
+    it("round-trips a PouchDB document and reconstructs missing-document errors over the hosted RPC room", async () => {
+        const db = new PouchDB<{ value: string }>("rpc-boundary-pouchdb", { adapter: "memory" });
+        try {
+            const { caller, target } = await createConnectedPair((host) => {
+                const room = host.rpcRoom;
+                if (!room) {
+                    throw new Error("Expected a started target room");
+                }
+                exposeDB(room, db);
+            });
+            const room = caller.rpcRoom;
+            if (!room) {
+                throw new Error("Expected a started caller room");
+            }
+            const proxy = new RpcPouchDBProxy(room.session(target.serverPeerId), db.name);
+            const doc = { _id: "doc", value: "stored via RPC" };
+
+            const result = await proxy.put(doc);
+            expect(result).toMatchObject({ ok: true, id: doc._id });
+            await expect(proxy.get(doc._id)).resolves.toEqual({ ...doc, _rev: result.rev });
+            await expect(db.get(doc._id)).resolves.toEqual({ ...doc, _rev: result.rev });
+            await expect(proxy.get("missing-doc")).rejects.toMatchObject({
+                status: 404,
+                name: "not_found",
+                reason: "missing",
+            });
+        } finally {
+            await db.destroy();
+        }
+    });
+
+    it.each([
+        ["admission", "events.changed: review"],
+        ["handler", "events.changed: review"],
+        ["cancellation-aware handler", "events.changed: review"],
+        ["handler", "events.changed: review: Commonlib RPC callback failed: Method not found: events.changed: review"],
+    ] as const)(
+        "omits exception details from a notification warning during %s for %s",
+        async (stage, method) => {
+            const exceptionText = "fixture-only exception detail: private context";
             const handler = vi.fn(() => {
                 throw new Error(exceptionText);
             });
-            const { caller, target, targetRoom } = await createConnectedPair(() => undefined, [
-                { [method]: handler },
-            ]);
+            const cancellationAware = stage === "cancellation-aware handler";
+            const { caller, target, targetRoom } = await createConnectedPair(
+                (host) => {
+                    if (cancellationAware) {
+                        host.serveCancellationAwareFunction(method, handler);
+                    }
+                },
+                cancellationAware ? [] : [{ [method]: handler }]
+            );
             const room = caller.rpcRoom;
             if (!room) {
                 throw new Error("Expected a started test room");
@@ -573,10 +642,43 @@ describe("TrysteroReplicatorP2PServer RPC boundaries", () => {
                     expect(handler).toHaveBeenCalledOnce();
                 }
                 expect(rpcEnvelopes(targetRoom).filter((message) => message.kind === "response")).toEqual([]);
-                expect(warnings.filter((message) => message.includes(method))).toHaveLength(1);
-                expect(warnings.join(" ")).not.toContain(exceptionText);
+                expect(warnings).toEqual([
+                    `RPC Protocol warning from ${caller.serverPeerId}: RPC notification ${method}: failed`,
+                ]);
             } finally {
                 admission?.mockRestore();
+                setGlobalLogFunction(defaultLogger);
+            }
+        }
+    );
+
+    it.each(["missing method", "major mismatch"] as const)(
+        "preserves the full notification method when Fancy Kit reports %s",
+        async (failure) => {
+            const method = "events.changed: review";
+            const { caller, target, callerRoom, targetRoom } = await createConnectedPair(() => undefined);
+            const room = caller.rpcRoom;
+            if (!room) {
+                throw new Error("Expected a started caller room");
+            }
+            if (failure === "major mismatch") {
+                await callerRoom.action("rpc2")?.send({
+                    wire: "raw",
+                    payload: JSON.stringify({ kind: "handshake", versionMajor: 10, versionMinor: 0 }),
+                } satisfies RpcWireMessage);
+                await flushQueuedCallbacks();
+            }
+            const warnings: unknown[] = [];
+            setGlobalLogFunction((message) => warnings.push(message));
+            try {
+                await room.session(target.serverPeerId).notify(method);
+                await flushQueuedCallbacks();
+
+                expect(warnings).toContain(
+                    `RPC Protocol warning from ${caller.serverPeerId}: RPC notification ${method}: failed`
+                );
+                expect(rpcEnvelopes(targetRoom).filter((message) => message.kind === "response")).toEqual([]);
+            } finally {
                 setGlobalLogFunction(defaultLogger);
             }
         }

@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { IncomingChunkBuffer, splitIntoChunks } from "./chunking";
 import { asRpcErrorShape, RpcError } from "./errors";
 
+it("keeps the details property in the shape of a Commonlib RPC error", () => {
+    const error = new RpcError("REMOTE_ERROR", "fixture error");
+    expect(error.toShape()).toStrictEqual({ code: "REMOTE_ERROR", message: "fixture error", details: undefined });
+
+    error.details = { status: 404 };
+    expect(error.toShape()).toStrictEqual({
+        code: "REMOTE_ERROR",
+        message: "fixture error",
+        details: { status: 404 },
+    });
+});
+
 describe("RPC helpers", () => {
     it("covers error normalisation", () => {
         const rpc = asRpcErrorShape(new RpcError("TIMEOUT", "t", { x: 1 } as any));

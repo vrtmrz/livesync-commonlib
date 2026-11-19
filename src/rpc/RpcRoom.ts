@@ -1,4 +1,5 @@
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
+import { RpcRoom as FancyKitRpcRoom } from "@vrtmrz/rpc/p2p";
 import {
     createDeferredAction,
     type DeferredAction,
@@ -55,6 +56,14 @@ const scheduleRpcTimeout: TimeoutScheduler = (callback, delayMs) => {
 };
 
 export class RpcRoom {
+    static [Symbol.hasInstance](value: unknown): boolean {
+        // Hosted rooms share this public identity while the standalone constructor retains its legacy behaviour.
+        return (
+            Function.prototype[Symbol.hasInstance].call(this, value) ||
+            (this === RpcRoom && value instanceof FancyKitRpcRoom)
+        );
+    }
+
     private options: Required<Pick<RpcRoomOptions, "maxWirePayloadBytes" | "chunkMissingRetryMs">> & RpcRoomOptions;
     private pendingInvocations: ReturnType<typeof createPendingInvocations>;
     private inboundCalls = new Map<string, InboundCallContext>();

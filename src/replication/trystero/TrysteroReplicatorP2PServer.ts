@@ -19,11 +19,11 @@ import {
 } from "./types";
 import { StoredMapLike } from "@lib/dataobject/StoredMap";
 import { TrysteroReplicatorP2PClient } from "./TrysteroReplicatorP2PClient";
+import { TrysteroRpcRoom } from "./TrysteroRpcRoom";
 import { createHostingDB } from "./ProxiedDB";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
 import type { JsonLike, RpcRequestContext, RpcRoom, RpcWireMessage, TransportAdapter } from "@lib/rpc";
-import { RpcRoom as P2pRpcRoom } from "@vrtmrz/rpc/p2p";
 import { resolveTrysteroRpcOptions } from "@lib/rpc/transports/TrysteroTransport";
 import { subscribeTrysteroPeerEvents } from "@lib/rpc/transports/trysteroRoomEvents";
 import { formatRpcProtocolWarning, toRpcMethodName } from "./rpcCompat";
@@ -442,7 +442,7 @@ export class TrysteroReplicatorP2PServer {
             },
         };
         this._rpcRoom?.close();
-        this._rpcRoom = new P2pRpcRoom({
+        this._rpcRoom = new TrysteroRpcRoom({
             ...resolveTrysteroRpcOptions(this.settings),
             transport,
             createAbortController: () => new AbortController(),

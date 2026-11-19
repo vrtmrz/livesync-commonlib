@@ -11,7 +11,18 @@ export interface RpcError extends Error {
 export const RpcError: {
     new (code: RpcErrorCode, message: string, details?: JsonLike): RpcError;
     readonly prototype: RpcError;
-} = P2pRpcError;
+} = class RpcError extends P2pRpcError {
+    static override [Symbol.hasInstance](value: unknown): boolean {
+        return (
+            Function.prototype[Symbol.hasInstance].call(this, value) ||
+            (this === RpcError && value instanceof P2pRpcError)
+        );
+    }
+
+    override toShape(): RpcErrorShape {
+        return { code: this.code, message: this.message, details: this.details };
+    }
+};
 
 /** Return the structured error through Commonlib's JSON-compatible type. */
 export function asRpcErrorShape(error: unknown): RpcErrorShape {

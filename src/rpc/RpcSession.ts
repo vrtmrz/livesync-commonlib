@@ -1,60 +1,14 @@
-import { RpcError } from "./errors";
-import type { JsonLike, RpcCallOptions } from "./types";
+import { RpcSession as FancyKitRpcSession } from "@vrtmrz/rpc/p2p";
 import type { RpcRoom } from "./RpcRoom";
+import type { JsonLike, RpcCallOptions } from "./types";
 
-export class RpcSession {
-    readonly peerId: string;
-    private room: Pick<RpcRoom, "invoke" | "notify">;
-
-    constructor(room: Pick<RpcRoom, "invoke" | "notify">, peerId: string) {
-        this.room = room;
-        this.peerId = peerId;
-    }
-
-    async call<T = JsonLike>(method: string, args?: JsonLike[], timeoutMs?: number): Promise<T>;
-    async call<T = JsonLike>(method: string, args?: JsonLike[], options?: RpcCallOptions): Promise<T>;
-    async call<T = JsonLike>(
-        method: string,
-        args: JsonLike[] | undefined,
-        timeoutOrOptions?: number | RpcCallOptions
-    ): Promise<T>;
-    async call<T = JsonLike>(
-        method: string,
-        args: JsonLike[] = [],
-        timeoutOrOptions?: number | RpcCallOptions
-    ): Promise<T> {
-        if (!this.peerId) {
-            throw new RpcError("NOT_CONNECTED", "Peer is not connected");
-        }
-        return (await this.room.invoke(this.peerId, method, args, timeoutOrOptions)) as T;
-    }
-
-    /**
-     * Send a notification to the bound peer without creating an RPC response
-     * wait. Resolves when the local transport send completes, not when remote
-     * processing finishes.
-     */
-    async notify(method: string, args: JsonLike[] = []): Promise<void> {
-        if (!this.peerId) {
-            throw new RpcError("NOT_CONNECTED", "Peer is not connected");
-        }
-        await this.room.notify(this.peerId, method, args);
-    }
-
-    createProxy<T extends object>(namespace: string): T {
-        // Proxy handler needs access to `this` session instance, so we capture it in a closure here.
-        // eslint-disable-next-line @typescript-eslint/no-this-alias
-        const session = this;
-        return new Proxy(
-            {},
-            {
-                get(_target, propKey) {
-                    if (typeof propKey !== "string") return undefined;
-                    return async (...args: JsonLike[]) => {
-                        return await session.call(`${namespace}.${propKey}`, args);
-                    };
-                },
-            }
-        ) as T;
-    }
+export interface RpcSession extends Pick<FancyKitRpcSession, "peerId" | "notify" | "createProxy"> {
+    call<T = JsonLike>(method: string, args?: JsonLike[], timeoutMs?: number): Promise<T>;
+    call<T = JsonLike>(method: string, args?: JsonLike[], options?: RpcCallOptions): Promise<T>;
+    call<T = JsonLike>(method: string, args: JsonLike[] | undefined, options?: number | RpcCallOptions): Promise<T>;
 }
+
+export const RpcSession: {
+    new (room: Pick<RpcRoom, "invoke" | "notify">, peerId: string): RpcSession;
+    readonly prototype: RpcSession;
+} = FancyKitRpcSession;
