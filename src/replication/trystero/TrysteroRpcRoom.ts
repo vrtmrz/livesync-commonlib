@@ -128,13 +128,17 @@ export class TrysteroRpcRoom extends RpcRoom<AbortSignal> {
     }
 
     override session(peerId: string) {
-        const underlying = super.session(peerId);
-        let session = this.commonlibSessions.get(underlying);
-        if (!session) {
-            session = new RpcSession(this, peerId);
-            this.commonlibSessions.set(underlying, session);
+        try {
+            const underlying = super.session(peerId);
+            let session = this.commonlibSessions.get(underlying);
+            if (!session) {
+                session = new RpcSession(this, peerId);
+                this.commonlibSessions.set(underlying, session);
+            }
+            return session;
+        } catch (error) {
+            throw toCommonlibRpcError(error);
         }
-        return session;
     }
 
     override async invoke(
@@ -163,7 +167,11 @@ export class TrysteroRpcRoom extends RpcRoom<AbortSignal> {
         handler: RpcMethodHandler<Args, Result>,
         options?: RpcRegisterOptions
     ): void {
-        super.register(method, redactCallbackErrors(handler), options);
+        try {
+            super.register(method, redactCallbackErrors(handler), options);
+        } catch (error) {
+            throw toCommonlibRpcError(error);
+        }
     }
 
     override registerCancellable<Args extends JsonLike[], Result>(
@@ -171,6 +179,10 @@ export class TrysteroRpcRoom extends RpcRoom<AbortSignal> {
         handler: RpcCancellationAwareMethodHandler<Args, Result, AbortSignal>,
         options?: RpcRegisterOptions
     ): void {
-        super.registerCancellable(method, redactCallbackErrors(handler), options);
+        try {
+            super.registerCancellable(method, redactCallbackErrors(handler), options);
+        } catch (error) {
+            throw toCommonlibRpcError(error);
+        }
     }
 }

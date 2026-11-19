@@ -140,8 +140,9 @@ method binding, and room shutdown. The adapter uses the decoded request to
 retain the full method name in notification warnings and redacts callback
 errors from those warnings. Response-bearing calls carry the original
 structured errors when they can be normalised. The public
-Commonlib `RpcRoom` recognises Fancy Kit rooms through `instanceof` and retains
-the standalone room constructor. Both rooms use Fancy Kit's `RpcSession`.
+Commonlib `RpcRoom` retains the standalone room constructor. An
+`instanceof RpcRoom` check recognises standalone Commonlib rooms and hosted
+`TrysteroRpcRoom` instances. Both rooms use Fancy Kit's `RpcSession`.
 Registration and the synchronous `beforeAdvertisement` hook precede
 advertisement sending. The boundary spec uses real RPC rooms and paired fake
 Trystero rooms to verify calls, notifications, cancellation, errors, and close.

@@ -611,6 +611,30 @@ describe("TrysteroReplicatorP2PServer RPC boundaries", () => {
         expect(Object.hasOwn(error.toShape(), "details")).toBe(true);
     });
 
+    it.each(["register", "registerCancellable"] as const)(
+        "normalises errors from hosted room %s",
+        async (operation) => {
+            const { caller } = await createConnectedPair(() => undefined);
+            const room = caller.rpcRoom;
+            if (!room) {
+                throw new Error("Expected a started caller room");
+            }
+            let error: unknown;
+            try {
+                room[operation]("invalid", (): null => null);
+            } catch (reason) {
+                error = reason;
+            }
+            expect(error).toBeInstanceOf(RpcError);
+            if (!(error instanceof RpcError)) {
+                throw new Error("Expected an RPC error");
+            }
+            const shape = error.toShape();
+            expect(shape.code).toBe("PROTOCOL_ERROR");
+            expect(Object.hasOwn(shape, "details")).toBe(true);
+        }
+    );
+
     it("exposes hosted rooms and sessions as instances of the public RPC classes", async () => {
         const { caller, target } = await createConnectedPair(() => undefined);
         const room = caller.rpcRoom;
