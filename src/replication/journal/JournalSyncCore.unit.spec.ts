@@ -21,6 +21,7 @@ import { CheckPointInfoDefault, type CheckPointInfo } from "./JournalSyncTypes.t
 import { wrappedDeflate, wrappedInflate } from "@lib/pouchdb/compress.ts";
 import { REMOTE_CHUNK_FETCHED } from "@lib/pouchdb/LiveSyncLocalDB.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase.ts";
+import { ReplicationStaticsOwner } from "@lib/services/base/ReplicationStaticsOwner.ts";
 import { LiveSyncError } from "@lib/common/LSError.ts";
 import {
     createSyncParamsHanderForServer,
@@ -84,17 +85,7 @@ describe("JournalSyncCore", () => {
                     currentSettings: () => ({ ...DEFAULT_SETTINGS }),
                 },
                 replicator: {
-                    replicationStatics: {
-                        value: {
-                            sent: 0,
-                            arrived: 0,
-                            maxPullSeq: 0,
-                            maxPushSeq: 0,
-                            lastSyncPullSeq: 0,
-                            lastSyncPushSeq: 0,
-                            syncStatus: "NOT_CONNECTED",
-                        },
-                    },
+                    replicationStatics: new ReplicationStaticsOwner().source,
                 },
             },
         } as unknown as LiveSyncJournalReplicatorEnv;
@@ -112,6 +103,25 @@ describe("JournalSyncCore", () => {
 
     afterEach(async () => {
         await localDB.destroy();
+    });
+
+    it("stamps Journal statistics when it publishes them", () => {
+        vi.useFakeTimers();
+        const publishedAt = Date.UTC(2026, 10, 19, 12);
+        vi.setSystemTime(publishedAt);
+
+        try {
+            core.updateInfo({ syncStatus: "COMPLETED" });
+            expect(env.services.replicator.replicationStatics.value).toMatchObject({
+                syncStatus: "COMPLETED",
+                statsUpdatedAt: publishedAt,
+            });
+
+            vi.setSystemTime(publishedAt + 1000);
+            expect(env.services.replicator.replicationStatics.value).toMatchObject({ statsUpdatedAt: publishedAt });
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it.each(["sendLocalJournal", "receiveRemoteJournal"] as const)(

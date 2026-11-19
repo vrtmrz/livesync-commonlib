@@ -9,7 +9,7 @@ import { UnresolvedErrorManager } from "./UnresolvedErrorManager";
 import { yieldMicrotask } from "octagonal-wheels/promises";
 import type { DatabaseEventService } from "./DatabaseEventService";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
-import { DEFAULT_REPLICATION_STATICS } from "@lib/common/models/shared.definition";
+import { ReplicationStaticsOwner } from "./ReplicationStaticsOwner.ts";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import {
     runWithOptionalActivity,
@@ -59,6 +59,10 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
 {
     readonly boundedRemoteActivityCount = reactiveSource(0);
     readonly finiteReplicationActivityCount = reactiveSource(0);
+    #replicationStaticsOwner = new ReplicationStaticsOwner();
+    get replicationStatics() {
+        return this.#replicationStaticsOwner.source;
+    }
     _log = createInstanceLogFunction("ReplicatorService");
 
     private settingService: SettingService;
@@ -335,7 +339,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
             }
 
             // Reset replication statics when replicator changes.
-            this.replicationStatics.value = { ...DEFAULT_REPLICATION_STATICS };
+            this.#replicationStaticsOwner.reset();
             await yieldMicrotask();
             // Host preparation clears state such as cached key-derivation
             // parameters before this candidate can become active.
@@ -512,5 +516,4 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         return this._activeReplicatorState.current !== undefined;
     }
 
-    replicationStatics = reactiveSource({ ...DEFAULT_REPLICATION_STATICS });
 }

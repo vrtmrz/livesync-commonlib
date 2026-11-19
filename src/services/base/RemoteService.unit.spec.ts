@@ -1,8 +1,10 @@
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import type { APIService } from "./APIService";
 import type { AppLifecycleService } from "./AppLifecycleService";
 import { RemoteService } from "./RemoteService";
+import type { RemoteConnectionOpenOptions } from "./RemoteConnection.ts";
+import { getReplicationNetworkFailure } from "@lib/replication/remoteTransportFailure.ts";
 import { ServiceContext } from "./ServiceBase";
 import type { SettingService } from "./SettingService";
 import { PouchDB } from "@lib/pouchdb/pouchdb-http";
@@ -70,20 +72,29 @@ function createDatabaseInfoResponse() {
     });
 }
 
-async function rawConnect(service: TestRemoteService, skipInfo = true) {
-    return await service.connect(
+function connectionArguments(
+    skipInfo: boolean,
+    options?: RemoteConnectionOpenOptions,
+    performSetup = false
+): Parameters<TestRemoteService["connect"]> {
+    return [
         "https://example.com/db",
         { username: "user", password: "password", type: "basic" },
         false,
         false,
         false,
-        false,
+        performSetup,
         skipInfo,
         false,
         {},
         false,
-        () => Promise.resolve(new Uint8Array())
-    );
+        () => Promise.resolve(new Uint8Array()),
+        options,
+    ];
+}
+
+async function rawConnect(service: TestRemoteService, skipInfo: boolean) {
+    return await service.connect(...connectionArguments(skipInfo));
 }
 
 type ConnectWithOptions = (
@@ -151,6 +162,81 @@ async function connect(service: TestRemoteService, skipInfo = true) {
     if (typeof connection === "string") throw new Error(connection);
     return connection;
 }
+
+describe("RemoteService opening transport failure", () => {
+    const disconnect = () =>
+        new TypeError("fetch failed", { cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }) });
+
+    it("captures the observed host online state and time before returning a failed CouchDB info result", async () => {
+        const { APIService, nativeFetch, service, webCompatFetch } = createService(async () =>
+            createDatabaseInfoResponse()
+        );
+        const beganAt = Date.now();
+        webCompatFetch.mockImplementationOnce(async () => {
+            APIService.isOnline = false;
+            throw disconnect();
+        });
+        const result = await service.openCouchDBConnection(...connectionArguments(false, { allowNativeFallback: false }));
+        assert("error" in result);
+        const failure = getReplicationNetworkFailure(result.error);
+        expect(failure).toEqual({
+            reason: "remote-transport",
+            hostOnlineAtFailure: false,
+            failedAt: expect.any(Number),
+        });
+        assert(failure);
+        expect(failure.failedAt).toBeGreaterThanOrEqual(beganAt);
+        expect(nativeFetch).not.toHaveBeenCalled();
+    });
+
+    it("keeps the offline description at the legacy connect entry point", async () => {
+        const { APIService, service, webCompatFetch } = createService(async () => createDatabaseInfoResponse());
+        APIService.isOnline = false;
+
+        await expect(service.connect(...connectionArguments(false))).resolves.toBe("Network is offline");
+        expect(webCompatFetch).not.toHaveBeenCalled();
+    });
+
+    it("reports the final request outcome when native fallback succeeds", async () => {
+        const { nativeFetch, service, webCompatFetch } = createService(async () => createDatabaseInfoResponse());
+        webCompatFetch.mockRejectedValueOnce(disconnect());
+
+        const result = await service.openCouchDBConnection(...connectionArguments(false));
+
+        assert(!("error" in result));
+        await result.close();
+        expect(nativeFetch).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        ["opaque WebKit error", new TypeError("Load failed")],
+        ["HTTP authentication error", new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 })],
+    ] as const)("preserves the generic failure result for %s", async (_name, failure) => {
+        const { service } = createService(async () => {
+            if (failure instanceof Error) throw failure;
+            return failure.clone();
+        });
+
+        const result = await service.openCouchDBConnection(...connectionArguments(false, undefined, true));
+
+        assert("error" in result);
+        expect(getReplicationNetworkFailure(result.error)).toBeUndefined();
+    });
+
+    it("excludes connection-owner cancellation even when the request carries a transport code", async () => {
+        const controller = new AbortController();
+        const { service } = createService(async () => {
+            controller.abort();
+            throw disconnect();
+        });
+
+        const args = connectionArguments(false, { signal: controller.signal });
+        const result = await service.openCouchDBConnection(...args);
+
+        assert("error" in result);
+        expect(getReplicationNetworkFailure(result.error)).toBeUndefined();
+    });
+});
 
 describe("RemoteService request activity", () => {
     it.each([false, true])("carries headers-only cache compatibility through the request and fallback (%s)", async (fallback) => {

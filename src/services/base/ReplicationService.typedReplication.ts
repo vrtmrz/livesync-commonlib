@@ -1,3 +1,5 @@
+import { promiseWithResolvers } from "octagonal-wheels/promises";
+import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import type { ObsidianLiveSyncSettings } from "@lib/common/types.ts";
 import {
     CAPABILITY_SUPPORT_KINDS,
@@ -8,8 +10,10 @@ import {
     replicationFailed,
     type ActiveReplicatorContext,
     type ContinuousReplicationRequest,
+    type ContinuousReplicationStartResult,
     type InteractionAuthority,
     type ReplicationFailureRequest,
+    type ReplicationPreparationResult,
     type ReplicationOutcome,
     type ReplicationProgressPresentation,
     type ReplicationReadinessRequirements,
@@ -29,7 +33,10 @@ export interface TypedReplicationCoordinatorDependencies {
         | "runFiniteReplicationActivity"
     >;
     readonly currentSettings: () => ObsidianLiveSyncSettings;
-    readonly checkReadiness: (showMessage: boolean, readiness: ReplicationReadinessRequirements) => Promise<boolean>;
+    readonly checkReadiness: (
+        showMessage: boolean,
+        readiness: ReplicationReadinessRequirements
+    ) => Promise<ReplicationPreparationResult>;
     readonly handleFailure: (request: ReplicationFailureRequest) => Promise<boolean>;
     /**
      * Advance the host's finite-attempt clock after readiness admits dispatch.
@@ -132,6 +139,24 @@ export class TypedReplicationCoordinator {
      * recovery handler.
      */
     async startContinuous(request: ContinuousReplicationRequest): Promise<ReplicationOutcome> {
+        const observer = request.onStartSettled;
+        if (!observer) return await this.admitContinuous(request);
+
+        const settlement = promiseWithResolvers<ContinuousReplicationStartResult>();
+        void settlement.promise.then(observer).catch((error: unknown) => Logger(error, LOG_LEVEL_VERBOSE));
+        try {
+            const admitted = await this.admitContinuous({ ...request, onStartSettled: settlement.resolve });
+            if (admitted.status !== "completed") {
+                settlement.resolve({ status: admitted.status === "cancelled" ? "cancelled" : "failed" });
+            }
+            return admitted;
+        } catch (error) {
+            settlement.resolve({ status: "failed" });
+            throw error;
+        }
+    }
+
+    private async admitContinuous(request: ContinuousReplicationRequest): Promise<ReplicationOutcome> {
         if (request.interaction.kind !== NO_INTERACTION.kind) {
             return replicationBlocked("interaction-required");
         }
@@ -144,12 +169,17 @@ export class TypedReplicationCoordinator {
         if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
             return replicationBlocked(capability.reason);
         }
-        const ready = await this.acquireReadyContext(false, context);
-        if ("status" in ready) return ready;
+        const readiness = await this.dependencies.checkReadiness(false, context.provider.readiness);
+        if (readiness !== true) {
+            request.onStartSettled?.(
+                readiness === false ? { status: "failed" } : { status: "failed", networkFailure: readiness }
+            );
+            return replicationBlocked("not-ready");
+        }
         const setting = Object.freeze(asCopy(this.dependencies.currentSettings()));
         const admitted = await this.dependencies.replicatorService.runWithActiveReplicatorContext(
             async (activeContext) => {
-                if (activeContext !== ready || !isActiveReplicatorContextBoundToSetting(activeContext, setting)) {
+                if (activeContext !== context || !isActiveReplicatorContextBoundToSetting(activeContext, setting)) {
                     return replicationBlocked("not-ready");
                 }
                 try {
@@ -225,13 +255,10 @@ export class TypedReplicationCoordinator {
             : replicationBlocked("no-active-replicator");
     }
 
-    private async acquireReadyContext(
-        showMessage: boolean,
-        contextOverride?: ActiveReplicatorContext
-    ): Promise<ActiveReplicatorContext | ReplicationOutcome> {
-        const context = contextOverride ?? (await this.acquireContext());
+    private async acquireReadyContext(showMessage: boolean): Promise<ActiveReplicatorContext | ReplicationOutcome> {
+        const context = await this.acquireContext();
         if ("status" in context) return context;
-        if (!(await this.dependencies.checkReadiness(showMessage, context.provider.readiness))) {
+        if ((await this.dependencies.checkReadiness(showMessage, context.provider.readiness)) !== true) {
             return replicationBlocked("not-ready");
         }
         return context;

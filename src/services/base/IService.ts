@@ -31,12 +31,12 @@ import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import type { ReactiveSource } from "octagonal-wheels/dataobject/reactive";
-import type { ReplicationStatics } from "@lib/common/models/shared.definition";
+import type { ReplicationStaticsSource } from "./ReplicationStaticsOwner.ts";
 import type { ReplicatorService } from "./ReplicatorService";
 import type { DatabaseEventService } from "./DatabaseEventService";
 import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import type { AsyncActivityOptions } from "@lib/interfaces/AsyncActivityRunner.ts";
-import type { OwnedCouchDBConnection, RemoteConnectionOpenOptions } from "./RemoteConnection.ts";
+import type { CouchDBConnectionOpenResult, OwnedCouchDBConnection, RemoteConnectionOpenOptions } from "./RemoteConnection.ts";
 import type {
     ActiveReplicatorContext,
     ContinuousReplicationRequest,
@@ -314,7 +314,7 @@ export interface IReplicatorService {
      * `ActiveReplicatorContext` before using a Replicator.
      */
     hasActiveReplicator(): boolean;
-    replicationStatics: ReactiveSource<ReplicationStatics>;
+    readonly replicationStatics: ReplicationStaticsSource;
     /** Number of finite remote operations currently in progress. */
     boundedRemoteActivityCount: ReactiveSource<number>;
     /** Number of finite replication operations which can still deliver database documents. */
@@ -435,6 +435,11 @@ export interface IRemoteService {
         getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
         options?: RemoteConnectionOpenOptions
     ): Promise<string | OwnedCouchDBConnection<EntryDoc>>;
+
+    /** Open a remote connection with its original failure available to the caller. */
+    openCouchDBConnection?(
+        ...args: Parameters<IRemoteService["connect"]>
+    ): Promise<CouchDBConnectionOpenResult<EntryDoc>>;
 
     /**
      * State if the last POST request failed due to payload size.

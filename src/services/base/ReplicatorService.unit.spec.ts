@@ -158,6 +158,34 @@ function createProviderFixture(
 }
 
 describe("ReplicatorService lifecycle", () => {
+    it("resets replication statistics to the initial state when replacing a replicator", async () => {
+        let currentSettings = { remoteType: REMOTE_COUCHDB, activeConfigurationId: "profile-a" };
+        const lifecycle = createProviderFixture(() => currentSettings);
+        await lifecycle.realiseSettings();
+
+        const publishedStats = {
+            ...lifecycle.service.replicationStatics.value,
+            statsUpdatedAt: Date.UTC(2026, 10, 19, 12),
+            syncStatus: "COMPLETED" as const,
+        };
+        const now = vi.spyOn(Date, "now").mockReturnValue(42);
+        try {
+            lifecycle.service.replicationStatics.value = publishedStats;
+            expect(lifecycle.service.replicationStatics.value.statsUpdatedAt).toBe(42);
+            now.mockReturnValue(84);
+            expect(lifecycle.service.replicationStatics.value.statsUpdatedAt).toBe(42);
+        } finally {
+            now.mockRestore();
+        }
+        currentSettings = { remoteType: REMOTE_COUCHDB, activeConfigurationId: "profile-b" };
+
+        await expect(lifecycle.realiseSettings()).resolves.toBe(true);
+        expect(lifecycle.service.replicationStatics.value).toMatchObject({
+            syncStatus: "NOT_CONNECTED",
+            statsUpdatedAt: null,
+        });
+    });
+
     it("classifies missing active state without producing the legacy diagnostic", () => {
         const service = createService();
         const showError = vi.spyOn(service._unresolvedErrorManager, "showError");

@@ -1,11 +1,46 @@
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type LOG_LEVEL, type ObsidianLiveSyncSettings } from "@lib/common/types";
 import {
     CENTRAL_REMOTE_REPLICATION_READINESS,
+    observedOfflineReplicationFailure,
+    type ContinuousReplicationNetworkFailure,
     type ReplicationReadinessRequirements,
+    type ReplicationPreparationResult,
 } from "@lib/replication/ReplicatorProvider.ts";
+import { MultiBinder } from "@lib/services/lib/HandlerUtils.ts";
+import { Logger, LOG_LEVEL_VERBOSE } from "@lib/common/logger.ts";
 import { MARK_LOG_NETWORK_ERROR, type LogFunction } from "@lib/services/lib/logUtils";
 import type { MessageTranslator } from "./MessageTranslator.ts";
 import { evaluateReadiness, type ReadinessCondition, type ReadinessEvaluationResult } from "./ReadinessEvaluator.ts";
+
+type PreparationHandler = (
+    showMessage: boolean
+) => ReplicationPreparationResult | Promise<ReplicationPreparationResult>;
+
+class ReplicationPreparationHandlers extends MultiBinder<PreparationHandler> {
+    async evaluate(showMessage: boolean): Promise<ReplicationPreparationResult> {
+        for (const handler of [...this._callbacks]) {
+            try {
+                const decision = await handler(showMessage);
+                if (decision !== true) return decision;
+            } catch (error) {
+                Logger(error, LOG_LEVEL_VERBOSE);
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
+/** Direct legacy callers receive a boolean. Readiness also receives the rejecting handler's observation. */
+export function createReplicationPreparation(name: string) {
+    const handlers = new ReplicationPreparationHandlers(name);
+    const evaluate = handlers.evaluate.bind(handlers);
+    return Object.assign(async (showMessage: boolean) => (await evaluate(showMessage)) === true, {
+        addHandler: handlers.addHandler.bind(handlers),
+        removeHandler: handlers.removeHandler.bind(handlers),
+        evaluate,
+    });
+}
 
 /** State and policy gates consulted without beginning remote preparation. */
 export interface ReplicationReadinessGates {
@@ -19,8 +54,8 @@ export interface ReplicationReadinessGates {
 /** Ordered operational gates which may release or prepare replication work. */
 export interface ReplicationReadinessPreparation {
     readonly commitPendingFileEvents: () => Promise<boolean>;
-    readonly prepareCentralRemote: (showMessage: boolean) => Promise<boolean>;
-    readonly runBeforeReplicate: (showMessage: boolean) => Promise<boolean>;
+    readonly prepareCentralRemote: PreparationHandler;
+    readonly runBeforeReplicate: PreparationHandler;
 }
 
 /** Diagnostic state, presentation, and unresolved-error output for readiness. */
@@ -52,7 +87,7 @@ export interface ReplicationReadinessRequest {
 
 export type ReplicationReadinessEvaluator = (
     context?: ReplicationReadinessRequest
-) => Promise<ReadinessEvaluationResult>;
+) => Promise<ReadinessEvaluationResult<ContinuousReplicationNetworkFailure>>;
 
 /**
  * Compose the ordered readiness conditions shared by replication entry points.
@@ -80,62 +115,63 @@ export function createReplicationReadinessEvaluator(
         }
     };
 
-    const conditions: readonly ReadinessCondition<ReplicationReadinessContext>[] = [
-        {
-            name: "application-ready",
-            evaluate: () => {
-                if (gates.isApplicationReady()) return true;
-                diagnostics.log("Replication is not ready because application initialisation has not completed.");
-                return false;
-            },
-        },
-        {
-            name: "replication-policy-approved",
-            evaluate: ({ showMessage }) => gates.runPolicyChecks(showMessage),
-        },
-        {
-            name: "local-replication-state-ready",
-            evaluate: () => {
-                // Preserve the established settings-read position: after host
-                // policy approval and before cleanup-state evaluation.
-                const currentSettings = gates.currentSettings();
-                if (gates.isCleanupRunning()) {
-                    diagnostics.log(diagnostics.translate("Replicator.Message.Cleaned"), LOG_LEVEL_NOTICE);
+    const conditions: readonly ReadinessCondition<ReplicationReadinessContext, ContinuousReplicationNetworkFailure>[] =
+        [
+            {
+                name: "application-ready",
+                evaluate: () => {
+                    if (gates.isApplicationReady()) return true;
+                    diagnostics.log("Replication is not ready because application initialisation has not completed.");
                     return false;
-                }
-                if (currentSettings.versionUpFlash != "") {
-                    diagnostics.log(diagnostics.translate("Replicator.Message.VersionUpFlash"), LOG_LEVEL_NOTICE);
-                    return false;
-                }
-                return true;
+                },
             },
-        },
-        {
-            name: "pending-file-events-committed",
-            evaluate: () => preparation.commitPendingFileEvents(),
-            onRejected: () => {
-                diagnostics.showError(diagnostics.translate("Replicator.Message.Pending"), LOG_LEVEL_NOTICE);
+            {
+                name: "replication-policy-approved",
+                evaluate: ({ showMessage }) => gates.runPolicyChecks(showMessage),
             },
-        },
-        {
-            name: "network-online",
-            evaluate: () => gates.isOnline(),
-            onRejected: ({ showMessage }) => {
-                diagnostics.showError("Network is offline", showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+            {
+                name: "local-replication-state-ready",
+                evaluate: () => {
+                    // Preserve the established settings-read position: after host
+                    // policy approval and before cleanup-state evaluation.
+                    const currentSettings = gates.currentSettings();
+                    if (gates.isCleanupRunning()) {
+                        diagnostics.log(diagnostics.translate("Replicator.Message.Cleaned"), LOG_LEVEL_NOTICE);
+                        return false;
+                    }
+                    if (currentSettings.versionUpFlash != "") {
+                        diagnostics.log(diagnostics.translate("Replicator.Message.VersionUpFlash"), LOG_LEVEL_NOTICE);
+                        return false;
+                    }
+                    return true;
+                },
             },
-        },
-        {
-            name: "central-remote-prepared",
-            appliesTo: ({ requirements }) => requirements.centralRemotePreparation === "required",
-            evaluate: ({ showMessage }) => preparation.prepareCentralRemote(showMessage),
-            onRejected: reportPreparationFailure,
-        },
-        {
-            name: "general-replication-prepared",
-            evaluate: ({ showMessage }) => preparation.runBeforeReplicate(showMessage),
-            onRejected: reportPreparationFailure,
-        },
-    ];
+            {
+                name: "pending-file-events-committed",
+                evaluate: () => preparation.commitPendingFileEvents(),
+                onRejected: () => {
+                    diagnostics.showError(diagnostics.translate("Replicator.Message.Pending"), LOG_LEVEL_NOTICE);
+                },
+            },
+            {
+                name: "network-online",
+                evaluate: () => gates.isOnline() || observedOfflineReplicationFailure(),
+                onRejected: ({ showMessage }) => {
+                    diagnostics.showError("Network is offline", showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+                },
+            },
+            {
+                name: "central-remote-prepared",
+                appliesTo: ({ requirements }) => requirements.centralRemotePreparation === "required",
+                evaluate: ({ showMessage }) => preparation.prepareCentralRemote(showMessage),
+                onRejected: reportPreparationFailure,
+            },
+            {
+                name: "general-replication-prepared",
+                evaluate: ({ showMessage }) => preparation.runBeforeReplicate(showMessage),
+                onRejected: reportPreparationFailure,
+            },
+        ];
 
     return async (context = {}) => {
         const result = await evaluateReadiness({

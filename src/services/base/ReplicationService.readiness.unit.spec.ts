@@ -204,6 +204,7 @@ describe("createReplicationReadinessEvaluator", () => {
             ready: false,
             purpose: "replication",
             rejectedCondition: "network-online",
+            rejection: { reason: "offline", failedAt: expect.any(Number), hostOnlineAtFailure: false },
         });
         expect(offline.dependencies.diagnostics.showError).toHaveBeenCalledWith("Network is offline", LOG_LEVEL_INFO);
         expect(offline.dependencies.preparation.prepareCentralRemote).not.toHaveBeenCalled();
