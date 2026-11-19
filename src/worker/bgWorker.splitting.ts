@@ -87,6 +87,9 @@ export function _splitPieces2Worker(
             // Tearing down.
             process.finalize();
             writers.delete(_key);
+            responseBuf.delete(_key);
+            removeTask(_key);
+            void reader.cancel().catch((error) => Logger(error, LOG_LEVEL_VERBOSE));
         }
     };
 }

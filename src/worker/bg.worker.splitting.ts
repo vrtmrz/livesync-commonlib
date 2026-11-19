@@ -26,6 +26,15 @@ function getMainThreadPostBack(key: number) {
     };
 }
 
+function readErrorField(error: unknown, field: "name" | "message" | "stack"): string | undefined {
+    try {
+        const value = (error as Partial<Record<typeof field, unknown>> | null | undefined)?.[field];
+        return typeof value === "string" ? value : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 /**
  * Processes the splitting of data into chunks.
  * @param data The data to be split.
@@ -53,11 +62,10 @@ export async function processSplit(data: SplitArguments) {
         }
         emit(END_OF_DATA);
     } catch (error) {
-        const { name, message, stack } =
-            error instanceof Error
-                ? error
-                : new Error(typeof error === "string" ? error : "Background splitting failed");
-        // Preserve DOMException details across the worker boundary.
+        const name = readErrorField(error, "name") ?? "Error";
+        const message =
+            typeof error === "string" ? error : (readErrorField(error, "message") ?? "Background splitting failed");
+        const stack = readErrorField(error, "stack");
         self.postMessage({ key, error: { name, message, stack } } satisfies SplitErrorPayload);
     }
 }

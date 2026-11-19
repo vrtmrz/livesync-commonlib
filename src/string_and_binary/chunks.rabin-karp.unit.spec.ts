@@ -143,12 +143,7 @@ describe("Rabin–Karp input blocks", () => {
 
     it("keeps the UTF-8 character at a forced boundary spanning two input blocks", async () => {
         const text = "\0".repeat(readBlockBytes - 1) + "🙂" + "\0".repeat(3 * readBlockBytes);
-        const factory = await splitPiecesRabinKarp(
-            new Blob([text], { type: "text/plain" }),
-            readBlockBytes,
-            true,
-            20
-        );
+        const factory = await splitPiecesRabinKarp(new Blob([text], { type: "text/plain" }), readBlockBytes, true, 20);
         const chunks: string[] = [];
         for await (const chunk of factory()) {
             chunks.push(chunk);

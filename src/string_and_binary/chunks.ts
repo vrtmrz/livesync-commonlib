@@ -578,8 +578,10 @@ export async function splitPiecesRabinKarp(
         let chunkSize = 0;
 
         function isBoundaryCandidate(): boolean {
-            return chunkSize >= maxChunkSize ||
-                (chunkSize >= minChunkSize && (hash >>> 0) % hashModulus === boundaryPattern);
+            return (
+                chunkSize >= maxChunkSize ||
+                (chunkSize >= minChunkSize && (hash >>> 0) % hashModulus === boundaryPattern)
+            );
         }
 
         function finishChunk(lastPart: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {

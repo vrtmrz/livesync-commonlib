@@ -40,6 +40,34 @@ describe("Rabin–Karp worker splitting failures", () => {
 
     const blockBytes = 1024 * 1024;
     it.each([
+        { stack: { value: () => "non-cloneable" }, name: "RangeError", message: "Could not read range" },
+        {
+            stack: {
+                get() {
+                    throw new Error("Could not read stack");
+                },
+            },
+            name: "Error",
+            message: "Background splitting failed",
+        },
+    ])("reports an error with an unusable stack", async ({ stack, name, message }) => {
+        const error = new RangeError("Could not read range");
+        Object.defineProperty(error, "stack", stack);
+        if (stack.get) {
+            Object.defineProperties(error, { name: { value: Symbol() }, message: { value: 42 } });
+        }
+        const source = new Blob([new Uint8Array(16)]);
+        const range = source.slice();
+        vi.spyOn(source, "slice").mockReturnValue(range);
+        vi.spyOn(range, "arrayBuffer").mockRejectedValue(error);
+
+        const iterator = splitPieces2WorkerRabinKarp(source, 16, false, 16)();
+        await expect(worker.postMessage.mock.results[0].value).resolves.toBeUndefined();
+        await expect(iterator.next()).rejects.toMatchObject({ name, message });
+        expect(tasks.size).toBe(0);
+    });
+
+    it.each([
         { state: "with a pending read", pieceSize: blockBytes, readPending: true },
         { state: "with an unread chunk", pieceSize: blockBytes / 2, readPending: false },
     ])("rejects and clears a failed split $state, then reuses the worker", async ({ pieceSize, readPending }) => {
@@ -86,5 +114,40 @@ describe("Rabin–Karp worker splitting failures", () => {
         expect(worker.postMessage).toHaveBeenCalledTimes(2);
         expect(worker.terminate).not.toHaveBeenCalled();
         expect(tasks.size).toBe(0);
+    });
+
+    it("reuses the worker after a consumer exits while a write is blocked", async () => {
+        const secondWriteStarted = promiseWithResolvers<void>();
+        const write = WritableStreamDefaultWriter.prototype.write;
+        let writes = 0;
+        const writeSpy = vi.spyOn(WritableStreamDefaultWriter.prototype, "write").mockImplementation(function (
+            this: WritableStreamDefaultWriter<string | null>,
+            chunk: string | null
+        ) {
+            const pendingWrite = write.call(this, chunk);
+            if (++writes === 2) {
+                secondWriteStarted.resolve();
+            }
+            return pendingWrite;
+        });
+
+        const pieceSize = blockBytes / 2;
+        const source = new Blob([new Uint8Array(blockBytes)]);
+        const iterator = splitPieces2WorkerRabinKarp(source, pieceSize, false, pieceSize)();
+        const key = worker.postMessage.mock.calls[0][0].data.key;
+        for await (const chunk of iterator) {
+            expect(chunk).toHaveLength(4 * Math.ceil(pieceSize / 3));
+            await secondWriteStarted.promise;
+            expect(typeof writeSpy.mock.calls[1][0]).toBe("string");
+            break;
+        }
+
+        const nextSource = new Blob(["next split"], { type: "text/plain" });
+        const next = splitPieces2WorkerRabinKarp(nextSource, pieceSize, true, pieceSize)();
+        await expect(next.next()).resolves.toEqual({ done: false, value: "next split" });
+        await expect(next.next()).resolves.toEqual({ done: true, value: undefined });
+        expect(tasks.has(key)).toBe(false);
+        expect(tasks.size).toBe(0);
+        expect(worker.terminate).not.toHaveBeenCalled();
     });
 });
