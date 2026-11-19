@@ -122,7 +122,15 @@ function createCouchDBConnection<T extends object>(
     };
 }
 
-const responseBodyReaders = new Set<PropertyKey>(["arrayBuffer", "blob", "bytes", "formData", "json", "text"]);
+const responseBodyReaders = new Set<PropertyKey>([
+    "arrayBuffer",
+    "blob",
+    "buffer",
+    "bytes",
+    "formData",
+    "json",
+    "text",
+]);
 
 /** Capture failures when PouchDB consumes a successful response after fetch has settled. */
 function observeResponseBody(response: Response, captureFailure: (error: unknown) => unknown): Response {

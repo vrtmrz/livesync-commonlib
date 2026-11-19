@@ -371,6 +371,43 @@ describe("RemoteService opening transport failure", () => {
         expect(nativeFetch).not.toHaveBeenCalled();
     });
 
+    it("captures a connection reset while reading a buffered attachment response", async () => {
+        const disconnectError = disconnect();
+        const { service } = createService(async (request) => {
+            const url = typeof request === "string" ? request : request.url;
+            if (url.endsWith("/db/doc/att")) {
+                const response = new Response(new Uint8Array([1, 2, 3]), {
+                    status: 200,
+                    headers: { "content-type": "application/octet-stream" },
+                }) as Response & { buffer(): Promise<Buffer> };
+                Object.defineProperty(response, "buffer", {
+                    configurable: true,
+                    value: async () => {
+                        throw disconnectError;
+                    },
+                });
+                return response;
+            }
+            return createDatabaseInfoResponse();
+        });
+
+        const connection = await connect(service);
+        let error: unknown;
+        try {
+            await connection.db.getAttachment("doc", "att");
+        } catch (caught) {
+            error = caught;
+        } finally {
+            await (connection as typeof connection & { close(): Promise<void> }).close();
+        }
+
+        expect(getReplicationNetworkFailure(error)).toEqual({
+            reason: "remote-transport",
+            hostOnlineAtFailure: true,
+            failedAt: expect.any(Number),
+        });
+    });
+
     it("keeps malformed successful CouchDB info separate from network failures", async () => {
         const { service } = createService(async () => new Response("{invalid", { status: 200 }));
 

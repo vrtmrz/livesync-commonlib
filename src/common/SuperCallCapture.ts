@@ -64,6 +64,10 @@ export class SuperCallCapture<T> {
         const capture = this;
         function wrapped(this: object, ...args: Args): Promise<R> {
             const call = () => Reflect.apply(original, this, args);
+            if (capture.context) {
+                // Direct calls start a fresh scope so a re-entrant check cannot consume an outer recorder.
+                return Reflect.get(this, method) === wrapped ? capture.context.run({ owner: this }, call) : call();
+            }
             // An ancestor reached via super belongs to the current invocation.
             if (Reflect.get(this, method) !== wrapped) {
                 const frame = capture.currentFrame();
@@ -92,10 +96,14 @@ export class SuperCallCapture<T> {
                 delegated.value = value;
             },
         };
+        const original = this.originals.get(override) as typeof override | undefined;
+        const call = () => Reflect.apply(original ?? override, owner, args);
+        // Install the direct-call boundary after subclass fields have been initialised.
+        const instrumented = Boolean(original) || this.instrumentReceiver(owner, override);
         if (this.context) {
             const result = await this.context.run(frame, async () => {
                 try {
-                    return await Reflect.apply(override, owner, args);
+                    return await call();
                 } finally {
                     frame.recorder = undefined;
                 }
@@ -103,12 +111,9 @@ export class SuperCallCapture<T> {
             return { result, delegated };
         }
 
-        const original = this.originals.get(override) as typeof override | undefined;
-        const call = () => Reflect.apply(original ?? override, owner, args);
         const name = `${this.prefix}${++this.nextFrameId}__`;
         frame.name = name;
-        // Install the direct-call boundary after subclass fields have been initialised.
-        if (original || this.instrumentReceiver(owner, override)) {
+        if (instrumented) {
             this.frames.set(name, frame);
         }
         try {

@@ -130,38 +130,41 @@ describe("SuperCallCapture", () => {
         }
     });
 
-    it("shields a re-entrant call and an instrumented ancestor from the outer recorder", async () => {
-        const capture = createFallbackCapture();
-        class Base {
-            async legacy(value: string) {
-                capture.takeRecorder(this)?.(value);
-                return value;
-            }
-        }
-        class Parent extends Base {
-            override async legacy(value: string) {
-                await Promise.resolve();
-                return super.legacy(value);
-            }
-        }
-        const parent = new Parent();
-        const owner = new (class extends Parent {
-            override async legacy(value: string) {
-                if (value === "outer") {
-                    await Promise.resolve();
-                    expect(await this.legacy("inner")).toBe("inner");
+    it.each([false, true])(
+        "shields a re-entrant call and an instrumented ancestor from the outer recorder (fallback: %s)",
+        async (fallback) => {
+            const capture = fallback ? createFallbackCapture() : new SuperCallCapture<string>("legacy");
+            class Base {
+                async legacy(value: string) {
+                    capture.takeRecorder(this)?.(value);
+                    return value;
                 }
-                return super.legacy(value);
             }
-        })();
+            class Parent extends Base {
+                override async legacy(value: string) {
+                    await Promise.resolve();
+                    return super.legacy(value);
+                }
+            }
+            const parent = new Parent();
+            const owner = new (class extends Parent {
+                override async legacy(value: string) {
+                    if (value === "outer") {
+                        await Promise.resolve();
+                        expect(await this.legacy("inner")).toBe("inner");
+                    }
+                    return super.legacy(value);
+                }
+            })();
 
-        await expect(capture.invoke(parent, parent.legacy, "parent")).resolves.toEqual({
-            result: "parent",
-            delegated: { value: "parent" },
-        });
-        await expect(capture.invoke(owner, owner.legacy, "outer")).resolves.toEqual({
-            result: "outer",
-            delegated: { value: "outer" },
-        });
-    });
+            await expect(capture.invoke(parent, parent.legacy, "parent")).resolves.toEqual({
+                result: "parent",
+                delegated: { value: "parent" },
+            });
+            await expect(capture.invoke(owner, owner.legacy, "outer")).resolves.toEqual({
+                result: "outer",
+                delegated: { value: "outer" },
+            });
+        }
+    );
 });
