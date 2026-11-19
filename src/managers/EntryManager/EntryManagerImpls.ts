@@ -90,7 +90,7 @@ export async function createChunks(
             log(`No chunks to flush for ${dispFilename}`, LOG_LEVEL_VERBOSE);
             return true;
         }
-        const writeBuf = [...bufferedChunk];
+        const writeBuf = bufferedChunk;
         bufferedSize = 0;
         bufferedChunk = [];
         const result = await chunkManager.write(
