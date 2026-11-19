@@ -854,8 +854,7 @@ describe("LiveSyncCouchDBReplicator remote preferred tweak values", () => {
 
 function createContinuousTestReplicator(localDatabase: object, Replicator = LiveSyncCouchDBReplicator) {
     const runFiniteReplicationActivity = vi.fn(async <T>(task: () => Promise<T>) => await task());
-    const replicator = Object.create(Replicator.prototype) as LiveSyncCouchDBReplicator;
-    replicator.env = {
+    const env = {
         services: {
             API: { addLog: Logger },
             context: createServiceContext(),
@@ -863,8 +862,7 @@ function createContinuousTestReplicator(localDatabase: object, Replicator = Live
             replicator: { runFiniteReplicationActivity },
         },
     } as unknown as LiveSyncCouchDBReplicator["env"];
-    replicator.docArrived = 0;
-    replicator.docSent = 0;
+    const replicator = new Replicator(env);
     replicator.updateInfo = vi.fn();
     return { replicator, runFiniteReplicationActivity };
 }
@@ -1159,8 +1157,14 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         "observes the actual continuous startup through a delegating openReplication override (%s)",
         async (status) => {
             class DelegatingReplicator extends LiveSyncCouchDBReplicator {
+                #calls = 0;
+
                 override async openReplication(...args: Parameters<LiveSyncCouchDBReplicator["openReplication"]>) {
+                    expect(++this.#calls).toBe(1);
+                    expect(this).toBe(replicator);
                     await Promise.resolve();
+                    expect(++this.#calls).toBe(2);
+                    expect(this).toBe(replicator);
                     return await super.openReplication(...args);
                 }
             }

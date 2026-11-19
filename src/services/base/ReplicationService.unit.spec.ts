@@ -492,7 +492,18 @@ describe("ReplicationService typed provider roles", () => {
     it("settles an offline continuous start for that request without dispatching the provider", async () => {
         const { dependencies, openReplication } = createTypedDependencies();
         dependencies.APIService.isOnline = false;
-        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const service = new (class extends TestReplicationService {
+            #calls = 0;
+
+            override async isReplicationReady(showMessage?: boolean): Promise<boolean> {
+                expect(++this.#calls).toBe(1);
+                expect(this).toBe(service);
+                await Promise.resolve();
+                expect(++this.#calls).toBe(2);
+                expect(this).toBe(service);
+                return super.isReplicationReady(showMessage);
+            }
+        })(new ServiceContext(), dependencies);
         const onStartSettled = vi.fn();
         const request = { trigger: "resume", interaction: NO_INTERACTION, onStartSettled } as const;
 

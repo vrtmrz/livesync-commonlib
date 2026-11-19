@@ -221,9 +221,15 @@ describe("RemoteService opening transport failure", () => {
     it("allows a subclass connect override to delegate to the default without opening twice", async () => {
         const called = vi.fn();
         class DelegatingRemoteService extends TestRemoteService {
+            #calls = 0;
+
             override async connect(...args: Parameters<RemoteService["connect"]>) {
+                expect(++this.#calls).toBe(1);
+                expect(this).toBe(service);
                 called();
                 await Promise.resolve();
+                expect(++this.#calls).toBe(2);
+                expect(this).toBe(service);
                 return super.connect(...args);
             }
         }
