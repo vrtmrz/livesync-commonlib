@@ -28,6 +28,7 @@ export interface StorageEventAdmissionEffects {
     isFolder(file: FileEvent["file"]): boolean;
     isFile(file: FileEvent["file"]): boolean;
     isTarget(path: string): Promise<boolean>;
+    isTargetInternal?(path: string): Promise<boolean>;
     isTooLarge(size: number): boolean;
     recentlyTouched: IStorageAccessManager["recentlyTouched"];
     onStorageFileEvent(): void;
@@ -142,7 +143,12 @@ async function selectOrdinaryEvent(
     settings: ObsidianLiveSyncSettings,
     effects: StorageEventAdmissionEffects
 ): Promise<SelectedFileEvent | null> {
-    if (!(await isSelectedPath(param.file.path, settings, effects))) return null;
+    const path = param.file.path;
+    const selected =
+        param.type === "INTERNAL" && effects.isTargetInternal
+            ? !shouldBeIgnored(path) && (await effects.isTargetInternal(path))
+            : await isSelectedPath(path, settings, effects);
+    if (!selected) return null;
     if (param.type !== "INTERNAL") {
         const size = (param.file as UXFileInfoStub).stat.size;
         if (effects.isTooLarge(size) && (param.type === "CREATE" || param.type === "CHANGED")) {

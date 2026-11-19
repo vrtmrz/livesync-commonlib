@@ -1914,4 +1914,22 @@ describe("EntryManagerImpls", () => {
             }
         });
     });
+
+    describe("isTargetFile internalFileEvent option", () => {
+        it("skips ordinary-file allow-list and hidden-file disablement while retaining common exclusions", () => {
+            const { mockSettingService, mockPathService } = createMockServices();
+            mockSettingService.currentSettings = vi.fn(() => ({
+                ...DEFAULT_SETTINGS,
+                syncInternalFiles: false,
+                syncOnlyRegEx: "^notes/",
+                syncIgnoreRegEx: "secret\\.json$",
+            }));
+            const host = createHost(mockSettingService, mockPathService);
+
+            expect(isTargetFile(host, ".obsidian/appearance.json", false)).toBe(false);
+            expect(isTargetFile(host, ".obsidian/appearance.json", true)).toBe(true);
+            expect(isTargetFile(host, ".obsidian/secret.json", true)).toBe(false);
+            expect(isTargetFile(host, "h:chunk-id", true)).toBe(false);
+        });
+    });
 });

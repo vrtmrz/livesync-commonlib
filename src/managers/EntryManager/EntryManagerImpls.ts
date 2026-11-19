@@ -340,7 +340,11 @@ async function putDBEntryInternal(
     log(`Document saved: ${dispFilename} (${result.id.substring(0, 8)}-${result.rev})`, LOG_LEVEL_VERBOSE);
     return result;
 }
-export function isTargetFile(host: NecessaryServicesInterfaces<"setting", never>, filenameSrc: string) {
+export function isTargetFile(
+    host: NecessaryServicesInterfaces<"setting", never>,
+    filenameSrc: string,
+    internalFileEvent = false
+) {
     const settings = host.services.setting.currentSettings();
     const isInternalFile = filenameSrc.startsWith(ICHeader);
     const file = isInternalFile ? filenameSrc.substring(ICHeader.length) : filenameSrc;
@@ -349,12 +353,12 @@ export function isTargetFile(host: NecessaryServicesInterfaces<"setting", never>
     if (file.startsWith(IDPrefixes.Chunk) || file.startsWith(IDPrefixes.Obfuscated)) {
         return false;
     }
-    if (!settings.syncInternalFiles) {
+    if (!internalFileEvent && !settings.syncInternalFiles) {
         if (file.startsWith(".")) {
             return false;
         }
     }
-    if (!isInternalFile && settings.syncOnlyRegEx) {
+    if (!internalFileEvent && !isInternalFile && settings.syncOnlyRegEx) {
         const syncOnly = getFileRegExp(settings, "syncOnlyRegEx");
         if (syncOnly.length > 0 && !syncOnly.some((e) => e.test(file))) return false;
     }

@@ -60,6 +60,43 @@ function admissionFixture() {
 }
 
 describe("exported storage-event boundary decisions", () => {
+    it("uses the opt-in selector only for internal events", async () => {
+        const f = admissionFixture();
+        f.effects.settings = () => ({ ...DEFAULT_SETTINGS, isConfigured: true, syncInternalFiles: false });
+        f.effects.isTargetInternal = vi.fn(async () => true);
+        const file = {
+            path: ".obsidian/appearance.json" as FilePath,
+            name: "appearance.json",
+            isInternal: true as const,
+        };
+
+        await admitStorageEvents(f.state, [{ type: "INTERNAL", file }], undefined, f.effects);
+        expect(f.effects.isTargetInternal).toHaveBeenCalledExactlyOnceWith(file.path);
+        expect(f.effects.enqueue).toHaveBeenCalledWith(expect.objectContaining({ type: "INTERNAL" }));
+        expect(f.effects.isTarget).not.toHaveBeenCalled();
+
+        await admitStorageEvents(f.state, [notification()], undefined, f.effects);
+        expect(f.effects.isTarget).toHaveBeenCalledExactlyOnceWith("new.md");
+        expect(f.effects.isTargetInternal).toHaveBeenCalledOnce();
+    });
+
+    it("retains protected paths and the existing admission of unconnected hosts", async () => {
+        const f = admissionFixture();
+        f.effects.settings = () => ({ ...DEFAULT_SETTINGS, isConfigured: true, syncInternalFiles: false });
+        const event = {
+            type: "INTERNAL" as const,
+            file: { path: ".obsidian/appearance.json" as FilePath, name: "appearance.json", isInternal: true as const },
+        };
+        await admitStorageEvents(f.state, [event], undefined, f.effects);
+        expect(f.effects.enqueue).not.toHaveBeenCalled();
+
+        f.effects.isTargetInternal = vi.fn(async () => true);
+        event.file.path = "redflag.md" as FilePath;
+        await admitStorageEvents(f.state, [event], undefined, f.effects);
+        expect(f.effects.isTargetInternal).not.toHaveBeenCalled();
+        expect(f.effects.enqueue).not.toHaveBeenCalled();
+    });
+
     it.each([
         [false, false, null],
         [false, true, "CREATE"],
