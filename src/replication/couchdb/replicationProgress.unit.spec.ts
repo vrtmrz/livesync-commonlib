@@ -1,7 +1,14 @@
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import Replication from "pouchdb-replication";
-import { DEFAULT_SETTINGS, type EntryDoc, type RemoteDBSettings } from "@lib/common/types.ts";
+import {
+    DEFAULT_SETTINGS,
+    type EntryDoc,
+    type EntryLeaf,
+    type DocumentID,
+    type RemoteDBSettings,
+} from "@lib/common/types.ts";
 import { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -111,18 +118,22 @@ describe("PouchDB checkpoint observation through processSync", () => {
         const { replicator, statistics } = fixture(local);
         try {
             await remote.bulkDocs(
-                Array.from({ length: 30 }, (_, i) => ({
-                    _id: `h:known-${i}`,
-                    type: "leaf",
-                    data: `known ${i}`,
-                })) as EntryDoc[]
+                Array.from(
+                    { length: 30 },
+                    (_, i) =>
+                        ({
+                            _id: `h:known-${i}` as DocumentID,
+                            type: "leaf",
+                            data: `known ${i}`,
+                        }) satisfies EntryLeaf
+                )
             );
             const existing = await remote.allDocs({ include_docs: true });
             await local.bulkDocs(
                 existing.rows.map((row) => row.doc!),
                 { new_edits: false }
             );
-            await remote.put({ _id: "h:missing", type: "leaf", data: "new content" } as EntryDoc);
+            await remote.put({ _id: "h:missing" as DocumentID, type: "leaf", data: "new content" } satisfies EntryLeaf);
             const revisions = local.revsDiff.bind(local);
             let comparisons = 0;
             let comparedEntries = 0;
@@ -166,11 +177,15 @@ describe("PouchDB checkpoint observation through processSync", () => {
         try {
             if (count)
                 await remote.bulkDocs(
-                    Array.from({ length: count }, (_, i) => ({
-                        _id: `h:new-${i}`,
-                        type: "leaf",
-                        data: String(i),
-                    })) as EntryDoc[]
+                    Array.from(
+                        { length: count },
+                        (_, i) =>
+                            ({
+                                _id: `h:new-${i}` as DocumentID,
+                                type: "leaf",
+                                data: String(i),
+                            }) satisfies EntryLeaf
+                    )
                 );
             const sync = local.replicate.from(remote, { batch_size: 2 });
             await expect(replicator.processSync(sync, false, 0, 0, "pullOnly", false)).resolves.toBe("DONE");
@@ -278,8 +293,8 @@ describe("checkpoint publication lifetime", () => {
 
     it("leaves the phase idle when cancelled before the catch-up controller exists", async () => {
         const { replicator, statistics } = fixture();
-        const seedStarted = Promise.withResolvers<void>();
-        const seed = Promise.withResolvers<Uint8Array<ArrayBuffer>>();
+        const seedStarted = promiseWithResolvers<void>();
+        const seed = promiseWithResolvers<Uint8Array<ArrayBuffer>>();
         vi.spyOn(replicator, "getReplicationPBKDF2Salt").mockImplementation(() => {
             seedStarted.resolve();
             return seed.promise;

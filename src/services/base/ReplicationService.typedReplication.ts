@@ -4,6 +4,7 @@ import type { ObsidianLiveSyncSettings } from "@lib/common/types.ts";
 import {
     CAPABILITY_SUPPORT_KINDS,
     NO_INTERACTION,
+    REPLICATION_CANCELLED,
     REPLICATION_PROGRESS_PRESENTATIONS,
     isActiveReplicatorContextBoundToSetting,
     replicationBlocked,
@@ -61,6 +62,7 @@ export interface TypedReplicationCoordinatorDependencies {
  */
 export class TypedReplicationCoordinator {
     private oneShotInProgress = false;
+    private continuousStopGeneration = 0;
 
     constructor(private readonly dependencies: TypedReplicationCoordinatorDependencies) {}
 
@@ -139,13 +141,18 @@ export class TypedReplicationCoordinator {
      * recovery handler.
      */
     async startContinuous(request: ContinuousReplicationRequest): Promise<ReplicationOutcome> {
+        const generation = this.continuousStopGeneration;
+        const isCancelled = () => generation !== this.continuousStopGeneration;
         const observer = request.onStartSettled;
-        if (!observer) return await this.admitContinuous(request);
+        if (!observer) return await this.admitContinuous(request, isCancelled);
 
         const settlement = promiseWithResolvers<ContinuousReplicationStartResult>();
         void settlement.promise.then(observer).catch((error: unknown) => Logger(error, LOG_LEVEL_VERBOSE));
         try {
-            const admitted = await this.admitContinuous({ ...request, onStartSettled: settlement.resolve });
+            const admitted = await this.admitContinuous(
+                { ...request, onStartSettled: settlement.resolve },
+                isCancelled
+            );
             if (admitted.status !== "completed") {
                 settlement.resolve({ status: admitted.status === "cancelled" ? "cancelled" : "failed" });
             }
@@ -156,11 +163,17 @@ export class TypedReplicationCoordinator {
         }
     }
 
-    private async admitContinuous(request: ContinuousReplicationRequest): Promise<ReplicationOutcome> {
+    private async admitContinuous(
+        request: ContinuousReplicationRequest,
+        isCancelled: () => boolean
+    ): Promise<ReplicationOutcome> {
         if (request.interaction.kind !== NO_INTERACTION.kind) {
             return replicationBlocked("interaction-required");
         }
         const context = await this.acquireContext();
+        if (isCancelled()) {
+            return REPLICATION_CANCELLED;
+        }
         if ("status" in context) return context;
 
         // Capability support is checked before readiness so an inapplicable
@@ -169,7 +182,18 @@ export class TypedReplicationCoordinator {
         if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
             return replicationBlocked(capability.reason);
         }
-        const readiness = await this.dependencies.checkReadiness(false, context.provider.readiness);
+        let readiness: ReplicationPreparationResult;
+        try {
+            readiness = await this.dependencies.checkReadiness(false, context.provider.readiness);
+        } catch (error) {
+            if (isCancelled()) {
+                return REPLICATION_CANCELLED;
+            }
+            throw error;
+        }
+        if (isCancelled()) {
+            return REPLICATION_CANCELLED;
+        }
         if (readiness !== true) {
             request.onStartSettled?.(
                 readiness === false ? { status: "failed" } : { status: "failed", networkFailure: readiness }
@@ -179,6 +203,9 @@ export class TypedReplicationCoordinator {
         const setting = Object.freeze(asCopy(this.dependencies.currentSettings()));
         const admitted = await this.dependencies.replicatorService.runWithActiveReplicatorContext(
             async (activeContext) => {
+                if (isCancelled()) {
+                    return REPLICATION_CANCELLED;
+                }
                 if (activeContext !== context || !isActiveReplicatorContextBoundToSetting(activeContext, setting)) {
                     return replicationBlocked("not-ready");
                 }
@@ -200,6 +227,7 @@ export class TypedReplicationCoordinator {
      * not a request to begin new remote work.
      */
     async stopActiveTransfer(): Promise<ReplicationOutcome> {
+        this.continuousStopGeneration++;
         const context = await this.acquireContext();
         if ("status" in context) return context;
 

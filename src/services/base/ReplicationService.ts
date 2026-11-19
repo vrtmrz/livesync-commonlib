@@ -236,8 +236,14 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             },
             preparation: {
                 commitPendingFileEvents: () => this.fileProcessing.commitPendingFileEvents(),
-                prepareCentralRemote: this.onPrepareCentralRemoteReplication.evaluate,
-                runBeforeReplicate: this.onBeforeReplicate.evaluate,
+                prepareCentralRemote: (showMessage) =>
+                    this.onPrepareCentralRemoteReplication === this._prepareCentralRemote.invoke
+                        ? this._prepareCentralRemote.evaluate(showMessage)
+                        : this.onPrepareCentralRemoteReplication(showMessage),
+                runBeforeReplicate: (showMessage) =>
+                    this.onBeforeReplicate === this._beforeReplicate.invoke
+                        ? this._beforeReplicate.evaluate(showMessage)
+                        : this.onBeforeReplicate(showMessage),
             },
             diagnostics: {
                 getUnresolvedMessages: () => this.appLifecycleService.getUnresolvedMessages(),
@@ -251,6 +257,9 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             replicatorService: this.replicatorService,
             currentSettings: () => this.settingService.currentSettings(),
             checkReadiness: async (showMessage, requirements) => {
+                if (this.isReplicationReady !== ReplicationService.prototype.isReplicationReady) {
+                    return await this.isReplicationReady(showMessage, requirements);
+                }
                 const decision = await this._evaluateReadiness({ showMessage, requirements });
                 return decision.ready === true ? true : (decision.rejection ?? false);
             },
@@ -281,17 +290,21 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      */
     readonly processVirtualDocument = handlers<IReplicationService>().anySuccess("processVirtualDocument");
 
+    private readonly _beforeReplicate = createReplicationPreparation("onBeforeReplicate");
+
     /**
      * An event triggered before starting replication.
      */
-    readonly onBeforeReplicate = createReplicationPreparation("onBeforeReplicate");
+    readonly onBeforeReplicate = this._beforeReplicate.invoke;
 
     readonly onFiniteReplicationCompleted = handlers<IReplicationService>().allSettled("onFiniteReplicationCompleted");
 
     readonly onFileReflectionFailed = handlers<IReplicationService>().allOrThrow("onFileReflectionFailed");
 
+    private readonly _prepareCentralRemote = createReplicationPreparation("onPrepareCentralRemoteReplication");
+
     /** Provider preparation which applies only to the central remote. */
-    readonly onPrepareCentralRemoteReplication = createReplicationPreparation("onPrepareCentralRemoteReplication");
+    readonly onPrepareCentralRemoteReplication = this._prepareCentralRemote.invoke;
 
     /**
      * Lightweight, repeatable policy checks shared by every replication entry point.

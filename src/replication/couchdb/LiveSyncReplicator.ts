@@ -465,6 +465,13 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     async startContinuousReplication(setting: RemoteDBSettings, onStartSettled: SettleContinuousStart) {
+        if (this.openReplication !== LiveSyncCouchDBReplicator.prototype.openReplication) {
+            const opened = await this.openReplication(setting, true, false, false);
+            if (opened !== false) {
+                onStartSettled({ status: "started" });
+            }
+            return opened;
+        }
         if (!this.nodeid) return false;
         void this.openContinuousReplication(setting, false, false, onStartSettled);
     }
@@ -666,6 +673,16 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return outcome instanceof UnsupportedEncryptedDocumentFormatError ? outcome : outcome.action;
     }
 
+    private async processSyncWithOutcome(
+        ...args: Parameters<LiveSyncCouchDBReplicator["processSync"]>
+    ): Promise<SyncTransferResult> {
+        if (this.processSync !== LiveSyncCouchDBReplicator.prototype.processSync) {
+            const outcome = await this.processSync(...args);
+            return outcome instanceof UnsupportedEncryptedDocumentFormatError ? outcome : { action: outcome };
+        }
+        return await this.runSyncTransfer(...args);
+    }
+
     private async runSyncTransfer(
         syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>,
         showResult: boolean,
@@ -673,7 +690,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         docArrivedOnStart: number,
         syncMode: "sync" | "pullOnly" | "pushOnly",
         retrying: boolean,
-        reportCancelledAsDone: boolean
+        reportCancelledAsDone = true
     ): Promise<SyncTransferResult> {
         const databaseOwner = this.env.services.database?.localDatabaseDirect;
         const controller = new AbortController();
@@ -1110,7 +1127,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 if (cancellationRequested()) {
                     return COUCHDB_REPLICATION_FAILED;
                 }
-                const seed = await this.prepareSecuritySeed(setting, showResult, false);
+                const seed = await this.prepareOneShotSecuritySeed(setting, showResult);
                 if (cancellationRequested()) {
                     return COUCHDB_REPLICATION_FAILED;
                 }
@@ -1185,7 +1202,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                               : syncMode == "pushOnly"
                                 ? localDB.replicate.to(db, { ...syncOptionBase })
                                 : (undefined as never);
-                    const syncResult = await this.runSyncTransfer(
+                    const syncResult = await this.processSyncWithOutcome(
                         syncHandler,
                         showResult,
                         docSentOnStart,
@@ -1272,6 +1289,17 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return typeof next === "function" ? await next() : next;
     }
 
+    private async prepareOneShotSecuritySeed(
+        setting: RemoteDBSettings,
+        showResult: boolean
+    ): ReturnType<LiveSyncCouchDBReplicator["prepareSecuritySeed"]> {
+        if (this.ensurePBKDF2Salt !== LiveSyncAbstractReplicator.prototype.ensurePBKDF2Salt) {
+            const ready = await this.ensurePBKDF2Salt(setting, showResult, false);
+            return ready ? { ready } : { ready, error: undefined };
+        }
+        return await this.prepareSecuritySeed(setting, showResult, false);
+    }
+
     private async checkOneShotReplicationConnectivity(
         setting: RemoteDBSettings,
         skipCheck: boolean,
@@ -1283,9 +1311,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         // Keep its existing behaviour until the host can honour AbortSignal.
         if (setting.useRequestAPI) {
             if (!recordCompatibilityDecision) {
-                return await this.openReplicationConnection(setting, false, skipCheck, showResult, ignoreCleanLock);
+                return await this.checkReplicationConnectivityWithOutcome(
+                    setting,
+                    false,
+                    skipCheck,
+                    showResult,
+                    ignoreCleanLock
+                );
             }
-            return await this.openReplicationConnection(
+            return await this.checkReplicationConnectivityWithOutcome(
                 setting,
                 false,
                 skipCheck,
@@ -1303,7 +1337,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             timeoutMs
         );
         try {
-            return await this.openReplicationConnection(
+            return await this.checkReplicationConnectivityWithOutcome(
                 setting,
                 false,
                 skipCheck,
@@ -1408,6 +1442,16 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return "status" in opened ? false : opened;
     }
 
+    private async checkReplicationConnectivityWithOutcome(
+        ...args: Parameters<LiveSyncCouchDBReplicator["checkReplicationConnectivity"]>
+    ): Promise<CouchDBReplicationConnection | CouchDBReplicationFailure> {
+        if (this.checkReplicationConnectivity !== LiveSyncCouchDBReplicator.prototype.checkReplicationConnectivity) {
+            const connection = await this.checkReplicationConnectivity(...args);
+            return connection === false ? COUCHDB_REPLICATION_FAILED : connection;
+        }
+        return await this.openReplicationConnection(...args);
+    }
+
     private async openReplicationConnection(
         setting: RemoteDBSettings,
         keepAlive: boolean,
@@ -1432,7 +1476,13 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
         let dbRet: CouchDBConnectionOpenResult<EntryDoc>;
         try {
-            dbRet = await this.openRemoteCouchDBWithSetting(setting, this.isMobile(), true, false, connectionOptions);
+            dbRet = await this.connectRemoteCouchDBWithOutcome(
+                setting,
+                this.isMobile(),
+                true,
+                false,
+                connectionOptions
+            );
         } catch (ex) {
             if (this.reportConnectivityPreflightTimeout(connectionOptions, showResult, ex)) {
                 return couchDBReplicationFailure(getReplicationNetworkFailure(ex));
@@ -1682,6 +1732,26 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         this.continuousStopRequested = false;
     }
 
+    private async runContinuousCatchUp(
+        setting: RemoteDBSettings,
+        showResult: boolean
+    ): Promise<OneShotReplicationExecution> {
+        const args: Parameters<LiveSyncCouchDBReplicator["openOneShotReplication"]> = [
+            setting,
+            showResult,
+            false,
+            "pullOnly",
+            false,
+            undefined,
+            () => this.continuousStopRequested,
+        ];
+        if (this.openOneShotReplication !== LiveSyncCouchDBReplicator.prototype.openOneShotReplication) {
+            const caughtUp = await this.openOneShotReplication(...args);
+            return caughtUp ? true : COUCHDB_REPLICATION_FAILED;
+        }
+        return await this.runOneShotReplication(...args);
+    }
+
     private async runContinuousReplication(
         setting: RemoteDBSettings,
         showResult: boolean,
@@ -1703,22 +1773,13 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             const localDB = localOwner.localDatabase;
             this.log(this.translate("liveSyncReplicator.beforeLiveSync"));
             const caughtUp = await this.env.services.replicator.runFiniteReplicationActivity(
-                () =>
-                    this.runOneShotReplication(
-                        setting,
-                        showResult,
-                        false,
-                        "pullOnly",
-                        false,
-                        undefined,
-                        () => this.continuousStopRequested
-                    ),
+                () => this.runContinuousCatchUp(setting, showResult),
                 { label: "replication" }
             );
             if (caughtUp === true && !this.continuousStopRequested) {
                 this.publishPreparationPhase("continuous");
                 this.log(this.translate("liveSyncReplicator.liveSyncBegin"));
-                const ret = await this.openReplicationConnection(setting, true, false, showResult);
+                const ret = await this.checkReplicationConnectivityWithOutcome(setting, true, false, showResult);
                 if ("status" in ret) {
                     if (!this.continuousStopRequested) {
                         this.log(
@@ -1987,11 +2048,21 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return "error" in opened ? opened.error.message : opened;
     }
 
+    private async connectRemoteCouchDBWithOutcome(
+        ...args: Parameters<LiveSyncCouchDBReplicator["connectRemoteCouchDBWithSetting"]>
+    ): Promise<CouchDBConnectionOpenResult<EntryDoc>> {
+        if (this.connectRemoteCouchDBWithSetting !== LiveSyncCouchDBReplicator.prototype.connectRemoteCouchDBWithSetting) {
+            const opened = await this.connectRemoteCouchDBWithSetting(...args);
+            return typeof opened === "string" ? { error: new Error(opened) } : opened;
+        }
+        return await this.openRemoteCouchDBWithSetting(...args);
+    }
+
     private async openRemoteCouchDBWithSetting(
         settings: RemoteDBSettings,
         isMobile: boolean,
-        performSetup: boolean,
-        skipInfo: boolean,
+        performSetup: boolean = false,
+        skipInfo: boolean = false,
         connectionOptions?: RemoteConnectionOpenOptions
     ): Promise<CouchDBConnectionOpenResult<EntryDoc>> {
         if (settings.encrypt && settings.passphrase === "" && !settings.permitEmptyPassphrase) {
@@ -2047,7 +2118,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         settings: RemoteDBSettings,
         performSetup: boolean = false
     ): Promise<OwnedCouchDBConnection<T>> {
-        const ret = await this.openRemoteCouchDBWithSetting(settings, this.isMobile(), performSetup, true);
+        const ret = await this.connectRemoteCouchDBWithOutcome(settings, this.isMobile(), performSetup, true);
         if ("error" in ret) {
             throw new Error(`${this.translate("liveSyncReplicator.couldNotConnectToServer")}:${ret.error.message}`, {
                 cause: ret.error,

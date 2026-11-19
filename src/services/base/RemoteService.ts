@@ -124,6 +124,36 @@ function createCouchDBConnection<T extends object>(
     };
 }
 
+const responseBodyReaders = new Set<PropertyKey>(["arrayBuffer", "blob", "bytes", "formData", "json", "text"]);
+
+/** Capture failures when PouchDB consumes a successful response after fetch has settled. */
+function observeResponseBody(response: Response, captureFailure: (error: unknown) => unknown): Response {
+    if (!response.ok) {
+        return response;
+    }
+    return new Proxy(response, {
+        get(target, property) {
+            if (property === "clone") {
+                return () => observeResponseBody(target.clone(), captureFailure);
+            }
+            const member: unknown = Reflect.get(target, property);
+            if (typeof member !== "function" || property === "constructor") {
+                return member;
+            }
+            if (!responseBodyReaders.has(property)) {
+                return member.bind(target);
+            }
+            return async () => {
+                try {
+                    return await Reflect.apply(member, target, []);
+                } catch (error) {
+                    throw captureFailure(error);
+                }
+            };
+        },
+    });
+}
+
 export interface RemoteServiceDependencies {
     /** PouchDB with the HTTP adapter required by the host runtime already registered. */
     pouchDB: PouchDBConstructor;
@@ -248,11 +278,21 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
      * transfer ownership or call `close()`.
      */
     async connect(...args: Parameters<IRemoteService["connect"]>): Promise<string | OwnedCouchDBConnection<EntryDoc>> {
-        const opened = await this.openCouchDBConnection(...args);
+        const opened = await this.openConnection(...args);
         return "error" in opened ? opened.error.message : opened;
     }
 
     async openCouchDBConnection(
+        ...args: Parameters<IRemoteService["connect"]>
+    ): Promise<CouchDBConnectionOpenResult<EntryDoc>> {
+        if (this.connect !== RemoteService.prototype.connect) {
+            const opened = await this.connect(...args);
+            return typeof opened === "string" ? { error: new Error(opened) } : opened;
+        }
+        return await this.openConnection(...args);
+    }
+
+    private async openConnection(
         uri: string,
         auth: CouchDBCredentials,
         disableRequestURI: boolean,
@@ -329,12 +369,15 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                     }
                     const cachedRequest = await prepareCachedRequest(requestSrc, opts);
                     const signal = connectionScope.combine(opts?.signal);
+                    const captureFailure = (error: unknown) =>
+                        captureRemoteTransportFailure(error, signal, () => this._APIService.isOnline);
                     try {
-                        return await this.performFetch(
+                        const response = await this.performFetch(
                             cachedRequest.request,
                             { ...opts, headers, signal, cache: cachedRequest.cache },
                             useRequestAPI ? FetchMethod.native : FetchMethod.webCompat
                         );
+                        return observeResponseBody(response, captureFailure);
                     } catch (error) {
                         if (
                             !(error instanceof TypeError) ||
@@ -345,7 +388,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                             if (useRequestAPI && error instanceof TypeError && !connectionScope.signal.aborted) {
                                 this._log("Failed to request by API.");
                             }
-                            throw captureRemoteTransportFailure(error, signal, () => this._APIService.isOnline);
+                            throw captureFailure(error);
                         }
 
                         this._log(
@@ -359,7 +402,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                                 FetchMethod.native
                             );
                         } catch (fallbackError) {
-                            throw captureRemoteTransportFailure(fallbackError, signal, () => this._APIService.isOnline);
+                            throw captureFailure(fallbackError);
                         }
                         if (response.status / 100 == 2) {
                             this.showError(
@@ -370,7 +413,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                             const msg = await response.clone().text();
                             this.showError(`Failed to fetch by API. ${response.status}: ${msg}`, LOG_LEVEL_NOTICE);
                         }
-                        return response;
+                        return observeResponseBody(response, captureFailure);
                     }
                 } catch (ex) {
                     this._log(`HTTP:${method}${size} to:${localURL} -> failed`, LOG_LEVEL_VERBOSE);

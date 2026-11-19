@@ -8,7 +8,7 @@ describe("ReplicationStaticsOwner", () => {
 
     it("notifies removable subscribers without exposing a writable snapshot", () => {
         const owner = new ReplicationStaticsOwner();
-        const onChanged = vi.fn<ReplicationStaticsSource["onChanged"]>();
+        const onChanged = vi.fn<Parameters<ReplicationStaticsSource["onChanged"]>[0]>();
         vi.spyOn(Date, "now").mockReturnValue(42);
         expect(owner.source.value.statsUpdatedAt).toBeNull();
         expect(Object.isFrozen(DEFAULT_REPLICATION_STATICS)).toBe(true);
@@ -22,7 +22,6 @@ describe("ReplicationStaticsOwner", () => {
         expect(published.statsUpdatedAt).toBe(42);
         expect(Object.isFrozen(published)).toBe(true);
         expect(Reflect.set(published, "statsUpdatedAt", 100)).toBe(false);
-        expect(owner.source.value.statsUpdatedAt).toBe(42);
         expect(owner.source.value.statsUpdatedAt).toBe(42);
 
         owner.source.offChanged(onChanged);

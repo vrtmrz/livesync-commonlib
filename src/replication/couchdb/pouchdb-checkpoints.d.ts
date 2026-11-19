@@ -27,3 +27,7 @@ declare module "pouchdb-checkpointer" {
         getCheckpoint(): Promise<number | string>;
     }
 }
+
+declare module "pouchdb-errors" {
+    export function createError(error: Error, reason?: string): Error;
+}

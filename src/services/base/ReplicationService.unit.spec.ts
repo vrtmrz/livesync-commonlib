@@ -1,11 +1,14 @@
-import { getReplicationNetworkFailure } from "@lib/replication/remoteTransportFailure.ts";
 import { UnsupportedEncryptedDocumentFormatError } from "@lib/replication/UnsupportedEncryptedDocumentFormatError.ts";
 import { describe, expect, it, vi } from "vitest";
 import { ReplicationService, type ReplicationServiceDependencies } from "./ReplicationService.ts";
+import { bailFirstFailureFunction } from "@lib/services/lib/HandlerUtils.ts";
 import { ServiceContext } from "./ServiceBase.ts";
 import { RemoteService, type RemoteServiceDependencies } from "./RemoteService.ts";
 import { LiveSyncCouchDBReplicator } from "@lib/replication/couchdb/LiveSyncReplicator.ts";
-import { captureRemoteTransportFailure } from "@lib/replication/remoteTransportFailure.ts";
+import {
+    captureRemoteTransportFailure,
+    getReplicationNetworkFailure,
+} from "@lib/replication/remoteTransportFailure.ts";
 import {
     CAPABILITY_NOT_APPLICABLE,
     CAPABILITY_SUPPORT_KINDS,
@@ -421,7 +424,7 @@ describe("ReplicationService typed provider roles", () => {
 
     it("does not invoke a not-applicable continuous role", async () => {
         const { activeContext, dependencies } = createTypedDependencies(true);
-        activeContext.provider.continuous = CAPABILITY_NOT_APPLICABLE;
+        Object.assign(activeContext.provider, { continuous: CAPABILITY_NOT_APPLICABLE });
         (dependencies.appLifecycleService as unknown as { isReady: () => boolean }).isReady = () => false;
         const service = new TestReplicationService(new ServiceContext(), dependencies);
 
@@ -430,6 +433,60 @@ describe("ReplicationService typed provider roles", () => {
             reason: "capability-not-applicable",
         });
     });
+
+    it("honours a host readiness veto for manual, unattended, and continuous requests", async () => {
+        const { dependencies, openReplication, runFiniteReplicationActivity } = createTypedDependencies();
+        const readiness = vi.fn(async (_showMessage?: boolean) => false);
+        const service = new (class extends TestReplicationService {
+            override async isReplicationReady(showMessage?: boolean): Promise<boolean> {
+                return await readiness(showMessage);
+            }
+        })(new ServiceContext(), dependencies);
+        const onStartSettled = vi.fn();
+
+        const blocked = { status: "blocked", reason: "not-ready" };
+        await expect(service.replicateUserInitiated()).resolves.toEqual(blocked);
+        await expect(service.replicateUnattended({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toEqual(
+            blocked
+        );
+        await expect(
+            service.startContinuous({ trigger: "resume", interaction: NO_INTERACTION, onStartSettled })
+        ).resolves.toEqual(blocked);
+
+        expect(readiness.mock.calls).toEqual([[true], [false], [false]]);
+        expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({ status: "failed" });
+        expect(openReplication).not.toHaveBeenCalled();
+        expect(runFiniteReplicationActivity).not.toHaveBeenCalled();
+    });
+
+    it.each(["onBeforeReplicate", "onPrepareCentralRemoteReplication"] as const)(
+        "honours a host replacement of %s in readiness",
+        async (hook) => {
+            const { dependencies, openReplication } = createTypedDependencies();
+            const veto = vi.fn(async () => false);
+            const replacement = bailFirstFailureFunction<(showMessage: boolean) => Promise<boolean>>(hook);
+            replacement.addHandler(veto);
+            class HostReplicationService extends TestReplicationService {
+                declare readonly onBeforeReplicate: typeof replacement;
+                declare readonly onPrepareCentralRemoteReplication: typeof replacement;
+
+                constructor() {
+                    super(new ServiceContext(), dependencies);
+                    this[hook] = replacement;
+                }
+            }
+            const service = new HostReplicationService();
+            const onStartSettled = vi.fn();
+
+            await expect(
+                service.startContinuous({ trigger: "resume", interaction: NO_INTERACTION, onStartSettled })
+            ).resolves.toEqual({ status: "blocked", reason: "not-ready" });
+
+            expect(veto).toHaveBeenCalledExactlyOnceWith(false);
+            expect(openReplication).not.toHaveBeenCalled();
+            expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({ status: "failed" });
+        }
+    );
 
     it("settles an offline continuous start for that request without dispatching the provider", async () => {
         const { dependencies, openReplication } = createTypedDependencies();
@@ -497,7 +554,7 @@ describe("ReplicationService typed provider roles", () => {
         } as unknown as RemoteServiceDependencies);
         const seedReader = new LiveSyncCouchDBReplicator({
             services: { API: { isMobile: () => false, addLog: vi.fn() }, context, remote },
-        } as LiveSyncCouchDBReplicator["env"]);
+        } as unknown as LiveSyncCouchDBReplicator["env"]);
         const settings = {
             couchDB_URI: uri,
             couchDB_DBNAME: "seed-gate",
@@ -701,7 +758,7 @@ describe("ReplicationService activity boundary", () => {
                 commitPendingFileEvents: vi.fn().mockResolvedValue(true),
             },
             replicatorService: {
-                acquireActiveReplicatorContext: async () => undefined,
+                acquireActiveReplicatorContext: async (): Promise<undefined> => undefined,
                 getActiveReplicator: () => ({ openReplication }),
                 runFiniteReplicationActivity,
             },

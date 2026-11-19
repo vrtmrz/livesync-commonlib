@@ -1,3 +1,4 @@
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { assert, describe, expect, it, vi } from "vitest";
 import type { APIService } from "./APIService";
@@ -23,7 +24,8 @@ class TestRemoteService extends RemoteService {}
 
 function createService(
     fetchImplementation: (req: string | Request, opts?: RequestInit) => Promise<Response>,
-    pouchDB: PouchDB.Static = PouchDB
+    pouchDB: PouchDB.Static = PouchDB,
+    Service: typeof TestRemoteService = TestRemoteService
 ) {
     const requestCount = reactiveSource(0);
     const responseCount = reactiveSource(0);
@@ -36,16 +38,16 @@ function createService(
         requestCount,
         responseCount,
         webCompatFetch,
-    } as unknown as APIService;
+    };
     const appLifecycle = {
         getUnresolvedMessages: { addHandler: vi.fn() },
     } as unknown as AppLifecycleService;
     const setting = {
         currentSettings: vi.fn(() => ({ E2EEAlgorithm: "v2" })),
     } as unknown as SettingService;
-    const service = new TestRemoteService(new ServiceContext(), {
+    const service = new Service(new ServiceContext(), {
         pouchDB,
-        APIService,
+        APIService: APIService as unknown as APIService,
         appLifecycle,
         setting,
     });
@@ -189,6 +191,86 @@ describe("RemoteService opening transport failure", () => {
         expect(nativeFetch).not.toHaveBeenCalled();
     });
 
+    it("honours a subclass connect veto at the structured opening entry point", async () => {
+        const veto = vi.fn(async (..._args: Parameters<RemoteService["connect"]>) => "Host rejected the connection");
+        class VetoingRemoteService extends TestRemoteService {
+            override connect(...args: Parameters<RemoteService["connect"]>) {
+                return veto(...args);
+            }
+        }
+        const { service, webCompatFetch } = createService(
+            async () => createDatabaseInfoResponse(),
+            PouchDB,
+            VetoingRemoteService
+        );
+        const args = connectionArguments(false);
+
+        const result = await service.openCouchDBConnection(...args);
+
+        if (!("error" in result)) {
+            await result.close();
+            assert.fail("Structured opening ignored the host veto");
+        }
+        expect(result.error.message).toBe("Host rejected the connection");
+        expect(veto).toHaveBeenCalledExactlyOnceWith(...args);
+        expect(webCompatFetch).not.toHaveBeenCalled();
+    });
+
+    it("allows a subclass connect override to delegate to the default without opening twice", async () => {
+        const called = vi.fn();
+        class DelegatingRemoteService extends TestRemoteService {
+            override connect(...args: Parameters<RemoteService["connect"]>) {
+                called();
+                return super.connect(...args);
+            }
+        }
+        const { service, webCompatFetch } = createService(
+            async () => createDatabaseInfoResponse(),
+            PouchDB,
+            DelegatingRemoteService
+        );
+
+        const result = await service.openCouchDBConnection(...connectionArguments(false));
+
+        assert(!("error" in result));
+        await result.close();
+        expect(called).toHaveBeenCalledOnce();
+        expect(webCompatFetch).toHaveBeenCalledOnce();
+    });
+
+    it("captures a connection reset while consuming a successful CouchDB info response", async () => {
+        const disconnectError = disconnect();
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"db_name":'));
+            },
+            pull(controller) {
+                controller.error(disconnectError);
+            },
+        });
+        const { service, nativeFetch } = createService(async () => new Response(body, { status: 200 }));
+
+        const result = await service.openCouchDBConnection(...connectionArguments(false));
+
+        assert("error" in result);
+        expect(getReplicationNetworkFailure(result.error)).toEqual({
+            reason: "remote-transport",
+            hostOnlineAtFailure: true,
+            failedAt: expect.any(Number),
+        });
+        expect(nativeFetch).not.toHaveBeenCalled();
+    });
+
+    it("keeps malformed successful CouchDB info separate from network failures", async () => {
+        const { service } = createService(async () => new Response("{invalid", { status: 200 }));
+
+        const result = await service.openCouchDBConnection(...connectionArguments(false));
+
+        assert("error" in result);
+        expect(result.error.cause).toBeInstanceOf(SyntaxError);
+        expect(getReplicationNetworkFailure(result.error)).toBeUndefined();
+    });
+
     it("keeps the offline description at the legacy connect entry point", async () => {
         const { APIService, service, webCompatFetch } = createService(async () => createDatabaseInfoResponse());
         APIService.isOnline = false;
@@ -293,7 +375,7 @@ describe("RemoteService request activity", () => {
                           ctime: 10,
                           mtime: 20,
                           size: 30,
-                          children: [],
+                          children: [] as string[],
                           eden: {},
                       } satisfies PlainEntry)
                     : ({
@@ -406,7 +488,7 @@ describe("RemoteService request activity", () => {
     });
 
     it("settles an in-flight request when its connection signal is aborted", async () => {
-        const fetchStarted = Promise.withResolvers<void>();
+        const fetchStarted = promiseWithResolvers<void>();
         const { service } = createService(
             (_request, options) =>
                 new Promise<Response>((_resolve, reject) => {
@@ -419,11 +501,7 @@ describe("RemoteService request activity", () => {
         expect(typeof connection).not.toBe("string");
         if (typeof connection === "string") throw new Error(connection);
 
-        const result = connection as {
-            db: PouchDB.Database<never>;
-            close?: () => Promise<void>;
-        };
-        const infoRequest = result.db.info();
+        const infoRequest = connection.db.info();
         await fetchStarted.promise;
         controller.abort(new Error("connectivity preflight expired"));
 
@@ -438,13 +516,13 @@ describe("RemoteService request activity", () => {
             }),
         ]);
         if (pendingTimer) clearTimeout(pendingTimer);
-        await (result.close?.() ?? result.db.close());
+        await connection.close();
 
         expect(outcome).toBe("rejected");
     });
 
     it("aborts a response body read before closing the PouchDB handle", async () => {
-        const bodyReadStarted = Promise.withResolvers<void>();
+        const bodyReadStarted = promiseWithResolvers<void>();
         const { service } = createService((_request, options) => {
             const body = new ReadableStream<Uint8Array>({
                 start(controller) {
@@ -475,6 +553,9 @@ describe("RemoteService request activity", () => {
         await owned.close();
 
         await expect(infoRequest).rejects.toThrow("Remote connection closed");
+        await infoRequest.catch((error: unknown) => {
+            expect(getReplicationNetworkFailure(error)).toBeUndefined();
+        });
     });
 
     it("does not fall back to the native request API for an owned preflight", async () => {

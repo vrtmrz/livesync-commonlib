@@ -35,11 +35,11 @@ class ReplicationPreparationHandlers extends MultiBinder<PreparationHandler> {
 export function createReplicationPreparation(name: string) {
     const handlers = new ReplicationPreparationHandlers(name);
     const evaluate = handlers.evaluate.bind(handlers);
-    return Object.assign(async (showMessage: boolean) => (await evaluate(showMessage)) === true, {
+    const invoke = Object.assign(async (showMessage: boolean) => (await evaluate(showMessage)) === true, {
         addHandler: handlers.addHandler.bind(handlers),
         removeHandler: handlers.removeHandler.bind(handlers),
-        evaluate,
     });
+    return { invoke, evaluate };
 }
 
 /** State and policy gates consulted without beginning remote preparation. */

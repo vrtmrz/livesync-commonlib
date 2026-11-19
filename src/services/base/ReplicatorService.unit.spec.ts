@@ -946,7 +946,7 @@ describe("ReplicatorService lifecycle", () => {
         const administration = service.runCentralRemoteAdministration({
             action: CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK,
         });
-        void administration.catch(() => undefined);
+        void administration.catch((): void => {});
         await administrationStarted;
 
         currentSettings = { remoteType: REMOTE_COUCHDB, activeConfigurationId: "profile-b" };
@@ -1397,7 +1397,6 @@ describe("ReplicatorService flow-specific resources", () => {
         const connectionResource = { dispose: vi.fn() };
         const preferredTweakResource = {
             read: vi.fn(),
-            write: vi.fn(),
             dispose: vi.fn(),
         } satisfies PreferredTweakProbe;
         const createConnectionResource = vi.fn(async () => connectionResource);
