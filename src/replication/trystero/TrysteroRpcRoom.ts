@@ -56,7 +56,16 @@ export class TrysteroRpcRoom extends RpcRoom<AbortSignal> {
 
     constructor(options: Omit<RpcRoomOptions<AbortSignal>, "codec">) {
         const codec = createJsonCodec();
-        const { canAcceptRequest, onProtocolWarning } = options;
+        const {
+            canAcceptRequest,
+            onProtocolWarning,
+            createAbortController = () => {
+                if (typeof AbortController === "undefined") {
+                    throw new RpcError("PROTOCOL_ERROR", "Supply createAbortController in this host");
+                }
+                return new AbortController();
+            },
+        } = options;
         let notificationMethod: string | undefined;
         let minorMismatch: { message: string; peerId?: string } | undefined;
         const emitWarning = async (message: string, peerId?: string) => {
@@ -69,6 +78,15 @@ export class TrysteroRpcRoom extends RpcRoom<AbortSignal> {
 
         super({
             ...options,
+            createAbortController() {
+                const controller = createAbortController();
+                return {
+                    signal: controller.signal,
+                    abort(reason) {
+                        controller.abort(toCommonlibRpcError(reason));
+                    },
+                };
+            },
             canAcceptRequest: canAcceptRequest && redactCallbackErrors(canAcceptRequest),
             onProtocolWarning(message, peerId) {
                 if (message.startsWith("RPC minor mismatch: ")) {

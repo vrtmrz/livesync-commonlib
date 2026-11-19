@@ -445,7 +445,6 @@ export class TrysteroReplicatorP2PServer {
         this._rpcRoom = new TrysteroRpcRoom({
             ...resolveTrysteroRpcOptions(this.settings),
             transport,
-            createAbortController: () => new AbortController(),
             canAcceptRequest: async (peerId, method) => {
                 if (method === toRpcMethodName("!reqAuth")) return true;
                 return (await this.isAcceptablePeer(peerId)) === true;

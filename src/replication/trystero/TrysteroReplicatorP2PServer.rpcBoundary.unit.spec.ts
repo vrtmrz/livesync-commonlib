@@ -933,6 +933,15 @@ describe("TrysteroReplicatorP2PServer RPC boundaries", () => {
                 await target.shutdown();
             }
 
+            const reason: unknown = remoteSignal.reason;
+            expect(reason).toBeInstanceOf(RpcError);
+            expect(reason).toMatchObject({ code: "CANCELLED", message: "Invocation cancelled" });
+            if (!(reason instanceof RpcError)) {
+                throw new Error("Expected a Commonlib RPC error");
+            }
+            expect(Object.prototype.hasOwnProperty.call(reason, "details")).toBe(true);
+            expect(Object.prototype.hasOwnProperty.call(reason.toShape(), "details")).toBe(true);
+
             expect(targetRoom.action("rpc2")?.onMessage).toBeNull();
             expect(targetRoom.onPeerJoin).toBeNull();
             expect(targetRoom.onPeerLeave).toBeNull();

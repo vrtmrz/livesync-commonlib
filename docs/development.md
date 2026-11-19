@@ -133,9 +133,10 @@ through their previous Server exports.
 
 The Server's optional third constructor argument accepts `createRoom`, defaulting
 to Trystero's `joinRoom`. The server subscribes to diagnostics before joining.
-It creates a Fancy Kit room over the `rpc2` action through `TrysteroRpcRoom`
-and supplies a native `AbortController` for handler cancellation. That RPC room owns its
-message and peer-event subscriptions. Commonlib supplies peer admission,
+It creates a Fancy Kit room over the `rpc2` action through `TrysteroRpcRoom`.
+The adapter uses a native `AbortController` by default and converts handler
+cancellation reasons to Commonlib `RpcError` instances before aborting.
+The RPC room owns its message and peer-event subscriptions. Commonlib supplies peer admission,
 method binding, and room shutdown. The adapter uses the decoded request to
 retain the full method name in notification warnings and redacts callback
 errors from those warnings. Response-bearing calls carry the original
