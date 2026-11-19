@@ -1099,6 +1099,62 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         expect(start).not.toHaveBeenCalled();
     });
 
+    it.each([false, true])(
+        "observes actual startup for overlapping legacy openings (reverse order: %s)",
+        async (reverse) => {
+            const gates = [promiseWithResolvers<void>(), promiseWithResolvers<void>()];
+            let entered = 0;
+            class DelegatingReplicator extends LiveSyncCouchDBReplicator {
+                override async openReplication(...args: Parameters<LiveSyncCouchDBReplicator["openReplication"]>) {
+                    await gates[entered++].promise;
+                    return super.openReplication(...args);
+                }
+            }
+            const catchUpHandle = replicationHandle();
+            const localDatabase = {
+                get: vi.fn().mockRejectedValue({ status: 404, name: "not_found" }),
+                info: vi.fn().mockResolvedValue({ update_seq: 0 }),
+                replicate: { from: vi.fn(() => catchUpHandle) },
+                sync: vi.fn(),
+            };
+            const remoteDatabase = new PouchDB<EntryDoc>(crypto.randomUUID(), { adapter: "memory" });
+            const { replicator } = createContinuousTestReplicator(localDatabase, DelegatingReplicator);
+            connectContinuousTestReplicator(replicator, remoteDatabase);
+            const restoreCompatibility = stubContinuousRemoteCompatibility();
+            const callbacks = [vi.fn(), vi.fn()];
+            const settings = continuousSettings();
+            const requests = callbacks.map((callback) => replicator.startContinuousReplication(settings, callback));
+
+            try {
+                expect(entered).toBe(2);
+                for (const index of reverse ? [1, 0] : [0, 1]) {
+                    gates[index].resolve();
+                    await expect(requests[index]).resolves.toBeUndefined();
+                }
+                await vi.waitFor(() => expect(catchUpHandle.listenerCount("complete")).toBeGreaterThan(0));
+                for (const callback of callbacks) {
+                    expect(callback).not.toHaveBeenCalled();
+                }
+                catchUpHandle.settle("error");
+                await vi.waitFor(() => {
+                    for (const callback of callbacks) {
+                        expect(callback).toHaveBeenCalledExactlyOnceWith({ status: "failed" });
+                    }
+                });
+                expect(localDatabase.replicate.from).toHaveBeenCalledOnce();
+            } finally {
+                for (const gate of gates) {
+                    gate.resolve();
+                }
+                await Promise.allSettled(requests);
+                catchUpHandle.settle("complete");
+                await replicator.terminateSync();
+                restoreCompatibility();
+                await remoteDatabase.destroy();
+            }
+        }
+    );
+
     it.each(["started", "failed", "cancelled"] as const)(
         "observes the actual continuous startup through a delegating openReplication override (%s)",
         async (status) => {

@@ -261,8 +261,8 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             currentSettings: () => this.settingService.currentSettings(),
             checkReadiness: async (showMessage, requirements) => {
                 if (this.isReplicationReady !== ReplicationService.prototype.isReplicationReady) {
-                    const { result, delegated } = await readinessSuperCall.invoke(this, () =>
-                        this.isReplicationReady(showMessage, requirements)
+                    const { result, delegated } = await readinessSuperCall.invoke(this, (receiver) =>
+                        receiver.isReplicationReady(showMessage, requirements)
                     );
                     if (result) {
                         return true;

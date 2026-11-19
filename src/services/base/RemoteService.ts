@@ -288,7 +288,9 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
         ...args: Parameters<IRemoteService["connect"]>
     ): Promise<CouchDBConnectionOpenResult<EntryDoc>> {
         if (this.connect !== RemoteService.prototype.connect) {
-            const { result: opened, delegated } = await connectSuperCall.invoke(this, () => this.connect(...args));
+            const { result: opened, delegated } = await connectSuperCall.invoke(this, (receiver) =>
+                receiver.connect(...args)
+            );
             if (typeof opened !== "string") {
                 return opened;
             }

@@ -241,6 +241,43 @@ describe("RemoteService opening transport failure", () => {
         expect(webCompatFetch).toHaveBeenCalledOnce();
     });
 
+    it.each([false, true])(
+        "keeps overlapping delegated connection failures paired (reverse order: %s)",
+        async (reverse) => {
+            const gates = [promiseWithResolvers<void>(), promiseWithResolvers<void>()];
+            let entered = 0;
+            class DelegatingRemoteService extends TestRemoteService {
+                override async connect(...args: Parameters<RemoteService["connect"]>) {
+                    await gates[entered++].promise;
+                    return super.connect(...args);
+                }
+            }
+            const { service, APIService, webCompatFetch } = createService(
+                async () => {
+                    throw disconnect();
+                },
+                PouchDB,
+                DelegatingRemoteService
+            );
+            const args = connectionArguments(false, { allowNativeFallback: false });
+            const requests = [service.openCouchDBConnection(...args), service.openCouchDBConnection(...args)];
+            expect(entered).toBe(2);
+
+            for (const index of reverse ? [1, 0] : [0, 1]) {
+                APIService.isOnline = index === 0;
+                gates[index].resolve();
+                const result = await requests[index];
+                assert("error" in result);
+                expect(getReplicationNetworkFailure(result.error)).toEqual({
+                    reason: index === 0 ? "remote-transport" : "offline",
+                    hostOnlineAtFailure: index === 0,
+                    failedAt: expect.any(Number),
+                });
+            }
+            expect(webCompatFetch).toHaveBeenCalledOnce();
+        }
+    );
+
     it.each([false, true])("preserves a delegated transport failure unless the host replaces it (%s)", async (veto) => {
         class DelegatingRemoteService extends TestRemoteService {
             override async connect(...args: Parameters<RemoteService["connect"]>) {
