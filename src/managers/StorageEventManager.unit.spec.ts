@@ -18,11 +18,17 @@ import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { pendingFileOperations } from "./StorageEventManager/state";
 import type { FileEventItem } from "@lib/common/types";
 import type { FilePath, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/types";
-import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess";
-import type { IAPIService, IVaultService } from "@lib/services/base/IService";
+import type { IStorageAccessManager, StorageAccess } from "@lib/interfaces/StorageAccess";
+import type { IAPIService, IAppLifecycleService, ISettingService, IVaultService } from "@lib/services/base/IService";
 import type { SettingService } from "@lib/services/base/SettingService";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService";
 import { DEFAULT_SETTINGS, FlagFilesHumanReadable } from "@lib/common/types";
+import { isTargetFile } from "@lib/managers/EntryManager/EntryManagerImpls";
+import { useTargetFilters } from "@lib/serviceFeatures/targetFilter";
+import { createServiceContext } from "@lib/services/base/ServiceBase";
+import { InjectableDatabaseEventService } from "@lib/services/implements/injectable/InjectableDatabaseEventService";
+import { InjectableVaultServiceCompat } from "@lib/services/implements/injectable/InjectableVaultService";
+import { handlers } from "@lib/services/lib/HandlerUtils";
 
 // Mock file types
 interface MockFile {
@@ -791,6 +797,87 @@ describe("StorageEventManagerBase", () => {
     });
 
     describe("appendQueue - Advanced Scenarios", () => {
+        it("admits host-selected internal events through the vault filters while retaining exclusions", async () => {
+            type TargetFilterHost = Parameters<typeof useTargetFilters>[0];
+            const context = createServiceContext();
+            const settings = {
+                ...dependencies.setting.currentSettings(),
+                syncInternalFiles: true,
+                syncOnlyRegEx: "^notes/" as typeof DEFAULT_SETTINGS.syncOnlyRegEx,
+            };
+            const setting = Object.assign(dependencies.setting, {
+                currentSettings: () => settings,
+                onSettingRealised: handlers<ISettingService>().bailFirstFailure("onSettingRealised"),
+            });
+            const API = dependencies.APIService as TargetFilterHost["services"]["API"];
+            const vault = new InjectableVaultServiceCompat(context, { settingService: setting, APIService: API });
+            const databaseEvents = new InjectableDatabaseEventService(context);
+            const localDatabase: Pick<TargetFilterHost["services"]["database"]["localDatabase"], "isTargetFile"> = {
+                isTargetFile: (path, internalFileEvent) =>
+                    isTargetFile({ services: { setting }, serviceModules: {} }, path, internalFileEvent),
+            };
+            const storageAccess: Pick<StorageAccess, "findPathIdentityCandidates"> = {
+                findPathIdentityCandidates: async (path) => [path],
+            };
+            useTargetFilters({
+                services: {
+                    API,
+                    context,
+                    setting,
+                    vault,
+                    databaseEvents,
+                    database: { localDatabase } as TargetFilterHost["services"]["database"],
+                    appLifecycle: {
+                        onLoaded: handlers<IAppLifecycleService>().bailFirstFailure("onLoaded"),
+                    } as TargetFilterHost["services"]["appLifecycle"],
+                    fileProcessing: dependencies.fileProcessing,
+                },
+                serviceModules: { storageAccess: storageAccess as StorageAccess },
+            });
+            await databaseEvents.onDatabaseHasReady();
+
+            const isTargetInternalFile = vi.fn((path: FilePath) =>
+                vault.isTargetFile(path, { internalFileEvent: true })
+            );
+            manager = new TestStorageEventManager(adapter, {
+                ...dependencies,
+                vaultService: vault,
+                isTargetInternalFile,
+            });
+            const path = ".obsidian/appearance.json" as FilePath;
+            const ordinaryFile = adapter.converter.toFileInfo(createMockFile(path, "appearance.json"));
+            const internalFile = adapter.converter.toInternalFileInfo(path);
+            const protectedPath = FlagFilesHumanReadable.FETCH_ALL as FilePath;
+
+            await manager.pauseDispatch();
+            try {
+                await manager.appendQueue([
+                    { type: "CREATE", file: ordinaryFile },
+                    { type: "CHANGED", file: ordinaryFile },
+                ]);
+                expect(manager.hasPendingFileEvent(path)).toBe(false);
+                expect(isTargetInternalFile).not.toHaveBeenCalled();
+
+                settings.syncInternalFiles = false;
+                settings.syncIgnoreRegEx = "^\\.obsidian/appearance\\.json$" as typeof settings.syncIgnoreRegEx;
+                await manager.appendQueue([
+                    { type: "INTERNAL", file: internalFile },
+                    { type: "INTERNAL", file: adapter.converter.toInternalFileInfo(protectedPath) },
+                ]);
+                expect(isTargetInternalFile).toHaveBeenCalledExactlyOnceWith(path);
+                expect(manager.hasPendingFileEvent(path)).toBe(false);
+                expect(manager.hasPendingFileEvent(protectedPath)).toBe(false);
+
+                settings.syncIgnoreRegEx = DEFAULT_SETTINGS.syncIgnoreRegEx;
+                await manager.appendQueue([{ type: "INTERNAL", file: internalFile }]);
+                expect(manager.hasPendingFileEvent(path)).toBe(true);
+            } finally {
+                manager.resumeDispatch();
+                await manager.waitForIdle();
+            }
+            expect(dependencies.fileProcessing.processOptionalFileEvent).toHaveBeenCalledExactlyOnceWith(path);
+        });
+
         it("should skip files that exceed maximum size", async () => {
             vi.mocked(dependencies.vaultService.isFileSizeTooLarge).mockReturnValue(true);
             const enqueueSpy = vi.spyOn(manager, "enqueue");

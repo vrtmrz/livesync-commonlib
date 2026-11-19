@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, type FileEventItem, type FilePath } from "@lib/common/types";
+import { DEFAULT_SETTINGS, type FileEventItem, type FilePath, type UXInternalFileInfoStub } from "@lib/common/types";
 import type { FileEvent } from "@lib/interfaces/StorageEventManager";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService";
 import { admitStorageEvents, selectRenameFileEvent, type StorageEventAdmissionEffects } from "./admission";
@@ -64,10 +64,11 @@ describe("exported storage-event boundary decisions", () => {
         const f = admissionFixture();
         f.effects.settings = () => ({ ...DEFAULT_SETTINGS, isConfigured: true, syncInternalFiles: false });
         f.effects.isTargetInternal = vi.fn(async () => true);
-        const file = {
+        const file: UXInternalFileInfoStub = {
             path: ".obsidian/appearance.json" as FilePath,
             name: "appearance.json",
-            isInternal: true as const,
+            isInternal: true,
+            stat: undefined,
         };
 
         await admitStorageEvents(f.state, [{ type: "INTERNAL", file }], undefined, f.effects);
@@ -83,9 +84,14 @@ describe("exported storage-event boundary decisions", () => {
     it("retains protected paths and the existing admission of unconnected hosts", async () => {
         const f = admissionFixture();
         f.effects.settings = () => ({ ...DEFAULT_SETTINGS, isConfigured: true, syncInternalFiles: false });
-        const event = {
-            type: "INTERNAL" as const,
-            file: { path: ".obsidian/appearance.json" as FilePath, name: "appearance.json", isInternal: true as const },
+        const event: FileEvent = {
+            type: "INTERNAL",
+            file: {
+                path: ".obsidian/appearance.json" as FilePath,
+                name: "appearance.json",
+                isInternal: true,
+                stat: undefined,
+            },
         };
         await admitStorageEvents(f.state, [event], undefined, f.effects);
         expect(f.effects.enqueue).not.toHaveBeenCalled();
