@@ -9,7 +9,6 @@ const SYMBOL_END_OF_DATA = Symbol("endOfData");
 type SYMBOL_USED = typeof SYMBOL_USED;
 type SYMBOL_END_OF_DATA = typeof SYMBOL_END_OF_DATA;
 
-const workerStreams = new Map<number, TransformStream<string | null, string | null>>();
 const writers = new Map<number, WritableStreamDefaultWriter<string | null>>();
 
 const responseBuf = new Map<number, Map<number, string | SYMBOL_USED | SYMBOL_END_OF_DATA>>();
@@ -62,8 +61,6 @@ export function _splitPieces2Worker(
         flush: () => {},
     });
 
-    // Register the stream and its reader/writer
-    workerStreams.set(_key, stream);
     const readable = stream.readable;
     const reader = readable.getReader();
     const writer = stream.writable.getWriter();
@@ -89,7 +86,6 @@ export function _splitPieces2Worker(
         } finally {
             // Tearing down.
             process.finalize();
-            workerStreams.delete(_key);
             writers.delete(_key);
         }
     };
@@ -97,22 +93,18 @@ export function _splitPieces2Worker(
 
 /**
  * Aborts all in-flight split tasks identified by the given keys.
- * Called when the background worker that owned these tasks has crashed, so the streams
- * will never receive any more data and must be torn down to unblock callers.
+ * Called when a split fails or its background worker crashes.
  * @param keys The task keys to abort.
  * @param error The error to report to each stream.
  */
-export function abortSplitTasks(keys: number[], error: Error): void {
+export function abortSplitTasks(keys: number[], error: unknown): void {
     for (const key of keys) {
+        removeTask(key);
         responseBuf.delete(key);
-        writerPromise = writerPromise.then(async () => {
-            const writer = writers.get(key);
-            if (writer) {
-                await writer.abort(error);
-                writers.delete(key);
-            }
-            workerStreams.delete(key);
-        });
+        const writer = writers.get(key);
+        writers.delete(key);
+        // Abort immediately so backpressure from an unread chunk cannot delay the failure.
+        void writer?.abort(error).catch((abortError) => Logger(abortError, LOG_LEVEL_VERBOSE));
     }
 }
 
@@ -126,14 +118,11 @@ export function handleTaskSplit(process: SplitProcessItem, data: ResultPayloadWi
     const key = data.key;
 
     if (!("result" in data)) {
-        responseBuf.delete(key);
-        const reportError = data.error || new Error("Unknown error in background splitting");
-        writerPromise = writerPromise.then(async () => {
-            const writer = writers.get(key);
-            if (writer) {
-                await writer.abort(reportError);
-            }
-        });
+        const { name, message, stack } = data.error;
+        const error = new Error(message);
+        error.name = name;
+        error.stack = stack ?? error.stack;
+        abortSplitTasks([key], error);
         return;
     }
     let thisBuf = responseBuf.get(key);
@@ -166,10 +155,12 @@ export function handleTaskSplit(process: SplitProcessItem, data: ResultPayloadWi
         writerPromise = writerPromise.then(async () => {
             // Sending NULL for end of data causes the stream to close, no need to call close()
             const writer = writers.get(key);
-            if (!writer) {
-                throw new Error(`Invalid writer for key ${key} in background splitting`);
+            try {
+                await writer?.write(result === SYMBOL_END_OF_DATA ? null : result);
+            } catch (error) {
+                abortSplitTasks([key], error);
+                return;
             }
-            await writer.write(result === SYMBOL_END_OF_DATA ? null : result);
             if (result === SYMBOL_END_OF_DATA) {
                 // Task is complete; clean up the task map and the worker's key tracking.
                 removeTask(key);

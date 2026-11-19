@@ -4,7 +4,7 @@
 import { splitPiecesRabinKarp, splitPieces2V2, splitPieces2 } from "@lib/string_and_binary/chunks.ts";
 import { postBack } from "./bg.common.ts";
 import { END_OF_DATA } from "./universalTypes.ts";
-import type { SplitArguments } from "./universalTypes.ts";
+import type { SplitArguments, SplitErrorPayload } from "./universalTypes.ts";
 
 /**
  * Creates a function to post messages back to the main thread.
@@ -39,15 +39,25 @@ export async function processSplit(data: SplitArguments) {
     const filename = data.filename;
     const useSegmenter = data.useSegmenter;
 
-    const func = data.splitVersion == 3 ? splitPiecesRabinKarp : data.splitVersion == 2 ? splitPieces2V2 : splitPieces2;
-    const gen = await func(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
-    // Rename to `emit` to avoid shadowing the module-level `postBack` import from bg.common.ts.
-    // When esbuild bundles this worker inline (?worker&inline), both variables may be minified to the
-    // same short identifier, causing the closure inside getMainThreadPostBack to call itself
-    // recursively instead of calling bg.common.postBack, resulting in "Maximum call stack size exceeded".
-    const emit = getMainThreadPostBack(key);
-    for await (const v of gen()) {
-        emit(v);
+    try {
+        const func =
+            data.splitVersion == 3 ? splitPiecesRabinKarp : data.splitVersion == 2 ? splitPieces2V2 : splitPieces2;
+        const gen = await func(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
+        // Rename to `emit` to avoid shadowing the module-level `postBack` import from bg.common.ts.
+        // When esbuild bundles this worker inline (?worker&inline), both variables may be minified to the
+        // same short identifier, causing the closure inside getMainThreadPostBack to call itself
+        // recursively instead of calling bg.common.postBack, resulting in "Maximum call stack size exceeded".
+        const emit = getMainThreadPostBack(key);
+        for await (const v of gen()) {
+            emit(v);
+        }
+        emit(END_OF_DATA);
+    } catch (error) {
+        const { name, message, stack } =
+            error instanceof Error
+                ? error
+                : new Error(typeof error === "string" ? error : "Background splitting failed");
+        // Preserve DOMException details across the worker boundary.
+        self.postMessage({ key, error: { name, message, stack } } satisfies SplitErrorPayload);
     }
-    emit(END_OF_DATA);
 }

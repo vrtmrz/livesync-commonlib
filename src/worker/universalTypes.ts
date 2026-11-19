@@ -64,4 +64,7 @@ export type ResultPayloadWithSeqBase = ResultPayload & {
 export type ResultPayloadPiece = ResultPayloadWithSeqBase & {
     result: string | END_OF_DATA;
 };
-export type ResultPayloadWithSeq = ResultPayloadPiece | ResultPayloadWithError;
+export type SplitErrorPayload = ResultPayloadBase & {
+    error: { name: string; message: string; stack?: string };
+};
+export type ResultPayloadWithSeq = ResultPayloadPiece | SplitErrorPayload;
