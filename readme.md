@@ -94,7 +94,10 @@ Import only the entry point required by the current runtime. Browser code must n
 
 The Node and browser entries are platform façades. They keep platform-specific adapters and capabilities behind package-owned boundaries, so a consumer does not have to reproduce those imports or their build and review exceptions. The Node entry's selected built-in-module exports are deliberate parts of that façade. Package checks ensure that the root, context, and browser entries do not load the Node implementation.
 
-The RPC entry exists only while the maintained LiveSync P2P composition depends on the current implementation. Its draft wire protocol and PouchDB bridge are not stable Commonlib 1.0 contracts. RPC is planned to move to Fancy Kit as an independently owned rewrite; new Commonlib consumers should not adopt the transitional entry.
+The hosted P2P service uses the published `@vrtmrz/rpc/p2p` room. The
+transitional Commonlib `/rpc` entry retains the existing Room and Session
+constructors and the PouchDB bridge. New consumers can use the focused
+`/p2p` entry to compose a LiveSync host or Fancy Kit for general RPC.
 
 The P2P entry exposes eight focused views over one service owner, together with the maintained host-composition helpers. New consumers select only the lifecycle, peer-directory, peer-admission, targeted-transfer, change-relay, configuration-exchange, diagnostic, or connection-probe-admission view which they need. The composition result still carries a deprecated concrete Replicator façade while existing panes migrate; new consumers must not depend on that property or reach through it to a raw room or host.
 

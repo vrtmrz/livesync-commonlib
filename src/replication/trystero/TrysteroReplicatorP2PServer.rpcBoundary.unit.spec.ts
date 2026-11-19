@@ -7,7 +7,8 @@ import type { Confirm } from "@lib/interfaces/Confirm";
 import type { SimpleStore } from "@lib/common/utils";
 import type { JoinError, Room, joinRoom } from "@trystero-p2p/nostr";
 import { passthroughMessageTranslator } from "@lib/services/base/MessageTranslator";
-import type { RpcEnvelope, RpcWireMessage } from "@lib/rpc";
+import { RpcError, type RpcEnvelope, type RpcWireMessage } from "@lib/rpc";
+import { RpcRoom as FancyKitRpcRoom } from "@vrtmrz/rpc/p2p";
 import type { P2PDiagnosticEvent } from "@lib/p2p/p2pDiagnostics";
 
 import {
@@ -513,6 +514,74 @@ describe("TrysteroReplicatorP2PServer RPC boundaries", () => {
         }
     );
 
+    it("uses the installed RPC room and transmits structured errors from Commonlib handlers", async () => {
+        const failure = new RpcError("PROTOCOL_ERROR", "Operation rejected", { reason: "fixture" });
+        const { caller, target } = await createConnectedPair(() => undefined, [
+            {
+                fail: () => {
+                    throw failure;
+                },
+            },
+        ]);
+
+        expect(caller.rpcRoom).toBeInstanceOf(FancyKitRpcRoom);
+        expect(target.rpcRoom).toBeInstanceOf(FancyKitRpcRoom);
+        const client = caller.getConnection(target.serverPeerId);
+        const error = await client.invokeRemoteFunction("fail", []).catch((reason: unknown) => reason);
+        expect(error).toBeInstanceOf(RpcError);
+        expect(error).toMatchObject({
+            code: failure.code,
+            message: failure.message,
+            details: failure.details,
+        });
+    });
+
+    it.each(["admission", "handler"] as const)(
+        "omits exception details from a notification warning during %s",
+        async (stage) => {
+            const method = "events.changed";
+            const exceptionText = "fixture-only exception detail";
+            const handler = vi.fn(() => {
+                throw new Error(exceptionText);
+            });
+            const { caller, target, targetRoom } = await createConnectedPair(() => undefined, [
+                { [method]: handler },
+            ]);
+            const room = caller.rpcRoom;
+            if (!room) {
+                throw new Error("Expected a started test room");
+            }
+            const admission =
+                stage === "admission"
+                    ? vi.spyOn(target, "isAcceptablePeer").mockRejectedValue(new Error(exceptionText))
+                    : undefined;
+            const warnings: string[] = [];
+            setGlobalLogFunction((message) => {
+                if (typeof message === "string" && message.startsWith("RPC Protocol warning")) {
+                    warnings.push(message);
+                }
+            });
+
+            try {
+                await room.session(target.serverPeerId).notify(method);
+                await flushQueuedCallbacks();
+
+                if (admission) {
+                    expect(admission).toHaveBeenCalledOnce();
+                    expect(handler).not.toHaveBeenCalled();
+                } else {
+                    expect(handler).toHaveBeenCalledOnce();
+                }
+                expect(rpcEnvelopes(targetRoom).filter((message) => message.kind === "response")).toEqual([]);
+                expect(warnings.filter((message) => message.includes(method))).toHaveLength(1);
+                expect(warnings.join(" ")).not.toContain(exceptionText);
+            } finally {
+                admission?.mockRestore();
+                setGlobalLogFunction(defaultLogger);
+            }
+        }
+    );
+
     it("reports malformed RPC input without preventing the next authentication request", async () => {
         const room = new FakeTrysteroRoom("target-peer");
         const host = createHost(makeEnvironment("Target"), room.id, createRoomFactory(room));
@@ -525,9 +594,11 @@ describe("TrysteroReplicatorP2PServer RPC boundaries", () => {
             if (!receive) {
                 throw new Error("Expected the started room to register its RPC action");
             }
-            await receive({ wire: "raw", payload: "{" }, { peerId: "caller-peer" });
+            const invalidPayload = "synthetic malformed RPC input";
+            await receive({ wire: "raw", payload: invalidPayload }, { peerId: "caller-peer" });
             await flushQueuedCallbacks();
             expect(logs).toContain("RPC Protocol warning from caller-peer: Invalid payload");
+            expect(logs.join(" ")).not.toContain(invalidPayload);
 
             await receive(
                 {

@@ -44,6 +44,7 @@
     "@smithy/types": "^4.14.3",
     "@smithy/util-retry": "^4.4.5",
     "@trystero-p2p/nostr": "0.26.0",
+    "@vrtmrz/rpc": "0.1.0",
     "@vrtmrz/value-store": "0.1.0",
     "diff-match-patch": "^1.0.5",
     "events": "^3.3.0",

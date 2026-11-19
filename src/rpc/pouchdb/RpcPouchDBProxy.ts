@@ -49,10 +49,10 @@ export class RpcPouchDBProxy extends EventEmitter {
      */
     readonly activeTasks = noopActiveTasks;
 
-    private readonly session: RpcSession;
+    private readonly session: Pick<RpcSession, "call">;
     private readonly ns: string;
 
-    constructor(session: RpcSession, name: string, ns = "pdb") {
+    constructor(session: Pick<RpcSession, "call">, name: string, ns = "pdb") {
         super();
         this.session = session;
         this.name = name;

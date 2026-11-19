@@ -132,11 +132,20 @@ database, room, or complete host environment. Decision types remain available
 through their previous Server exports.
 
 The Server's optional third constructor argument accepts `createRoom`, defaulting
-to Trystero's `joinRoom`. It is called at the original point after diagnostic
-subscriptions, and real `RpcRoom` instances still own message and peer-event
-subscriptions. Registration and the synchronous `beforeAdvertisement` hook
-precede advertisement sending. A separate boundary spec uses real RPC rooms and
-paired fake Trystero rooms to verify calls, notifications, cancellation, and close.
+to Trystero's `joinRoom`. The server subscribes to diagnostics before joining.
+It creates a room from `@vrtmrz/rpc/p2p` over the `rpc2` action and supplies a
+native `AbortController` for handler cancellation. That RPC room owns its
+message and peer-event subscriptions. Commonlib supplies peer admission,
+method binding, and room shutdown. Notification warnings retain the method
+name and omit exception details. The Commonlib RPC entry uses the same
+structured error constructor so handler errors retain their code and details
+across the wire. Its public room and session types describe the operations
+shared with the standalone implementation.
+Registration and the synchronous `beforeAdvertisement` hook precede
+advertisement sending. The boundary spec uses real RPC rooms and paired fake
+Trystero rooms to verify calls, notifications, cancellation, errors, and close.
+The packed-consumer check composes the hosted room and session with the
+Commonlib PouchDB helpers.
 The replicator facade's optional fourth constructor argument supplies relay
 controls, preserving its third finite-operation-owner argument. Disconnection
 reads sockets, pauses reconnection, closes the captured set, and starts the public

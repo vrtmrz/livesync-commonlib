@@ -37,7 +37,7 @@ async function runDB<T>(fn: () => Promise<T>): Promise<T> {
  * @param db    The PouchDB database instance to expose.
  * @param ns    Method namespace prefix (default: `'pdb'`).
  */
-export function exposeDB(room: RpcRoom, db: PouchDB.Database<object>, ns = "pdb"): void {
+export function exposeDB(room: Pick<RpcRoom, "register">, db: PouchDB.Database<object>, ns = "pdb"): void {
     room.register(`${ns}.info`, () => runDB(() => db.info() as Promise<unknown>));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PouchDB's `id()` is not typed

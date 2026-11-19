@@ -22,10 +22,11 @@ import { TrysteroReplicatorP2PClient } from "./TrysteroReplicatorP2PClient";
 import { createHostingDB } from "./ProxiedDB";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
-import { RpcRoom, type JsonLike, type RpcRequestContext, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
+import type { JsonLike, RpcRequestContext, RpcRoom, RpcWireMessage, TransportAdapter } from "@lib/rpc";
+import { RpcRoom as P2pRpcRoom } from "@vrtmrz/rpc/p2p";
 import { resolveTrysteroRpcOptions } from "@lib/rpc/transports/TrysteroTransport";
 import { subscribeTrysteroPeerEvents } from "@lib/rpc/transports/trysteroRoomEvents";
-import { toRpcMethodName } from "./rpcCompat";
+import { formatRpcProtocolWarning, toRpcMethodName } from "./rpcCompat";
 import { generateJoinRoomOptions } from "@lib/rpc/transports/trysteroUtils";
 import { subscribeConnectionStatus, subscribeFailureDiagnosis } from "@lib/rpc/transports/DiagRTCPeerConnections";
 import { type DiagRTCStats } from "@lib/rpc/transports/DiagRTCPeerConnections.types";
@@ -441,15 +442,17 @@ export class TrysteroReplicatorP2PServer {
             },
         };
         this._rpcRoom?.close();
-        this._rpcRoom = new RpcRoom({
+        this._rpcRoom = new P2pRpcRoom({
             ...resolveTrysteroRpcOptions(this.settings),
             transport,
+            createAbortController: () => new AbortController(),
             canAcceptRequest: async (peerId, method) => {
                 if (method === toRpcMethodName("!reqAuth")) return true;
                 return (await this.isAcceptablePeer(peerId)) === true;
             },
             onProtocolWarning: (message, peerId) => {
-                Logger(`RPC Protocol warning${peerId ? ` from ${peerId}` : ""}: ${message}`, LOG_LEVEL_VERBOSE);
+                const warning = formatRpcProtocolWarning(message);
+                Logger(`RPC Protocol warning${peerId ? ` from ${peerId}` : ""}: ${warning}`, LOG_LEVEL_VERBOSE);
             },
         });
         const advertisementAction = room.makeAction<Advertisement>("ad");

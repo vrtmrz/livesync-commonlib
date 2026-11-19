@@ -11,8 +11,8 @@ const { rpcRoomOptions } = vi.hoisted(() => ({
     rpcRoomOptions: [] as unknown[],
 }));
 
-vi.mock("@lib/rpc", async (importOriginal) => {
-    const actual = await importOriginal<typeof import("@lib/rpc")>();
+vi.mock("@vrtmrz/rpc/p2p", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("@vrtmrz/rpc/p2p")>();
     return {
         ...actual,
         RpcRoom: class MockRpcRoom {

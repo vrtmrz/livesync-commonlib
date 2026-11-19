@@ -4,9 +4,9 @@ import type { RpcRoom } from "./RpcRoom";
 
 export class RpcSession {
     readonly peerId: string;
-    private room: RpcRoom;
+    private room: Pick<RpcRoom, "invoke" | "notify">;
 
-    constructor(room: RpcRoom, peerId: string) {
+    constructor(room: Pick<RpcRoom, "invoke" | "notify">, peerId: string) {
         this.room = room;
         this.peerId = peerId;
     }
