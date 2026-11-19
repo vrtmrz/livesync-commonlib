@@ -1,3 +1,4 @@
+import { SuperCallCapture } from "@lib/common/SuperCallCapture.ts";
 import type { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB.ts";
 import { getUnencryptedContentRejectionMessage } from "@lib/replication/unencryptedContentMessages.ts";
 import {
@@ -145,6 +146,8 @@ type ContinuousExecution = true | CouchDBReplicationFailure;
 type ContinuousStep = ContinuousExecution | (() => Promise<ContinuousExecution>);
 
 type SettleContinuousStart = (result: ContinuousReplicationStartResult) => void;
+
+const continuousSuperCall = new SuperCallCapture<Promise<ContinuousReplicationStartResult>>();
 
 const COUCHDB_REPLICATION_FAILED = { status: "failed" } as const;
 
@@ -466,9 +469,16 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     async startContinuousReplication(setting: RemoteDBSettings, onStartSettled: SettleContinuousStart) {
         if (this.openReplication !== LiveSyncCouchDBReplicator.prototype.openReplication) {
-            const opened = await this.openReplication(setting, true, false, false);
+            const { result, delegated } = continuousSuperCall.invoke(this, () =>
+                this.openReplication(setting, true, false, false)
+            );
+            const opened = await result;
             if (opened !== false) {
-                onStartSettled({ status: "started" });
+                if (delegated.value) {
+                    this.observeContinuousStart(delegated.value, onStartSettled);
+                } else {
+                    onStartSettled({ status: "started" });
+                }
             }
             return opened;
         }
@@ -1672,10 +1682,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         retrying: boolean,
         onStartSettled?: SettleContinuousStart
     ): Promise<boolean> {
+        const record = continuousSuperCall.takeRecorder(this);
         if (this.continuousTask && this.continuousStart) {
             const start = this.continuousStopRequested
                 ? Promise.resolve<ContinuousReplicationStartResult>({ status: "cancelled" })
                 : this.continuousStart.promise;
+            record?.(start);
             this.observeContinuousStart(start, onStartSettled);
             return this.continuousTask;
         }
@@ -1686,6 +1698,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const task = promiseWithResolvers<boolean>();
         this.continuousTask = task.promise;
         this.continuousStart = start;
+        record?.(start.promise);
         this.observeContinuousStart(start.promise, onStartSettled);
         void task.promise.then(
             () => this.clearContinuousTask(task.promise),
@@ -2051,7 +2064,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     private async connectRemoteCouchDBWithOutcome(
         ...args: Parameters<LiveSyncCouchDBReplicator["connectRemoteCouchDBWithSetting"]>
     ): Promise<CouchDBConnectionOpenResult<EntryDoc>> {
-        if (this.connectRemoteCouchDBWithSetting !== LiveSyncCouchDBReplicator.prototype.connectRemoteCouchDBWithSetting) {
+        if (
+            this.connectRemoteCouchDBWithSetting !== LiveSyncCouchDBReplicator.prototype.connectRemoteCouchDBWithSetting
+        ) {
             const opened = await this.connectRemoteCouchDBWithSetting(...args);
             return typeof opened === "string" ? { error: new Error(opened) } : opened;
         }

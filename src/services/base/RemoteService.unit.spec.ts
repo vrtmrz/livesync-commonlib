@@ -178,7 +178,9 @@ describe("RemoteService opening transport failure", () => {
             APIService.isOnline = false;
             throw disconnect();
         });
-        const result = await service.openCouchDBConnection(...connectionArguments(false, { allowNativeFallback: false }));
+        const result = await service.openCouchDBConnection(
+            ...connectionArguments(false, { allowNativeFallback: false })
+        );
         assert("error" in result);
         const failure = getReplicationNetworkFailure(result.error);
         expect(failure).toEqual({
@@ -236,6 +238,39 @@ describe("RemoteService opening transport failure", () => {
         await result.close();
         expect(called).toHaveBeenCalledOnce();
         expect(webCompatFetch).toHaveBeenCalledOnce();
+    });
+
+    it.each([false, true])("preserves a delegated transport failure unless the host replaces it (%s)", async (veto) => {
+        class DelegatingRemoteService extends TestRemoteService {
+            override async connect(...args: Parameters<RemoteService["connect"]>) {
+                const opened = await super.connect(...args);
+                return veto ? "Host rejected the connection" : opened;
+            }
+        }
+        const { service, webCompatFetch } = createService(
+            async () => {
+                throw disconnect();
+            },
+            PouchDB,
+            DelegatingRemoteService
+        );
+
+        const result = await service.openCouchDBConnection(
+            ...connectionArguments(false, { allowNativeFallback: false })
+        );
+
+        assert("error" in result);
+        expect(webCompatFetch).toHaveBeenCalledOnce();
+        if (veto) {
+            expect(result.error.message).toBe("Host rejected the connection");
+            expect(getReplicationNetworkFailure(result.error)).toBeUndefined();
+        } else {
+            expect(getReplicationNetworkFailure(result.error)).toEqual({
+                reason: "remote-transport",
+                hostOnlineAtFailure: true,
+                failedAt: expect.any(Number),
+            });
+        }
     });
 
     it("captures a connection reset while consuming a successful CouchDB info response", async () => {
@@ -321,40 +356,51 @@ describe("RemoteService opening transport failure", () => {
 });
 
 describe("RemoteService request activity", () => {
-    it.each([false, true])("carries headers-only cache compatibility through the request and fallback (%s)", async (fallback) => {
-        type AdapterFetch = (request: string | Request, options?: RequestInit) => Promise<Response>;
-        let adapterFetch: AdapterFetch | undefined;
-        const database = { close: vi.fn().mockResolvedValue(undefined), transform: vi.fn() };
-        const FakePouchDB = vi.fn(function (_uri: string, configuration: { fetch: AdapterFetch }) {
-            adapterFetch = configuration.fetch;
-            return database;
-        });
-        const { service, webCompatFetch, nativeFetch } = createService(
-            async () => createDatabaseInfoResponse(),
-            FakePouchDB as never
-        );
-        if (fallback) webCompatFetch.mockRejectedValue(new TypeError("CORS fixture"));
-        const getSeed = vi.fn(async () => new Uint8Array([1, 2, 3, 4]));
-        const opened = await service.connect(
-            "https://example.com/db",
-            { username: "user", password: "password", type: "basic" },
-            false, "secret", false, false, true, false, {}, false, getSeed,
-            { encryptionAlgorithm: E2EEAlgorithms.V2, useCouchDBCacheControlHeadersOnly: true }
-        );
-        if (typeof opened === "string") throw new Error(opened);
-        try {
-            await adapterFetch!("https://example.com/db/metadata?rev=1-current", { method: "GET" });
-            for (const fetch of fallback ? [webCompatFetch, nativeFetch] : [webCompatFetch]) {
-                expect(fetch).toHaveBeenCalledWith(
-                    "https://example.com/db/metadata?rev=1-current",
-                    expect.objectContaining({ cache: "no-store" })
-                );
+    it.each([false, true])(
+        "carries headers-only cache compatibility through the request and fallback (%s)",
+        async (fallback) => {
+            type AdapterFetch = (request: string | Request, options?: RequestInit) => Promise<Response>;
+            let adapterFetch: AdapterFetch | undefined;
+            const database = { close: vi.fn().mockResolvedValue(undefined), transform: vi.fn() };
+            const FakePouchDB = vi.fn(function (_uri: string, configuration: { fetch: AdapterFetch }) {
+                adapterFetch = configuration.fetch;
+                return database;
+            });
+            const { service, webCompatFetch, nativeFetch } = createService(
+                async () => createDatabaseInfoResponse(),
+                FakePouchDB as never
+            );
+            if (fallback) webCompatFetch.mockRejectedValue(new TypeError("CORS fixture"));
+            const getSeed = vi.fn(async () => new Uint8Array([1, 2, 3, 4]));
+            const opened = await service.connect(
+                "https://example.com/db",
+                { username: "user", password: "password", type: "basic" },
+                false,
+                "secret",
+                false,
+                false,
+                true,
+                false,
+                {},
+                false,
+                getSeed,
+                { encryptionAlgorithm: E2EEAlgorithms.V2, useCouchDBCacheControlHeadersOnly: true }
+            );
+            if (typeof opened === "string") throw new Error(opened);
+            try {
+                await adapterFetch!("https://example.com/db/metadata?rev=1-current", { method: "GET" });
+                for (const fetch of fallback ? [webCompatFetch, nativeFetch] : [webCompatFetch]) {
+                    expect(fetch).toHaveBeenCalledWith(
+                        "https://example.com/db/metadata?rev=1-current",
+                        expect.objectContaining({ cache: "no-store" })
+                    );
+                }
+                expect(getSeed).not.toHaveBeenCalled();
+            } finally {
+                await opened.close();
             }
-            expect(getSeed).not.toHaveBeenCalled();
-        } finally {
-            await opened.close();
         }
-    });
+    );
 
     it.each([
         ["Metadata", E2EEAlgorithms.V2],

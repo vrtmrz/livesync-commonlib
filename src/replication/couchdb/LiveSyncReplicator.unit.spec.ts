@@ -377,7 +377,9 @@ describe("LiveSyncCouchDBReplicator finite attempt result", () => {
                 database: { localDatabase: localDatabaseOwner({}) },
             },
         } as unknown as ConstructorParameters<typeof LiveSyncCouchDBReplicator>[0]);
-        const ensurePBKDF2Salt = vi.spyOn(operations(replicator), "prepareSecuritySeed").mockResolvedValue({ ready: true });
+        const ensurePBKDF2Salt = vi
+            .spyOn(operations(replicator), "prepareSecuritySeed")
+            .mockResolvedValue({ ready: true });
         let releaseAssessment!: () => void;
         const assessmentGate = new Promise<void>((resolve) => {
             releaseAssessment = resolve;
@@ -850,9 +852,9 @@ describe("LiveSyncCouchDBReplicator remote preferred tweak values", () => {
     });
 });
 
-function createContinuousTestReplicator(localDatabase: object) {
+function createContinuousTestReplicator(localDatabase: object, Replicator = LiveSyncCouchDBReplicator) {
     const runFiniteReplicationActivity = vi.fn(async <T>(task: () => Promise<T>) => await task());
-    const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+    const replicator = Object.create(Replicator.prototype) as LiveSyncCouchDBReplicator;
     replicator.env = {
         services: {
             API: { addLog: Logger },
@@ -1097,6 +1099,56 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         expect(start).not.toHaveBeenCalled();
     });
 
+    it.each(["started", "failed", "cancelled"] as const)(
+        "observes the actual continuous startup through a delegating openReplication override (%s)",
+        async (status) => {
+            class DelegatingReplicator extends LiveSyncCouchDBReplicator {
+                override async openReplication(...args: Parameters<LiveSyncCouchDBReplicator["openReplication"]>) {
+                    return await super.openReplication(...args);
+                }
+            }
+            const catchUpHandle = replicationHandle();
+            const liveHandle = replicationHandle();
+            const localDatabase = {
+                get: vi.fn().mockRejectedValue({ status: 404, name: "not_found" }),
+                info: vi.fn().mockResolvedValue({ update_seq: 0 }),
+                replicate: { from: vi.fn(() => catchUpHandle) },
+                sync: vi.fn(() => liveHandle),
+            };
+            const remoteDatabase = new PouchDB<EntryDoc>(crypto.randomUUID(), { adapter: "memory" });
+            const { replicator } = createContinuousTestReplicator(localDatabase, DelegatingReplicator);
+            connectContinuousTestReplicator(replicator, remoteDatabase);
+            const restoreCompatibility = stubContinuousRemoteCompatibility();
+            const onStartSettled = vi.fn();
+
+            try {
+                await expect(
+                    replicator.startContinuousReplication(continuousSettings(), onStartSettled)
+                ).resolves.toBeUndefined();
+                await vi.waitFor(() => expect(catchUpHandle.listenerCount("complete")).toBeGreaterThan(0));
+                expect(onStartSettled).not.toHaveBeenCalled();
+
+                if (status === "cancelled") {
+                    const stopped = replicator.terminateSync();
+                    await vi.waitFor(() => expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({ status }));
+                    catchUpHandle.settle("complete");
+                    await stopped;
+                } else {
+                    catchUpHandle.settle(status === "started" ? "complete" : "error");
+                    await vi.waitFor(() => expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({ status }));
+                }
+                expect(localDatabase.replicate.from).toHaveBeenCalledOnce();
+                expect(localDatabase.sync).toHaveBeenCalledTimes(status === "started" ? 1 : 0);
+            } finally {
+                catchUpHandle.settle("complete");
+                liveHandle.settle("complete");
+                await replicator.terminateSync();
+                restoreCompatibility();
+                await remoteDatabase.destroy();
+            }
+        }
+    );
+
     it("reports a reset during the HTTP 200 response body of the initial pull", async () => {
         const localDatabase = new HttpPouchDB<EntryDoc>(crypto.randomUUID(), { adapter: "memory" });
         const { replicator } = createContinuousTestReplicator(localDatabase);
@@ -1308,7 +1360,9 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             await catchUpGate;
             return true;
         });
-        const connect = vi.spyOn(operations(replicator), "openReplicationConnection").mockResolvedValue({ status: "failed" });
+        const connect = vi
+            .spyOn(operations(replicator), "openReplicationConnection")
+            .mockResolvedValue({ status: "failed" });
 
         const onStartSettled = vi.fn();
         const operation = replicator.openContinuousReplication({} as RemoteDBSettings, false, false, onStartSettled);
@@ -1353,7 +1407,9 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             await seedPreparationGate;
             return { ready: true };
         });
-        const connect = vi.spyOn(operations(replicator), "openReplicationConnection").mockResolvedValue({ status: "failed" });
+        const connect = vi
+            .spyOn(operations(replicator), "openReplicationConnection")
+            .mockResolvedValue({ status: "failed" });
 
         const continuous = replicator.openContinuousReplication(
             { useRequestAPI: true } as RemoteDBSettings,
@@ -1395,7 +1451,9 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             await catchUpGate;
             return true;
         });
-        const connect = vi.spyOn(operations(replicator), "openReplicationConnection").mockResolvedValue({ status: "failed" });
+        const connect = vi
+            .spyOn(operations(replicator), "openReplicationConnection")
+            .mockResolvedValue({ status: "failed" });
 
         const continuous = replicator.openContinuousReplication({} as RemoteDBSettings, false, false);
         await catchUpStarted;
@@ -1506,22 +1564,16 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             },
         } as unknown as LiveSyncCouchDBReplicator["env"];
         // Stub the catch-up result to isolate the finite-activity service boundary.
-        const catchUp = vi.spyOn(operations(replicator), "runOneShotReplication").mockResolvedValue({ status: "failed" });
+        const catchUp = vi
+            .spyOn(operations(replicator), "runOneShotReplication")
+            .mockResolvedValue({ status: "failed" });
         const setting = {} as RemoteDBSettings;
 
         await expect(replicator.openContinuousReplication(setting, false, false)).resolves.toBe(false);
 
         expect(runFiniteReplicationActivity).toHaveBeenCalledOnce();
         expect(runFiniteReplicationActivity).toHaveBeenCalledWith(expect.any(Function), { label: "replication" });
-        expect(catchUp).toHaveBeenCalledWith(
-            setting,
-            false,
-            false,
-            "pullOnly",
-            false,
-            undefined,
-            expect.any(Function)
-        );
+        expect(catchUp).toHaveBeenCalledWith(setting, false, false, "pullOnly", false, undefined, expect.any(Function));
     });
 
     it("starts another finite catch-up when the live channel retries with smaller batches", async () => {
@@ -2168,14 +2220,16 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
             couchDB_URI: "https://example.test",
             couchDB_DBNAME: "remote",
         } as RemoteDBSettings;
-        const connect = vi.spyOn(operations(replicator), "openRemoteCouchDBWithSetting").mockImplementation(async () => {
-            const db = {
-                close: vi.fn().mockResolvedValue(undefined),
-                get: vi.fn().mockResolvedValue({ ...DEFAULT_SYNC_PARAMETERS, pbkdf2salt: "AA==" }),
-            };
-            remoteDatabases.push(db);
-            return { db, info: { update_seq: 9 }, close: () => db.close() } as never;
-        });
+        const connect = vi
+            .spyOn(operations(replicator), "openRemoteCouchDBWithSetting")
+            .mockImplementation(async () => {
+                const db = {
+                    close: vi.fn().mockResolvedValue(undefined),
+                    get: vi.fn().mockResolvedValue({ ...DEFAULT_SYNC_PARAMETERS, pbkdf2salt: "AA==" }),
+                };
+                remoteDatabases.push(db);
+                return { db, info: { update_seq: 9 }, close: () => db.close() } as never;
+            });
         vi.spyOn(operations(replicator), "openReplicationConnection").mockImplementation(async () => {
             const connection = await operations(replicator).openRemoteCouchDBWithSetting(setting, false, true, false);
             assert(!("error" in connection));
@@ -2589,7 +2643,9 @@ describe("LiveSyncCouchDBReplicator chunk sending settlement and connection owne
             seqStatusMap: {},
             _rev: undefined,
         });
-        vi.spyOn(operations(replicator), "openReplicationConnection").mockResolvedValue({ db: remoteDatabase } as never);
+        vi.spyOn(operations(replicator), "openReplicationConnection").mockResolvedValue({
+            db: remoteDatabase,
+        } as never);
         vi.spyOn(operations(replicator), "closeRemoteConnection").mockResolvedValue(undefined);
         vi.spyOn(replicator, "updateMaxTransferredSeqOnChunks").mockResolvedValue({} as never);
 
@@ -2977,9 +3033,14 @@ describe("E2EE receipt policy failures", () => {
                 return handler;
             });
 
-            const outcome = await replicator.replicateAllFromServerWithOutcome({ useRequestAPI: true } as RemoteDBSettings);
+            const outcome = await replicator.replicateAllFromServerWithOutcome({
+                useRequestAPI: true,
+            } as RemoteDBSettings);
             assert(outcome.status === "failed", "The finite download should fail");
-            assert(outcome.error instanceof UnsupportedEncryptedDocumentFormatError, "The failure should retain its type");
+            assert(
+                outcome.error instanceof UnsupportedEncryptedDocumentFormatError,
+                "The failure should retain its type"
+            );
             expect(outcome.error.cause).toBe(error);
             expect(replicator.syncStatus).toBe("ERRORED");
             expect(localDatabase.replicate.from).toHaveBeenCalledOnce();

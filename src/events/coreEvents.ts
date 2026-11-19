@@ -9,9 +9,10 @@ export const EVENT_FILE_SAVED = "file-saved";
 export const EVENT_LEAF_ACTIVE_CHANGED = "leaf-active-changed";
 
 export const EVENT_DATABASE_REBUILT = "database-rebuilt";
-/** Emitted by `AppLifecycleService.markIsReady()` each time it establishes application readiness. */
 /** The replication service has received an explicit transfer stop request. */
 export const EVENT_REPLICATION_ABORT_REQUESTED = "replication-abort-requested";
+
+/** Emitted by `AppLifecycleService.markIsReady()` each time it establishes application readiness. */
 export const EVENT_APPLICATION_READY = "application-ready";
 
 export const EVENT_LOG_ADDED = "log-added";

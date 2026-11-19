@@ -640,18 +640,19 @@ describe("JournalSyncCore", () => {
                     return true;
                 });
 
-            await expect(core.resetBucket()).resolves.toBe(true);
+                await expect(core.resetBucket()).resolves.toBe(true);
 
-            expect(await core.getCheckpointInfo()).toEqual({
-                lastLocalSeq: 0,
-                journalEpoch: "",
-                knownIDs: new Set(),
-                sentIDs: new Set(),
-                receivedFiles: new Set(),
-                sentFiles: new Set(),
-            });
-            expect(virtualStorage.size).toBe(0);
-        });
+                expect(await core.getCheckpointInfo()).toEqual({
+                    lastLocalSeq: 0,
+                    journalEpoch: "",
+                    knownIDs: new Set(),
+                    sentIDs: new Set(),
+                    receivedFiles: new Set(),
+                    sentFiles: new Set(),
+                });
+                expect(virtualStorage.size).toBe(0);
+            }
+        );
 
         it("reports failure when deleting listed files returns false", async () => {
             const listFiles = vi

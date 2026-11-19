@@ -63,6 +63,7 @@ export interface TypedReplicationCoordinatorDependencies {
 export class TypedReplicationCoordinator {
     private oneShotInProgress = false;
     private continuousStopGeneration = 0;
+    private readonly cancelReadinessWaits = new Set<() => void>();
 
     constructor(private readonly dependencies: TypedReplicationCoordinatorDependencies) {}
 
@@ -182,14 +183,23 @@ export class TypedReplicationCoordinator {
         if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
             return replicationBlocked(capability.reason);
         }
+        const cancellation = promiseWithResolvers<false>();
+        // The stop generation distinguishes this signal from a readiness refusal.
+        const cancel = () => cancellation.resolve(false);
+        this.cancelReadinessWaits.add(cancel);
         let readiness: ReplicationPreparationResult;
         try {
-            readiness = await this.dependencies.checkReadiness(false, context.provider.readiness);
+            readiness = await Promise.race([
+                this.dependencies.checkReadiness(false, context.provider.readiness),
+                cancellation.promise,
+            ]);
         } catch (error) {
             if (isCancelled()) {
                 return REPLICATION_CANCELLED;
             }
             throw error;
+        } finally {
+            this.cancelReadinessWaits.delete(cancel);
         }
         if (isCancelled()) {
             return REPLICATION_CANCELLED;
@@ -228,6 +238,10 @@ export class TypedReplicationCoordinator {
      */
     async stopActiveTransfer(): Promise<ReplicationOutcome> {
         this.continuousStopGeneration++;
+        for (const cancel of this.cancelReadinessWaits) {
+            cancel();
+        }
+        this.cancelReadinessWaits.clear();
         const context = await this.acquireContext();
         if ("status" in context) return context;
 

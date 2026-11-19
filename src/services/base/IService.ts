@@ -36,7 +36,11 @@ import type { ReplicatorService } from "./ReplicatorService";
 import type { DatabaseEventService } from "./DatabaseEventService";
 import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import type { AsyncActivityOptions } from "@lib/interfaces/AsyncActivityRunner.ts";
-import type { CouchDBConnectionOpenResult, OwnedCouchDBConnection, RemoteConnectionOpenOptions } from "./RemoteConnection.ts";
+import type {
+    CouchDBConnectionOpenResult,
+    OwnedCouchDBConnection,
+    RemoteConnectionOpenOptions,
+} from "./RemoteConnection.ts";
 import type {
     ActiveReplicatorContext,
     ContinuousReplicationRequest,

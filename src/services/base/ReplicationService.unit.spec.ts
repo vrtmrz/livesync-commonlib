@@ -504,6 +504,26 @@ describe("ReplicationService typed provider roles", () => {
         });
     });
 
+    it("retains the offline readiness failure when a host delegates to super", async () => {
+        const { dependencies, openReplication } = createTypedDependencies();
+        dependencies.APIService.isOnline = false;
+        const service = new (class extends TestReplicationService {
+            override async isReplicationReady(showMessage?: boolean): Promise<boolean> {
+                return await super.isReplicationReady(showMessage);
+            }
+        })(new ServiceContext(), dependencies);
+        const onStartSettled = vi.fn();
+        const request = { trigger: "resume", interaction: NO_INTERACTION, onStartSettled } as const;
+
+        await expect(service.startContinuous(request)).resolves.toEqual({ status: "blocked", reason: "not-ready" });
+
+        expect(openReplication).not.toHaveBeenCalled();
+        expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({
+            status: "failed",
+            networkFailure: { reason: "offline", hostOnlineAtFailure: false, failedAt: expect.any(Number) },
+        });
+    });
+
     it.each([true, false])("attributes only a confirmed Security Seed transport failure (%s)", async (confirmed) => {
         const { dependencies, openReplication } = createTypedDependencies();
         const service = new TestReplicationService(new ServiceContext(), dependencies);

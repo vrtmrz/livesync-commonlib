@@ -49,12 +49,15 @@ import {
     type ReplicationReadinessEvaluator,
 } from "./ReplicationService.readiness.ts";
 import { TypedReplicationCoordinator } from "./ReplicationService.typedReplication.ts";
+import { SuperCallCapture } from "@lib/common/SuperCallCapture.ts";
 import { asCopy } from "@lib/common/utils.object.ts";
 
 /**
  * Event-triggered replication interval forecasted time.
  */
 const REPLICATION_ON_EVENT_FORECASTED_TIME = 5000;
+
+const readinessSuperCall = new SuperCallCapture<Awaited<ReturnType<ReplicationReadinessEvaluator>>>();
 
 const DIRECTIONAL_REPLICATION = Object.freeze({
     UPLOAD: "upload",
@@ -258,7 +261,14 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             currentSettings: () => this.settingService.currentSettings(),
             checkReadiness: async (showMessage, requirements) => {
                 if (this.isReplicationReady !== ReplicationService.prototype.isReplicationReady) {
-                    return await this.isReplicationReady(showMessage, requirements);
+                    const { result, delegated } = readinessSuperCall.invoke(this, () =>
+                        this.isReplicationReady(showMessage, requirements)
+                    );
+                    if (await result) {
+                        return true;
+                    }
+                    const decision = delegated.value;
+                    return decision?.ready === false ? (decision.rejection ?? false) : false;
                 }
                 const decision = await this._evaluateReadiness({ showMessage, requirements });
                 return decision.ready === true ? true : (decision.rejection ?? false);
@@ -326,7 +336,10 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         showMessage: boolean = false,
         readiness: ReplicationReadinessRequirements = CENTRAL_REMOTE_REPLICATION_READINESS
     ): Promise<boolean> {
-        return (await this._evaluateReadiness({ showMessage, requirements: readiness })).ready;
+        const record = readinessSuperCall.takeRecorder(this);
+        const decision = await this._evaluateReadiness({ showMessage, requirements: readiness });
+        record?.(decision);
+        return decision.ready;
     }
 
     onReplicationFailed = handlers<IReplicationService>().bailFirstFailure("onReplicationFailed");

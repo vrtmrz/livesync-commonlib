@@ -15,7 +15,9 @@ export interface ReplicationStaticsSource {
 
 /** Own the publication timestamp and initial state for replication statistics. */
 export class ReplicationStaticsOwner {
-    private readonly state = reactiveSource<PublishedReplicationStatics>(Object.freeze({ ...DEFAULT_REPLICATION_STATICS }));
+    private readonly state = reactiveSource<PublishedReplicationStatics>(
+        Object.freeze({ ...DEFAULT_REPLICATION_STATICS })
+    );
     private readonly view = reactive(() => this.state.value);
     readonly source: ReplicationStaticsSource;
 

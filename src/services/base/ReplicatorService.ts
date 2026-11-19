@@ -515,5 +515,4 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     hasActiveReplicator(): boolean {
         return this._activeReplicatorState.current !== undefined;
     }
-
 }

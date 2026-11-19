@@ -1,3 +1,4 @@
+import { SuperCallCapture } from "@lib/common/SuperCallCapture.ts";
 import { E2EEAlgorithms, type CouchDBCredentials, type EntryDoc } from "@lib/common/types";
 import type { IRemoteService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
@@ -13,10 +14,7 @@ import { disableEncryption, enableEncryption } from "@lib/pouchdb/encryption";
 import { isCloudantURI, isValidRemoteCouchDBURI } from "@lib/pouchdb/utils_couchdb";
 import { AuthorizationHeaderGenerator } from "@lib/replication/httplib";
 import { observedOfflineReplicationFailure } from "@lib/replication/ReplicatorProvider.ts";
-import {
-    captureRemoteTransportFailure,
-    ReplicationNetworkError,
-} from "@lib/replication/remoteTransportFailure.ts";
+import { captureRemoteTransportFailure, ReplicationNetworkError } from "@lib/replication/remoteTransportFailure.ts";
 import type { APIService } from "@lib/services/base/APIService";
 import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
 import type { SettingService } from "@lib/services/base/SettingService";
@@ -169,6 +167,8 @@ const FetchMethod = {
 
 type FetchMethod = (typeof FetchMethod)[keyof typeof FetchMethod];
 
+const connectSuperCall = new SuperCallCapture<CouchDBConnectionOpenResult<EntryDoc>>();
+
 /**
  * The RemoteService provides methods for interacting with the remote database.
  */
@@ -278,7 +278,9 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
      * transfer ownership or call `close()`.
      */
     async connect(...args: Parameters<IRemoteService["connect"]>): Promise<string | OwnedCouchDBConnection<EntryDoc>> {
+        const record = connectSuperCall.takeRecorder(this);
         const opened = await this.openConnection(...args);
+        record?.(opened);
         return "error" in opened ? opened.error.message : opened;
     }
 
@@ -286,8 +288,16 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
         ...args: Parameters<IRemoteService["connect"]>
     ): Promise<CouchDBConnectionOpenResult<EntryDoc>> {
         if (this.connect !== RemoteService.prototype.connect) {
-            const opened = await this.connect(...args);
-            return typeof opened === "string" ? { error: new Error(opened) } : opened;
+            const { result, delegated } = connectSuperCall.invoke(this, () => this.connect(...args));
+            const opened = await result;
+            if (typeof opened !== "string") {
+                return opened;
+            }
+            const base = delegated.value;
+            if (base && "error" in base && base.error.message === opened) {
+                return base;
+            }
+            return { error: new Error(opened) };
         }
         return await this.openConnection(...args);
     }

@@ -486,11 +486,13 @@ describe("TypedReplicationCoordinator", () => {
         const waiting = coordinator.startContinuous(request);
         await readinessStarted.promise;
 
-        await expect(coordinator.stopActiveTransfer()).resolves.toBe(REPLICATION_COMPLETED);
-        releaseReadiness.resolve();
-
-        await expect(waiting).resolves.toEqual({ status: "cancelled" });
-        expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({ status: "cancelled" });
+        try {
+            await expect(coordinator.stopActiveTransfer()).resolves.toBe(REPLICATION_COMPLETED);
+            expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({ status: "cancelled" });
+            await expect(waiting).resolves.toEqual({ status: "cancelled" });
+        } finally {
+            releaseReadiness.resolve();
+        }
         expect(stop).toHaveBeenCalledOnce();
         expect(continuous).not.toHaveBeenCalled();
 

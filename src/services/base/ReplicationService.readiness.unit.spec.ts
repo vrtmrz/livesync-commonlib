@@ -102,9 +102,10 @@ describe("createReplicationReadinessEvaluator", () => {
     it("runs common gates while a central provider owns its own Security Seed preparation", async () => {
         const { calls, dependencies, evaluate } = createHarness();
 
-        await expect(
-            evaluate({ requirements: PROVIDER_OWNED_CENTRAL_REMOTE_REPLICATION_READINESS })
-        ).resolves.toEqual({ ready: true, purpose: "replication" });
+        await expect(evaluate({ requirements: PROVIDER_OWNED_CENTRAL_REMOTE_REPLICATION_READINESS })).resolves.toEqual({
+            ready: true,
+            purpose: "replication",
+        });
 
         expect(dependencies.preparation.prepareCentralRemote).not.toHaveBeenCalled();
         expect(calls).toContain("pending-file-events");

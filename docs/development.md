@@ -46,17 +46,17 @@ class and its existing import path. Its implementation lives in the sibling
 `ServiceFileHandlerBase/` directory. These modules are package-private; they do
 not add consumer entry points.
 
-| Modules | Responsibility |
-| --- | --- |
-| `context.ts`, `storage.ts` | Capture injected services, own per-instance state, retain host method dispatch, and resolve file paths, stubs, and bodies. |
-| `locking.ts` | Acquire sorted document locks and run deferred conflict hooks after releasing them. |
-| `provenance.ts`, `scanning.ts` | Track the displayed revision and content evidence, classify storage, revalidate snapshots, and inspect scan hints. |
-| `saving.ts` | Save ordinary or reconciled storage content and handle explicit base-revision selection. |
-| `deletion.ts`, `renaming.ts` | Apply deletion, revision removal, and source-preserving rename operations. |
-| `deletionRecovery.ts` | Recover retained logical deletions and interrupted cleanup under opt-in provenance and shared file admission. |
-| `reflection.ts`, `protection.ts` | Reflect database revisions while protecting unsynchronised storage content. |
-| `events.ts`, `selection.ts` | Interpret ordinary, restored, retried, and replicated events against current selection and storage. |
-| `chunks.ts` | Repair chunks through the host's save method with bounded concurrency. |
+| Modules                          | Responsibility                                                                                                             |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `context.ts`, `storage.ts`       | Capture injected services, own per-instance state, retain host method dispatch, and resolve file paths, stubs, and bodies. |
+| `locking.ts`                     | Acquire sorted document locks and run deferred conflict hooks after releasing them.                                        |
+| `provenance.ts`, `scanning.ts`   | Track the displayed revision and content evidence, classify storage, revalidate snapshots, and inspect scan hints.         |
+| `saving.ts`                      | Save ordinary or reconciled storage content and handle explicit base-revision selection.                                   |
+| `deletion.ts`, `renaming.ts`     | Apply deletion, revision removal, and source-preserving rename operations.                                                 |
+| `deletionRecovery.ts`            | Recover retained logical deletions and interrupted cleanup under opt-in provenance and shared file admission.              |
+| `reflection.ts`, `protection.ts` | Reflect database revisions while protecting unsynchronised storage content.                                                |
+| `events.ts`, `selection.ts`      | Interpret ordinary, restored, retried, and replicated events against current selection and storage.                        |
+| `chunks.ts`                      | Repair chunks through the host's save method with bounded concurrency.                                                     |
 
 The facade acquires document locks at public operation boundaries. Internal
 operations reuse the caller's locks; routing them back through a public wrapper
@@ -82,15 +82,15 @@ from the file handler's database and storage effects.
 interface, wire command assembly, peer-arrival policy, and host lifecycle. Its
 internal modules use narrow capabilities rather than the complete replicator:
 
-| Module under `TrysteroReplicator/` | Responsibility |
-| --- | --- |
-| `changeRelay.ts` | Own the changes feed, broadcast state, followed peers, and last sequence; schedule notifications and request pulls. |
-| `peerAgreement.ts` | Request authentication and compare tweak, path-identity, and ID-derivation agreement without exposing the ID key. |
-| `configurationExchange.ts` | Prepare shared settings, obtain passphrases, encrypt or decrypt configuration, and validate imported ID settings. |
-| `progress.ts` | Own acknowledged-attempt state and module-realm attempt numbering, project progress events, and report progress to the peer. |
-| `configuredTargets.ts` | Resolve configured peer names, wait for discovery with listener cleanup, and aggregate sequential baseline synchronisation results. |
-| `transfers.ts` | Own available and active peer sets, apply transfer gates, run the shared replication engine, and finalise progress. |
-| `relayControl.ts` | Adapt shared Trystero relay controls and disconnect a captured socket set without changing host-stop ordering. |
+| Module under `TrysteroReplicator/` | Responsibility                                                                                                                      |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `changeRelay.ts`                   | Own the changes feed, broadcast state, followed peers, and last sequence; schedule notifications and request pulls.                 |
+| `peerAgreement.ts`                 | Request authentication and compare tweak, path-identity, and ID-derivation agreement without exposing the ID key.                   |
+| `configurationExchange.ts`         | Prepare shared settings, obtain passphrases, encrypt or decrypt configuration, and validate imported ID settings.                   |
+| `progress.ts`                      | Own acknowledged-attempt state and module-realm attempt numbering, project progress events, and report progress to the peer.        |
+| `configuredTargets.ts`             | Resolve configured peer names, wait for discovery with listener cleanup, and aggregate sequential baseline synchronisation results. |
+| `transfers.ts`                     | Own available and active peer sets, apply transfer gates, run the shared replication engine, and finalise progress.                 |
+| `relayControl.ts`                  | Adapt shared Trystero relay controls and disconnect a captured socket set without changing host-stop ordering.                      |
 
 The facade's existing relay accessors refer to the relay's single state object.
 Agreement and configuration operations obtain snapshot settings and current
@@ -434,7 +434,6 @@ The command recognises both the former `@lib/*` source aliases and current `@vrt
 The classification in `docs/migration/compatibility-classification.json` is accepted for LiveSync 1.0 planning. A destination still requires its own result and lifecycle contract before it becomes a stable public entry. Remove obsolete paths rather than documenting accidental layout as API.
 
 Release preparation and staged-publication checks are documented in [the maintainer runbook](releasing.md).
-
 
 The shared value extraction uses the declared Octagonal Wheels dependency. Its
 `utils.runtime-tools.unit.spec.ts` tests preserve the legacy adapter contracts;

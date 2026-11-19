@@ -63,11 +63,11 @@ the receive, skip, and replay boundaries.
 | Entry point                                        | Intended use                                                                      | Current contract status                                                                     |
 | -------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `@vrtmrz/livesync-commonlib`                       | `DirectFileManipulator` for integrations which access CouchDB directly            | Deliberately small, but its high-level lifecycle and file-operation semantics are not final |
-| `@vrtmrz/livesync-commonlib/conflicts` | Keyed conflict-check scheduling with bounded concurrency and explicit completion | Focused, package-tested pre-1.0 contract |
+| `@vrtmrz/livesync-commonlib/conflicts`             | Keyed conflict-check scheduling with bounded concurrency and explicit completion  | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/context`               | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
-| `@vrtmrz/livesync-commonlib/diagnostics` | Read-only Usage and integrity inspection, name projection, and reports | Focused pre-1.0 diagnostic contract |
-| `@vrtmrz/livesync-commonlib/storage` | Path types, namespace and comparison helpers, and strict Unicode path resolution | Unreleased additive contract; host integration remains explicit |
-| `@vrtmrz/livesync-commonlib/hashing`               | Chunk ID calculation and exact file-content hashing                            | Focused, package-tested pre-1.0 contract                                                    |
+| `@vrtmrz/livesync-commonlib/diagnostics`           | Read-only Usage and integrity inspection, name projection, and reports            | Focused pre-1.0 diagnostic contract                                                         |
+| `@vrtmrz/livesync-commonlib/storage`               | Path types, namespace and comparison helpers, and strict Unicode path resolution  | Unreleased additive contract; host integration remains explicit                             |
+| `@vrtmrz/livesync-commonlib/hashing`               | Chunk ID calculation and exact file-content hashing                               | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/browser`               | Rooted File System Access API storage                                             | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/node`                  | Rooted Node storage, Node standard I/O, and selected Node capabilities            | Supported platform façade; keeps Node-only dependencies behind an explicit boundary         |
 | `@vrtmrz/livesync-commonlib/p2p`                   | Host-composed P2P service views and composition helpers                           | Focused, package-tested pre-1.0 contract with a temporary compatibility façade              |
@@ -76,8 +76,8 @@ the receive, skip, and replay boundaries.
 | `@vrtmrz/livesync-commonlib/remote-configurations` | Multiple-remote profile creation, naming, and selection                           | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/settings`              | New-Vault defaults, stored-setting fallbacks, and settings migration results      | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/setup-uri`             | Encrypted Setup URI generation, availability, and import                          | Focused, package-tested pre-1.0 contract                                                    |
-| `@vrtmrz/livesync-commonlib/ui-commands` | Instance-owned typed UI command declarations and handlers | Focused, package-tested contract |
-| `@vrtmrz/livesync-commonlib/compat/*`              | Exact legacy imports still required by existing clients                           | Migration-only; retained within 0.2.x, with removals treated as 0.3.0 breaking changes       |
+| `@vrtmrz/livesync-commonlib/ui-commands`           | Instance-owned typed UI command declarations and handlers                         | Focused, package-tested contract                                                            |
+| `@vrtmrz/livesync-commonlib/compat/*`              | Exact legacy imports still required by existing clients                           | Migration-only; retained within 0.2.x, with removals treated as 0.3.0 breaking changes      |
 | `@vrtmrz/livesync-commonlib/package.json`          | Package metadata for tooling                                                      | Metadata export, not a runtime API                                                          |
 
 The existing `compat/services/lib` boundary retains `bindableFunction` and `lazyBindableFunction` for current clients. Their `setHandler()` methods return an `UnregisterFunction` which removes only its own current assignment; stale removers, including after an override with the same callback, and repeated removals are no-ops. Existing callers may ignore the return value. These helpers remain a migration boundary, not a general-purpose SDK integration surface.
@@ -176,10 +176,10 @@ Import `declareUICommand` and `UICommandRegistry` from `@vrtmrz/livesync-commonl
 ```ts
 import { declareUICommand } from "@vrtmrz/livesync-commonlib/ui-commands";
 
-const showDevices = declareUICommand<void, 'closed'>('example:show-devices');
+const showDevices = declareUICommand<void, "closed">("example:show-devices");
 const unregister = services.UI.commands.register(showDevices, async () => {
     await openHostDeviceDialogue();
-    return 'closed';
+    return "closed";
 });
 const result = await services.UI.commands.invoke(showDevices, undefined);
 // result is { status: 'handled', value: 'closed' } or { status: 'unavailable' }.
@@ -311,12 +311,12 @@ import {
     formatUsageTSV,
     parseDiagnosticPathToken,
     projectUsageReport,
-} from '@vrtmrz/livesync-commonlib/diagnostics';
+} from "@vrtmrz/livesync-commonlib/diagnostics";
 
 const result = await analyseDatabaseUsage({ source: createLocalDiagnosticSource(localPouchDB) });
-const mapper = createDiagnosticNameMapper('pseudonym');
+const mapper = createDiagnosticNameMapper("pseudonym");
 const report = projectUsageReport(result, mapper);
-if (report.status === 'complete') {
+if (report.status === "complete") {
     const tsv = formatUsageTSV(report);
     // Present the report through the host's own UI or output stream.
 }
@@ -328,7 +328,7 @@ Path pseudonyms include the report salt. A consumer can parse that token and sup
 const pathToken = report.rows[0]?.path;
 const parsed = pathToken === undefined ? undefined : parseDiagnosticPathToken(pathToken);
 if (parsed) {
-    const followUpMapper = createDiagnosticNameMapper('pseudonym', parsed.salt);
+    const followUpMapper = createDiagnosticNameMapper("pseudonym", parsed.salt);
     const candidateToken = followUpMapper.path(storedVaultRelativePath);
     // Compare this token with the path pseudonym on this device.
 }
@@ -396,7 +396,6 @@ See [Maintained-host examples and evidence](docs/proven-in-use.md) for compositi
 ## Licence
 
 MIT
-
 
 ## Shared value helper migration
 

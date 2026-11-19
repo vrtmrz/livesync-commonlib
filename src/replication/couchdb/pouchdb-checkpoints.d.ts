@@ -17,12 +17,7 @@ declare module "pouchdb-checkpointer" {
         put(document: any): Promise<unknown>;
     }
     export default class Checkpointer {
-        constructor(
-            source: CheckpointEndpoint,
-            target: CheckpointEndpoint,
-            id: string,
-            state: { cancelled: boolean }
-        );
+        constructor(source: CheckpointEndpoint, target: CheckpointEndpoint, id: string, state: { cancelled: boolean });
         writeCheckpoint(sequence: number | string, session: string): Promise<void>;
         getCheckpoint(): Promise<number | string>;
     }
