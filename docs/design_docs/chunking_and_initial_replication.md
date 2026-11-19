@@ -36,6 +36,10 @@ Chunk's start does not restart the removal of outgoing bytes or reset the
 rolling state. Boundary selection and byte reconstruction remain separate
 assertions.
 
+V3 reads the Blob on demand in ranges of up to 1 MiB. The rolling window and
+UTF-8 boundary check continue across range boundaries. Parts of the current
+Chunk can span several ranges and are joined only when that Chunk is emitted.
+
 ### Proportional binary thresholds
 
 Retain the existing maximum calculation and floor. For the binary path:
