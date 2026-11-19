@@ -602,7 +602,9 @@ export async function splitPiecesRabinKarp(
             // Cancellation can arrive while a Blob range is being read.
             while (!signal?.aborted) {
                 const next = await blocks.next();
-                if (next.done === true || signal?.aborted) return;
+                if (next.done === true || signal?.aborted) {
+                    return;
+                }
                 const block = next.value;
                 let chunkStart = 0;
                 for (let index = 0; index < block.length; index++) {

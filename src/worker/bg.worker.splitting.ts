@@ -77,7 +77,9 @@ export async function processSplit(data: SplitArguments) {
         // recursively instead of calling bg.common.postBack, resulting in "Maximum call stack size exceeded".
         const emit = getMainThreadPostBack(key);
         for await (const v of gen()) {
-            if (signal.aborted) break;
+            if (signal.aborted) {
+                break;
+            }
             emit(v);
         }
         emit(END_OF_DATA);

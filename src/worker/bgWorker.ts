@@ -101,11 +101,14 @@ export function removeTask(key: number): void {
     }
 }
 
+/** Worker-side cancellation takes effect asynchronously when the worker receives the `cancelSplit` message. */
 export function cancelSplitTask(key: number): void {
     const process = tasks.get(key);
     const inst = taskWorkerMap.get(key);
     removeTask(key);
-    if (process?.type !== "split" || process.workerFinished || !inst) return;
+    if (process?.type !== "split" || process.workerFinished || !inst) {
+        return;
+    }
 
     inst.cancelledSplitKeys.add(key);
     const data: CancelSplitArguments = { type: "cancelSplit", key };
@@ -141,7 +144,9 @@ export function initialiseWorkerModule(events: LiveSyncEventHub) {
             const key = data.key as number;
             const splitFinished = data.result === END_OF_DATA || "error" in data;
             if (inst.cancelledSplitKeys.has(key)) {
-                if (splitFinished) inst.cancelledSplitKeys.delete(key);
+                if (splitFinished) {
+                    inst.cancelledSplitKeys.delete(key);
+                }
                 return;
             }
             const process = tasks.get(key);
@@ -150,7 +155,9 @@ export function initialiseWorkerModule(events: LiveSyncEventHub) {
                 return;
             }
             if (process.type === "split") {
-                if (splitFinished) process.workerFinished = true;
+                if (splitFinished) {
+                    process.workerFinished = true;
+                }
                 handleTaskSplit(process, data);
             } else if (process.type === "encrypt" || process.type === "decrypt") {
                 handleTaskEncrypt(process, data);
