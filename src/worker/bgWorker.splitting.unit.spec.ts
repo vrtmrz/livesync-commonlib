@@ -1,31 +1,39 @@
 import { promiseWithResolvers } from "octagonal-wheels/promises.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
-import { processSplit } from "./bg.worker.splitting.ts";
 import { initialiseWorkerModule, removeTask, splitPieces2WorkerRabinKarp, tasks, terminateWorker } from "./bgWorker.ts";
-import type { ResultPayloadWithSeq, SplitArguments } from "./universalTypes.ts";
+import type { CancelSplitArguments, ResultPayloadWithSeq, SplitArguments } from "./universalTypes.ts";
 
 const { worker } = vi.hoisted(() => ({
     worker: {
         onmessage: null as ((event: MessageEvent<ResultPayloadWithSeq>) => void) | null,
-        postMessage: vi.fn<(message: { data: SplitArguments }) => Promise<void>>(),
+        postMessage: vi.fn<(message: { data: SplitArguments | CancelSplitArguments }) => Promise<void>>(),
         terminate: vi.fn(),
     },
 }));
 
 vi.mock("./bg.worker.ts?worker&inline", () => ({ default: () => worker }));
 
+const workerScope = {
+    onmessage: undefined as
+        | ((event: MessageEvent<{ data: SplitArguments | CancelSplitArguments }>) => Promise<void> | void)
+        | undefined,
+    postMessage(data: ResultPayloadWithSeq) {
+        worker.onmessage?.(new MessageEvent("message", { data: structuredClone(data) }));
+    },
+};
+
 describe("Rabin–Karp worker splitting failures", () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.stubGlobal("navigator", { hardwareConcurrency: 2 });
-        vi.stubGlobal("self", {
-            postMessage(data: ResultPayloadWithSeq) {
-                worker.onmessage?.(new MessageEvent("message", { data: structuredClone(data) }));
-            },
-        });
+        vi.stubGlobal("self", workerScope);
+        await import("./bg.worker.ts");
         worker.terminate.mockClear();
         worker.postMessage.mockReset();
-        worker.postMessage.mockImplementation(({ data }) => Promise.resolve().then(() => processSplit(data)));
+        worker.postMessage.mockImplementation(async (message) => {
+            await Promise.resolve();
+            await workerScope.onmessage!(new MessageEvent("message", { data: message }));
+        });
         initialiseWorkerModule(createLiveSyncEventHub());
     });
 
@@ -62,8 +70,8 @@ describe("Rabin–Karp worker splitting failures", () => {
         vi.spyOn(range, "arrayBuffer").mockRejectedValue(error);
 
         const iterator = splitPieces2WorkerRabinKarp(source, 16, false, 16)();
-        await expect(worker.postMessage.mock.results[0].value).resolves.toBeUndefined();
         await expect(iterator.next()).rejects.toMatchObject({ name, message });
+        await expect(worker.postMessage.mock.results[0].value).resolves.toBeUndefined();
         expect(tasks.size).toBe(0);
     });
 
@@ -87,9 +95,10 @@ describe("Rabin–Karp worker splitting failures", () => {
         });
 
         const iterator = splitPieces2WorkerRabinKarp(source, pieceSize, false, pieceSize)();
+        const firstRead = iterator.next();
         const failedKey = worker.postMessage.mock.calls[0][0].data.key;
         expect(tasks.has(failedKey)).toBe(true);
-        const first = await iterator.next();
+        const first = await firstRead;
         expect(first.done).toBe(false);
         expect(first.value).toHaveLength(4 * Math.ceil(pieceSize / 3));
 
@@ -116,6 +125,41 @@ describe("Rabin–Karp worker splitting failures", () => {
         expect(tasks.size).toBe(0);
     });
 
+    it("stops further range reads and ignores in-flight chunks after the consumer returns", async () => {
+        const secondReadStarted = promiseWithResolvers<void>();
+        const secondBlock = promiseWithResolvers<ArrayBuffer>();
+        const source = new Blob([new Uint8Array(3 * blockBytes)]);
+        const slice = source.slice.bind(source);
+        const sliceSpy = vi.spyOn(source, "slice").mockImplementation((start, end) => {
+            const range = slice(start, end);
+            if (start === blockBytes) {
+                vi.spyOn(range, "arrayBuffer").mockImplementation(() => {
+                    secondReadStarted.resolve();
+                    return secondBlock.promise;
+                });
+            }
+            return range;
+        });
+        const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+        const iterator = splitPieces2WorkerRabinKarp(source, blockBytes, false, blockBytes)();
+
+        expect((await iterator.next()).done).toBe(false);
+        await secondReadStarted.promise;
+        const key = worker.postMessage.mock.calls[0][0].data.key;
+        const workerRun = worker.postMessage.mock.results[0].value;
+        await iterator.return();
+        worker.onmessage?.(new MessageEvent("message", { data: { key, seq: 1, result: "queued chunk" } }));
+        secondBlock.resolve(new ArrayBuffer(blockBytes));
+        await workerRun;
+
+        expect.soft(sliceSpy.mock.calls).toEqual([
+            [0, blockBytes],
+            [blockBytes, 2 * blockBytes],
+        ]);
+        expect.soft(logError).not.toHaveBeenCalled();
+        expect(tasks.size).toBe(0);
+    });
+
     it("reuses the worker after a consumer exits while a write is blocked", async () => {
         const secondWriteStarted = promiseWithResolvers<void>();
         const write = WritableStreamDefaultWriter.prototype.write;
@@ -134,7 +178,6 @@ describe("Rabin–Karp worker splitting failures", () => {
         const pieceSize = blockBytes / 2;
         const source = new Blob([new Uint8Array(blockBytes)]);
         const iterator = splitPieces2WorkerRabinKarp(source, pieceSize, false, pieceSize)();
-        const key = worker.postMessage.mock.calls[0][0].data.key;
         for await (const chunk of iterator) {
             expect(chunk).toHaveLength(4 * Math.ceil(pieceSize / 3));
             await secondWriteStarted.promise;
@@ -142,12 +185,25 @@ describe("Rabin–Karp worker splitting failures", () => {
             break;
         }
 
+        const key = worker.postMessage.mock.calls[0][0].data.key;
+        expect(tasks.has(key)).toBe(false);
+
         const nextSource = new Blob(["next split"], { type: "text/plain" });
         const next = splitPieces2WorkerRabinKarp(nextSource, pieceSize, true, pieceSize)();
         await expect(next.next()).resolves.toEqual({ done: false, value: "next split" });
         await expect(next.next()).resolves.toEqual({ done: true, value: undefined });
-        expect(tasks.has(key)).toBe(false);
         expect(tasks.size).toBe(0);
         expect(worker.terminate).not.toHaveBeenCalled();
+    });
+
+    it("does not dispatch a split or acquire a writer when returned before the first read", async () => {
+        const getWriter = vi.spyOn(WritableStream.prototype, "getWriter");
+        const source = new Blob([new Uint8Array(blockBytes)]);
+        const iterator = splitPieces2WorkerRabinKarp(source, blockBytes, false, blockBytes)();
+
+        await expect(iterator.return()).resolves.toEqual({ done: true, value: undefined });
+        expect.soft(worker.postMessage).not.toHaveBeenCalled();
+        expect.soft(getWriter).not.toHaveBeenCalled();
+        expect(tasks.size).toBe(0);
     });
 });

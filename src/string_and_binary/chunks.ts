@@ -498,7 +498,8 @@ export async function splitPiecesRabinKarp(
     doPlainSplit: boolean,
     minimumChunkSize: number,
     _filename?: string,
-    _useSegmenter?: boolean
+    _useSegmenter?: boolean,
+    signal?: AbortSignal
 ): Promise<() => AsyncGenerator<string, void, unknown>> {
     let plainSplit = doPlainSplit || isTextBlob(dataSrc);
     const dataSize = dataSrc.size;
@@ -596,34 +597,43 @@ export async function splitPiecesRabinKarp(
             return bytes;
         }
 
-        for await (const block of iterateBlobBlocks(dataSrc, readBlockBytes)) {
-            let chunkStart = 0;
-            for (let index = 0; index < block.length; index++) {
-                const byte = block[index];
-                // Check the preceding bytes before consuming this one, including at a block boundary.
-                if (isBoundaryCandidate() && (!isText || (byte & 0xc0) !== 0x80)) {
-                    const chunk = finishChunk(block.subarray(chunkStart, index));
-                    chunkStart = index;
+        const blocks = iterateBlobBlocks(dataSrc, readBlockBytes);
+        try {
+            // Cancellation can arrive while a Blob range is being read.
+            while (!signal?.aborted) {
+                const next = await blocks.next();
+                if (next.done === true || signal?.aborted) return;
+                const block = next.value;
+                let chunkStart = 0;
+                for (let index = 0; index < block.length; index++) {
+                    const byte = block[index];
+                    // Check the preceding bytes before consuming this one, including at a block boundary.
+                    if (isBoundaryCandidate() && (!isText || (byte & 0xc0) !== 0x80)) {
+                        const chunk = finishChunk(block.subarray(chunkStart, index));
+                        chunkStart = index;
+                        chunkSize = 0;
+                        yield isText ? readString(chunk) : await arrayBufferToBase64Single(chunk);
+                    }
+
+                    const oldByte = index < windowSize ? previousWindow[index] : block[index - windowSize];
+                    hash = (Math.imul(hash - Math.imul(oldByte, outgoingByteWeight), prime) + byte) | 0;
+                    chunkSize++;
+                }
+                remainingBytes -= block.length;
+                const lastPart = block.subarray(chunkStart);
+                if (remainingBytes === 0 || (!isText && isBoundaryCandidate())) {
+                    const chunk = finishChunk(lastPart);
                     chunkSize = 0;
                     yield isText ? readString(chunk) : await arrayBufferToBase64Single(chunk);
+                } else {
+                    pendingParts.push(lastPart);
                 }
-
-                const oldByte = index < windowSize ? previousWindow[index] : block[index - windowSize];
-                hash = (Math.imul(hash - Math.imul(oldByte, outgoingByteWeight), prime) + byte) | 0;
-                chunkSize++;
+                if (remainingBytes > 0) {
+                    previousWindow.set(block.subarray(block.length - windowSize));
+                }
             }
-            remainingBytes -= block.length;
-            const lastPart = block.subarray(chunkStart);
-            if (remainingBytes === 0 || (!isText && isBoundaryCandidate())) {
-                const chunk = finishChunk(lastPart);
-                chunkSize = 0;
-                yield isText ? readString(chunk) : await arrayBufferToBase64Single(chunk);
-            } else {
-                pendingParts.push(lastPart);
-            }
-            if (remainingBytes > 0) {
-                previousWindow.set(block.subarray(block.length - windowSize));
-            }
+        } finally {
+            await blocks.return();
         }
     }
     const chunks = readChunks();

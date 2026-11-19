@@ -26,6 +26,12 @@ function getMainThreadPostBack(key: number) {
     };
 }
 
+const activeSplits = new Map<number, AbortController>();
+
+export function cancelSplit(key: number): void {
+    activeSplits.get(key)?.abort();
+}
+
 function readErrorField(error: unknown, field: "name" | "message" | "stack"): string | undefined {
     try {
         const value = (error as Partial<Record<typeof field, unknown>> | null | undefined)?.[field];
@@ -47,17 +53,31 @@ export async function processSplit(data: SplitArguments) {
     const minimumChunkSize = data.minimumChunkSize;
     const filename = data.filename;
     const useSegmenter = data.useSegmenter;
+    const controller = new AbortController();
+    const signal = controller.signal;
+    activeSplits.set(key, controller);
 
     try {
-        const func =
-            data.splitVersion == 3 ? splitPiecesRabinKarp : data.splitVersion == 2 ? splitPieces2V2 : splitPieces2;
-        const gen = await func(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
+        const splitLegacy = data.splitVersion === 2 ? splitPieces2V2 : splitPieces2;
+        const gen =
+            data.splitVersion === 3
+                ? await splitPiecesRabinKarp(
+                      dataSrc,
+                      pieceSize,
+                      plainSplit,
+                      minimumChunkSize,
+                      filename,
+                      useSegmenter,
+                      signal
+                  )
+                : await splitLegacy(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
         // Rename to `emit` to avoid shadowing the module-level `postBack` import from bg.common.ts.
         // When esbuild bundles this worker inline (?worker&inline), both variables may be minified to the
         // same short identifier, causing the closure inside getMainThreadPostBack to call itself
         // recursively instead of calling bg.common.postBack, resulting in "Maximum call stack size exceeded".
         const emit = getMainThreadPostBack(key);
         for await (const v of gen()) {
+            if (signal.aborted) break;
             emit(v);
         }
         emit(END_OF_DATA);
@@ -67,5 +87,7 @@ export async function processSplit(data: SplitArguments) {
             typeof error === "string" ? error : (readErrorField(error, "message") ?? "Background splitting failed");
         const stack = readErrorField(error, "stack");
         self.postMessage({ key, error: { name, message, stack } } satisfies SplitErrorPayload);
+    } finally {
+        activeSplits.delete(key);
     }
 }

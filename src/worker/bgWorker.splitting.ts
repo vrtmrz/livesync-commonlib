@@ -1,7 +1,7 @@
 // Foreground part of Content-Splitter
 
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
-import { startWorker, removeTask } from "./bgWorker.ts";
+import { startWorker, removeTask, cancelSplitTask } from "./bgWorker.ts";
 import { type ResultPayloadWithSeq, type SplitProcessItem } from "./universalTypes";
 
 const SYMBOL_USED = Symbol("used");
@@ -35,41 +35,32 @@ export function _splitPieces2Worker(
     splitVersion: 1 | 2 | 3,
     useSegmenter: boolean
 ) {
-    // Prepare the worker, since here, handleTaskSplit can be called.
-    // Do not use asynchronous call until setting the writers.
-    const process = startWorker({
-        type: "split",
-        dataSrc,
-        pieceSize,
-        plainSplit,
-        minimumChunkSize,
-        filename,
-        useSegmenter,
-        splitVersion,
-    });
-    const _key = process.key;
-    const stream = new TransformStream<string | null, string>({
-        transform: (chunk, controller) => {
-            // If chunk is null, it means the end of data, so we should terminate the stream
-            if (chunk === null) {
-                controller.terminate();
-                return;
-            }
-            // While chunk has arrived, we can process it on the reader
-            controller.enqueue(chunk);
-        },
-        flush: () => {},
-    });
-
-    const readable = stream.readable;
-    const reader = readable.getReader();
-    const writer = stream.writable.getWriter();
-    // Lock the writer for this stream
-    writers.set(_key, writer);
-    // Okay, we are ready to respond, create the generator function.
     return async function* () {
+        const stream = new TransformStream<string | null, string>({
+            transform(chunk, controller) {
+                if (chunk === null) {
+                    controller.terminate();
+                    return;
+                }
+                controller.enqueue(chunk);
+            },
+        });
+        const reader = stream.readable.getReader();
+        const writer = stream.writable.getWriter();
+        const process = startWorker({
+            type: "split",
+            dataSrc,
+            pieceSize,
+            plainSplit,
+            minimumChunkSize,
+            filename,
+            useSegmenter,
+            splitVersion,
+        });
+        const key = process.key;
+        writers.set(key, writer);
+        let done = false;
         try {
-            let done = false;
             do {
                 // Reading from the stream (I am so happy on iOS 14.5+).
                 const results = await reader.read();
@@ -80,15 +71,19 @@ export function _splitPieces2Worker(
                 yield results.value!; // results.value is never null here
             } while (!done);
         } catch (ex) {
-            Logger(`Error in worker stream for key ${_key}`);
+            Logger(`Error in worker stream for key ${key}`);
             Logger(ex, LOG_LEVEL_VERBOSE);
             throw ex;
         } finally {
             // Tearing down.
             process.finalize();
-            writers.delete(_key);
-            responseBuf.delete(_key);
-            removeTask(_key);
+            writers.delete(key);
+            responseBuf.delete(key);
+            if (done) {
+                removeTask(key);
+            } else {
+                cancelSplitTask(key);
+            }
             void reader.cancel().catch((error) => Logger(error, LOG_LEVEL_VERBOSE));
         }
     };
