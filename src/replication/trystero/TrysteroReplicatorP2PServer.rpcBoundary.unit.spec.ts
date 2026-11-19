@@ -564,6 +564,7 @@ describe("TrysteroReplicatorP2PServer RPC boundaries", () => {
             .call("events.missing")
             .catch((reason: unknown) => reason);
 
+        expect(Object.getPrototypeOf(error)).toBe(RpcError.prototype);
         if (!(error instanceof RpcError)) {
             throw new Error("Expected an RPC error");
         }
@@ -572,6 +573,42 @@ describe("TrysteroReplicatorP2PServer RPC boundaries", () => {
             message: "Method not found: events.missing",
             details: undefined,
         });
+    });
+
+    it.each(["call", "notify"] as const)("shapes a hosted session %s error with no peer", async (operation) => {
+        const { caller } = await createConnectedPair(() => undefined);
+        const room = caller.rpcRoom;
+        if (!room) {
+            throw new Error("Expected a started caller room");
+        }
+        const error = await room
+            .session("")
+            [operation]("events.missing")
+            .catch((reason: unknown) => reason);
+
+        expect(Object.getPrototypeOf(error)).toBe(RpcError.prototype);
+        if (!(error instanceof RpcError)) {
+            throw new Error("Expected an RPC error");
+        }
+        expect(error.toShape()).toStrictEqual({
+            code: "NOT_CONNECTED",
+            message: "Peer is not connected",
+            details: undefined,
+        });
+    });
+
+    it.each(["invoke", "notify"] as const)("normalises errors from hosted room %s", async (operation) => {
+        const { caller, target } = await createConnectedPair(() => undefined);
+        const room = caller.rpcRoom;
+        if (!room) {
+            throw new Error("Expected a started caller room");
+        }
+        const error = await room[operation](target.serverPeerId, "invalid", []).catch((reason: unknown) => reason);
+        if (!(error instanceof RpcError)) {
+            throw new Error("Expected an RPC error");
+        }
+        expect(error.toShape()).toMatchObject({ code: "PROTOCOL_ERROR" });
+        expect(Object.hasOwn(error.toShape(), "details")).toBe(true);
     });
 
     it("exposes hosted rooms and sessions as instances of the public RPC classes", async () => {
@@ -585,7 +622,7 @@ describe("TrysteroReplicatorP2PServer RPC boundaries", () => {
         expect(room).not.toBeInstanceOf(CustomRoom);
         expect(session).toBeInstanceOf(RpcSession);
         expect(session).toBeInstanceOf(FancyKitRpcSession);
-        expect(RpcSession).toBe(FancyKitRpcSession);
+        expect(room?.session(target.serverPeerId)).toBe(session);
     });
 
     it("round-trips a PouchDB document and reconstructs missing-document errors over the hosted RPC room", async () => {

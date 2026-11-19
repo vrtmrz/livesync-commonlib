@@ -1,5 +1,4 @@
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
-import { RpcRoom as FancyKitRpcRoom } from "@vrtmrz/rpc/p2p";
 import {
     createDeferredAction,
     type DeferredAction,
@@ -7,7 +6,8 @@ import {
 } from "octagonal-wheels/concurrency/deferredAction";
 import { IncomingChunkBuffer, estimateBytes, splitIntoChunks } from "./chunking";
 import { createPendingInvocations } from "./RpcRoom/pendingInvocations";
-import { asRpcErrorShape, RpcError } from "./errors";
+import { asRpcErrorShape, RpcError, toCommonlibRpcError } from "./errors";
+import { commonlibRpcRoom } from "./commonlibRpcRoom";
 import { RpcSession } from "./RpcSession";
 import {
     RPC_VERSION_MAJOR,
@@ -60,7 +60,11 @@ export class RpcRoom {
         // Hosted rooms share this public identity while the standalone constructor retains its legacy behaviour.
         return (
             Function.prototype[Symbol.hasInstance].call(this, value) ||
-            (this === RpcRoom && value instanceof FancyKitRpcRoom)
+            (this === RpcRoom &&
+                typeof value === "object" &&
+                value !== null &&
+                commonlibRpcRoom in value &&
+                value[commonlibRpcRoom] === true)
         );
     }
 
@@ -142,7 +146,7 @@ export class RpcRoom {
         this.incomingChunkWaits.clear();
     }
 
-    session(peerId: string) {
+    session(peerId: string): RpcSession {
         const existing = this.sessions.get(peerId);
         if (existing) return existing;
         const s = new RpcSession(this, peerId);
@@ -218,7 +222,11 @@ export class RpcRoom {
         if (this.closed) {
             throw new RpcError("NOT_CONNECTED", "Room is closed");
         }
-        return await this.pendingInvocations.invoke(peerId, method, args, timeoutOrOptions);
+        try {
+            return await this.pendingInvocations.invoke(peerId, method, args, timeoutOrOptions);
+        } catch (error) {
+            throw toCommonlibRpcError(error);
+        }
     }
 
     /**
@@ -233,13 +241,17 @@ export class RpcRoom {
         if (this.closed) {
             throw new RpcError("NOT_CONNECTED", "Room is closed");
         }
-        await this.sendEnvelope(peerId, {
-            kind: "request",
-            requestId: newId("req"),
-            method,
-            args,
-            expectsResponse: false,
-        });
+        try {
+            await this.sendEnvelope(peerId, {
+                kind: "request",
+                requestId: newId("req"),
+                method,
+                args,
+                expectsResponse: false,
+            });
+        } catch (error) {
+            throw toCommonlibRpcError(error);
+        }
     }
 
     async cancel(peerId: string, requestId: string) {

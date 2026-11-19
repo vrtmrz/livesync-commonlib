@@ -2,13 +2,17 @@ import {
     createJsonCodec,
     RpcRoom,
     type JsonLike,
+    type RpcCallOptions,
     type RpcCancellationAwareMethodHandler,
+    type RpcSession as FancyKitRpcSession,
     type RpcErrorShape,
     type RpcMethodHandler,
     type RpcRegisterOptions,
     type RpcRoomOptions,
 } from "@vrtmrz/rpc/p2p";
-import { asRpcErrorShape, RpcError } from "@lib/rpc/errors";
+import { commonlibRpcRoom } from "@lib/rpc/commonlibRpcRoom";
+import { asRpcErrorShape, RpcError, toCommonlibRpcError } from "@lib/rpc/errors";
+import { RpcSession } from "@lib/rpc/RpcSession";
 import { formatRpcProtocolWarning } from "./rpcCompat";
 
 const responseErrors = new WeakMap<RpcErrorShape, unknown>();
@@ -46,6 +50,10 @@ function getResponseError(safe: RpcErrorShape): RpcErrorShape {
 
 /** Adapts Fancy Kit's text diagnostics while retaining its wire responses. */
 export class TrysteroRpcRoom extends RpcRoom<AbortSignal> {
+    readonly [commonlibRpcRoom] = true;
+    // Follow the underlying cache's lifetime, including peer departure and room closure.
+    private readonly commonlibSessions = new WeakMap<FancyKitRpcSession, InstanceType<typeof RpcSession>>();
+
     constructor(options: Omit<RpcRoomOptions<AbortSignal>, "codec">) {
         const codec = createJsonCodec();
         const { canAcceptRequest, onProtocolWarning } = options;
@@ -117,6 +125,37 @@ export class TrysteroRpcRoom extends RpcRoom<AbortSignal> {
                 },
             },
         });
+    }
+
+    override session(peerId: string) {
+        const underlying = super.session(peerId);
+        let session = this.commonlibSessions.get(underlying);
+        if (!session) {
+            session = new RpcSession(this, peerId);
+            this.commonlibSessions.set(underlying, session);
+        }
+        return session;
+    }
+
+    override async invoke(
+        peerId: string,
+        method: string,
+        args: JsonLike[],
+        options?: number | RpcCallOptions
+    ): Promise<JsonLike> {
+        try {
+            return await super.invoke(peerId, method, args, options);
+        } catch (error) {
+            throw toCommonlibRpcError(error);
+        }
+    }
+
+    override async notify(peerId: string, method: string, args: JsonLike[]): Promise<void> {
+        try {
+            await super.notify(peerId, method, args);
+        } catch (error) {
+            throw toCommonlibRpcError(error);
+        }
     }
 
     override register<Args extends JsonLike[], Result>(
