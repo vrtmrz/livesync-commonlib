@@ -2,15 +2,48 @@
 
 ## Unreleased
 
+## 0.7.0
+
+20th November, 2026
+
 ### Fixed
 
 - Hosts can identify an unsupported E2EE format when a CouchDB Fetch stops
-  and present recovery instructions. ([Self-hosted LiveSync #1365](https://github.com/vrtmrz/obsidian-livesync/issues/1365))
+  and present recovery instructions. The error preserves the original failure
+  as its cause. ([Self-hosted LiveSync #1365](https://github.com/vrtmrz/obsidian-livesync/issues/1365))
+- Hosts can supply a separate admission check for internal storage events
+  so selected paths can synchronise even when they fall outside the ordinary
+  file allow-list. Protected-path exclusions still apply.
+  ([Commonlib #233](https://github.com/vrtmrz/livesync-commonlib/pull/233))
 
 ### Improved
 
-- Hosts can observe the result of a CouchDB continuous start, including a confirmed network failure during preparation or the initial pull. This allows the host to resume work when connectivity returns. ([Self-hosted LiveSync #1224](https://github.com/vrtmrz/obsidian-livesync/issues/1224))
-- Replication statistics include the time of their last publication in epoch milliseconds. A newly selected Replicator starts with `NOT_CONNECTED` and a `null` publication time.
+- Hosts can observe whether a CouchDB continuous start succeeds, fails, or is
+  cancelled. Observed network failures include the host's online state and
+  the time of failure so the host can decide when to retry. An explicit stop
+  also lets the host withdraw a pending start before a transfer exists.
+  ([Self-hosted LiveSync #1224](https://github.com/vrtmrz/obsidian-livesync/issues/1224))
+- Replication statistics include the time of their last publication in epoch
+  milliseconds. Selecting a new Replicator resets the status to
+  `NOT_CONNECTED` and the publication time to `null`.
+  ([Commonlib #232](https://github.com/vrtmrz/livesync-commonlib/pull/232))
+- V3 Rabin-Karp chunking can produce Chunks while reading a large Blob in
+  blocks of up to 1 MiB. Prepared Chunk batches pass directly to the writer
+  without an extra array copy.
+  ([Commonlib #230](https://github.com/vrtmrz/livesync-commonlib/pull/230),
+  [#231](https://github.com/vrtmrz/livesync-commonlib/pull/231))
+- Hosted P2P uses the published Fancy Kit RPC room. Existing Commonlib room
+  and session constructors and the PouchDB bridge remain available.
+  ([Commonlib #229](https://github.com/vrtmrz/livesync-commonlib/pull/229))
+
+### Compatibility
+
+- Custom implementations of `IReplicatorService` must update
+  `replicationStatics` to expose read-only snapshots with
+  `statsUpdatedAt: number | null`. Publish updates by assigning a new
+  `replicationStatics.value`. The standard base service supplies the timestamp.
+- Exhaustive handlers for `ContinuousReplicationTrigger` must accept the new
+  `online` trigger.
 
 ## 0.6.0
 

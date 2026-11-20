@@ -346,7 +346,7 @@ The [maintained-host examples and evidence](proven-in-use.md) are optional conte
 
 ### Testing an unpublished Octagonal Wheels dependency
 
-The current integration pins the published Octagonal Wheels 0.1.56 release and
+The current integration pins the published Octagonal Wheels 0.1.57 release and
 uses the ordinary package gate. The override below is for future unpublished
 dependency changes.
 
