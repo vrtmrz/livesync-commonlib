@@ -48,7 +48,7 @@ describe("Rabin–Karp worker splitting failures", () => {
 
     const blockBytes = 1024 * 1024;
     it.each([
-        { stack: { value: () => "non-cloneable" }, name: "RangeError", message: "Could not read range" },
+        { stack: { value: () => "non-cloneable" }, name: "RangeError", message: "Could not read input" },
         {
             stack: {
                 get() {
@@ -59,15 +59,13 @@ describe("Rabin–Karp worker splitting failures", () => {
             message: "Background splitting failed",
         },
     ])("reports an error with an unusable stack", async ({ stack, name, message }) => {
-        const error = new RangeError("Could not read range");
+        const error = new RangeError("Could not read input");
         Object.defineProperty(error, "stack", stack);
         if (stack.get) {
             Object.defineProperties(error, { name: { value: Symbol() }, message: { value: 42 } });
         }
         const source = new Blob([new Uint8Array(16)]);
-        const range = source.slice();
-        vi.spyOn(source, "slice").mockReturnValue(range);
-        vi.spyOn(range, "arrayBuffer").mockRejectedValue(error);
+        vi.spyOn(source, "arrayBuffer").mockRejectedValue(error);
 
         const iterator = splitPieces2WorkerRabinKarp(source, 16, false, 16)();
         await expect(iterator.next()).rejects.toMatchObject({ name, message });

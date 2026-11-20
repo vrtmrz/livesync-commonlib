@@ -572,6 +572,9 @@ export async function splitPiecesRabinKarp(
     const readBlockBytes = 1024 * 1024;
 
     async function* readChunks(): AsyncGenerator<string, void, unknown> {
+        if (dataSize === 0 || signal?.aborted) {
+            return;
+        }
         const previousWindow = new Uint8Array(windowSize);
         const pendingParts: Uint8Array<ArrayBuffer>[] = [];
         let remainingBytes = dataSize;
@@ -597,15 +600,16 @@ export async function splitPiecesRabinKarp(
             return bytes;
         }
 
-        const blocks = iterateBlobBlocks(dataSrc, readBlockBytes);
+        // Most Markdown notes are expected to fit in one read block. A direct read avoids
+        // creating a Blob slice and a block iterator for any input that fits.
+        const blocks = dataSize > readBlockBytes ? iterateBlobBlocks(dataSrc, readBlockBytes) : undefined;
         try {
-            // Cancellation can arrive while a Blob range is being read.
-            while (!signal?.aborted) {
-                const next = await blocks.next();
-                if (next.done === true || signal?.aborted) {
+            // Cancellation can arrive while a Blob read is in progress.
+            while (remainingBytes > 0 && !signal?.aborted) {
+                const block = blocks ? (await blocks.next()).value : new Uint8Array(await dataSrc.arrayBuffer());
+                if (!block || signal?.aborted) {
                     return;
                 }
-                const block = next.value;
                 let chunkStart = 0;
                 for (let index = 0; index < block.length; index++) {
                     const byte = block[index];
@@ -635,7 +639,9 @@ export async function splitPiecesRabinKarp(
                 }
             }
         } finally {
-            await blocks.return();
+            if (blocks) {
+                await blocks.return();
+            }
         }
     }
     const chunks = readChunks();

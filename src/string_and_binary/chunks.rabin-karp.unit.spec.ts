@@ -130,6 +130,67 @@ describe("Rabin–Karp proportional binary thresholds", () => {
 describe("Rabin–Karp input blocks", () => {
     const readBlockBytes = 1024 * 1024;
 
+    it.each([
+        { size: 0, wholeReads: 0, ranges: [], chunkSizes: [] },
+        { size: 1024, wholeReads: 1, ranges: [], chunkSizes: [1024] },
+        { size: readBlockBytes, wholeReads: 1, ranges: [], chunkSizes: [readBlockBytes] },
+        {
+            size: readBlockBytes + 1,
+            wholeReads: 0,
+            ranges: [[0, readBlockBytes], [readBlockBytes, 2 * readBlockBytes]],
+            chunkSizes: [readBlockBytes, 1],
+        },
+    ])("reads a $size-byte Blob using the expected read path", async ({ size, wholeReads, ranges, chunkSizes }) => {
+        const bytes = new Uint8Array(size);
+        const source = new Blob([bytes]);
+        const wholeRead = vi.spyOn(source, "arrayBuffer");
+        const slice = vi.spyOn(source, "slice");
+        const factory = await splitPiecesRabinKarp(source, readBlockBytes, false, 20);
+        const stream = factory();
+
+        expect(wholeRead).not.toHaveBeenCalled();
+        expect(slice).not.toHaveBeenCalled();
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of stream) {
+            const decoded = Buffer.from(chunk, "base64");
+            chunks.push(new Uint8Array(decoded.buffer, decoded.byteOffset, decoded.byteLength));
+        }
+
+        expect(chunks.map((chunk) => chunk.length)).toEqual(chunkSizes);
+        expect(Buffer.concat(chunks).equals(Buffer.from(bytes))).toBe(true);
+        expect(wholeRead).toHaveBeenCalledTimes(wholeReads);
+        expect(slice.mock.calls).toEqual(ranges);
+    });
+
+    it.each([
+        { when: "before", wholeReads: 0 },
+        { when: "during", wholeReads: 1 },
+    ])("does not emit a chunk when aborted $when a whole-Blob read", async ({ when, wholeReads }) => {
+        const source = new Blob(["# Example note"], { type: "text/plain" });
+        const controller = new AbortController();
+        const arrayBuffer = source.arrayBuffer.bind(source);
+        const wholeRead = vi.spyOn(source, "arrayBuffer").mockImplementation(async () => {
+            const bytes = await arrayBuffer();
+            controller.abort();
+            return bytes;
+        });
+        const factory = await splitPiecesRabinKarp(
+            source,
+            readBlockBytes,
+            true,
+            20,
+            undefined,
+            undefined,
+            controller.signal
+        );
+        if (when === "before") {
+            controller.abort();
+        }
+
+        await expect(factory().next()).resolves.toEqual({ done: true, value: undefined });
+        expect(wholeRead).toHaveBeenCalledTimes(wholeReads);
+    });
+
     it("holds the rolling window across two input blocks", async () => {
         const bytes = new Uint8Array(readBlockBytes + 500);
         bytes[readBlockBytes - 1] = 2;
