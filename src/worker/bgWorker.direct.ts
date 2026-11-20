@@ -3,37 +3,17 @@ import { decrypt, encrypt } from "octagonal-wheels/encryption/index.js";
 import { encrypt as encryptHKDF, decrypt as decryptHKDF } from "octagonal-wheels/encryption/hkdf";
 
 import { splitPieces2, splitPieces2V2, splitPiecesRabinKarp } from "@lib/string_and_binary/chunks.ts";
-import type { EncryptHKDFProcessItem, EncryptProcessItem, SplitProcessItem, ProcessItem } from "./universalTypes.ts";
+import type {
+    EncryptArguments,
+    EncryptHKDFArguments,
+    EncryptHKDFProcessItem,
+    EncryptProcessItem,
+    ProcessItem,
+    SplitArguments,
+    SplitProcessItem,
+} from "./universalTypes.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import type { LiveSyncEventHub } from "@lib/hub/hub.ts";
-
-export type SplitArguments = {
-    key: number;
-    type: "split";
-    dataSrc: Blob;
-    pieceSize: number;
-    plainSplit: boolean;
-    minimumChunkSize: number;
-    filename?: string;
-    useV2: boolean;
-    useSegmenter: boolean;
-};
-
-export type EncryptArguments = {
-    key: number;
-    type: "encrypt" | "decrypt";
-    input: string;
-    passphrase: string;
-    autoCalculateIterations: boolean;
-};
-
-export type EncryptHKDFArguments = {
-    key: number;
-    type: "encryptHKDF" | "decryptHKDF";
-    input: string;
-    passphrase: string;
-    pbkdf2Salt: Uint8Array;
-};
 
 export function terminateWorker() {
     return;
@@ -47,7 +27,17 @@ export function splitPieces2Worker(
     filename?: string,
     useSegmenter?: boolean
 ) {
-    return splitPieces2(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter ?? false);
+    return async function* () {
+        const split = await splitPieces2(
+            dataSrc,
+            pieceSize,
+            plainSplit,
+            minimumChunkSize,
+            filename,
+            useSegmenter ?? false
+        );
+        yield* split();
+    };
 }
 export function splitPieces2WorkerV2(
     dataSrc: Blob,
@@ -57,7 +47,17 @@ export function splitPieces2WorkerV2(
     filename?: string,
     useSegmenter?: boolean
 ) {
-    return splitPieces2V2(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter ?? false);
+    return async function* () {
+        const split = await splitPieces2V2(
+            dataSrc,
+            pieceSize,
+            plainSplit,
+            minimumChunkSize,
+            filename,
+            useSegmenter ?? false
+        );
+        yield* split();
+    };
 }
 export function splitPieces2WorkerRabinKarp(
     dataSrc: Blob,
@@ -121,5 +121,15 @@ export function startWorker(data: Omit<EncryptArguments | SplitArguments | Encry
 }
 
 export const tasks = new Map<number, ProcessItem>();
+
+export function removeTask(key: number): void {
+    tasks.delete(key);
+}
+
+export function cancelSplitTask(key: number): void {
+    if (tasks.get(key)?.type === "split") {
+        removeTask(key);
+    }
+}
 
 export function initialiseWorkerModule(_events: LiveSyncEventHub) {}

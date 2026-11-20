@@ -251,6 +251,8 @@ npm run test:package
 
 `test:package` builds the compiled package, packs it, installs the tarball into a clean consumer fixture, exercises Node imports, type-checks public entry points, and creates representative browser bundles. It also verifies that browser and context entry points do not pull in Node-only code, Svelte, or the complete language catalogue unintentionally.
 
+The browser Worker bundle uses one RPC pool for chunking, encryption, and decryption. The Self-hosted LiveSync plug-in initialises it with the event hub for its own lifecycle. The package check exercises the existing compatibility entry and verifies that it and Commonlib's internal alias resolve to the same implementation for each runtime. Both runtimes return a synchronous factory for each Worker splitter. Node consumers can still `await` the factory and should use `await` when migrating a call that chained `.then()` on the former direct V1 or V2 result.
+
 `test:contracts` runs the host-neutral result contracts which are intended to be reusable while implementations move:
 
 - `test:contract:context` verifies event delivery, default instance isolation, translation results, and host extension of `ServiceContextContract`;
