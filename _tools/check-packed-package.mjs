@@ -228,6 +228,7 @@ await writeConsumerFile(
                 "type-smoke.ts",
                 "handler-outcome-types.ts",
                 "blob-compatibility-types.ts",
+                "rpc-compatibility-types.ts",
                 "runtime-tools-types.ts",
                 "service-feature-types.ts",
                 "storage-path-types.ts",
@@ -752,6 +753,7 @@ await writeConsumerFile(
 for (const filename of [
     "blob-compatibility-types.ts",
     "blob-compatibility-runtime.mjs",
+    "rpc-compatibility-types.ts",
     "runtime-tools-types.ts",
     "runtime-tools-runtime.mjs",
     "service-feature-types.ts",

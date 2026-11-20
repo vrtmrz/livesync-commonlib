@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { RpcRoom, type RpcWireMessage, type TransportAdapter } from "./index";
+import { RpcError, RpcRoom, type RpcWireMessage, type TransportAdapter } from "./index";
 import { RpcSession } from "./RpcSession";
-import { RpcError } from "./errors";
 import { RPC_VERSION_MAJOR, RPC_VERSION_MINOR, type RpcRequestEnvelope } from "./types";
 
 class MockTransport implements TransportAdapter {
@@ -71,6 +70,15 @@ function createPair() {
     const roomA = new RpcRoom({ transport: tA, maxWirePayloadBytes: 128, chunkMissingRetryMs: 20 });
     const roomB = new RpcRoom({ transport: tB, maxWirePayloadBytes: 128, chunkMissingRetryMs: 20 });
     return { tA, tB, roomA, roomB };
+}
+
+function expectCancellationReason(reason: unknown): void {
+    if (!(reason instanceof RpcError)) {
+        throw new Error("Expected a Commonlib RPC error");
+    }
+    expect(reason).toMatchObject({ code: "CANCELLED", message: "Invocation cancelled" });
+    expect(Object.prototype.hasOwnProperty.call(reason, "details")).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(reason.toShape(), "details")).toBe(true);
 }
 
 function waitForAbort(signal: AbortSignal): Promise<void> {
@@ -422,8 +430,8 @@ describe("RpcRoom", () => {
         const started = new Promise<void>((resolve) => {
             handlerStarted = resolve;
         });
-        let handlerCancelled!: () => void;
-        const cancelled = new Promise<void>((resolve) => {
+        let handlerCancelled!: (reason: unknown) => void;
+        const cancelled = new Promise<unknown>((resolve) => {
             handlerCancelled = resolve;
         });
         let responseSent = false;
@@ -448,7 +456,7 @@ describe("RpcRoom", () => {
         roomB.registerCancellable("job.signal", async ({ signal }) => {
             handlerStarted();
             await waitForAbort(signal);
-            handlerCancelled();
+            handlerCancelled(signal.reason);
             return "late" as any;
         });
         const controller = new AbortController();
@@ -459,7 +467,7 @@ describe("RpcRoom", () => {
             await started;
             controller.abort();
             await expect(p).rejects.toMatchObject({ code: "CANCELLED" });
-            await cancelled;
+            expectCancellationReason(await cancelled);
             expect(responseSent).toBe(false);
         } finally {
             roomA.close();
@@ -769,15 +777,15 @@ describe("RpcRoom", () => {
         const started = new Promise<void>((resolve) => {
             handlerStarted = resolve;
         });
-        let handlerCancelled!: () => void;
-        const cancelled = new Promise<void>((resolve) => {
+        let handlerCancelled!: (reason: unknown) => void;
+        const cancelled = new Promise<unknown>((resolve) => {
             handlerCancelled = resolve;
         });
         const { roomA, roomB } = createPair();
         roomB.registerCancellable("job.room-close", async ({ signal }) => {
             handlerStarted();
             await waitForAbort(signal);
-            handlerCancelled();
+            handlerCancelled(signal.reason);
             return "late" as any;
         });
         const p = roomA.session("peer-b").call("job.room-close", [], 1000);
@@ -786,7 +794,7 @@ describe("RpcRoom", () => {
         try {
             await started;
             roomB.close();
-            await cancelled;
+            expectCancellationReason(await cancelled);
             roomA.close();
             await expect(p).rejects.toMatchObject({ code: "NOT_CONNECTED" });
         } finally {
@@ -801,8 +809,8 @@ describe("RpcRoom", () => {
         const started = new Promise<void>((resolve) => {
             handlerStarted = resolve;
         });
-        let handlerCancelled!: () => void;
-        const cancelled = new Promise<void>((resolve) => {
+        let handlerCancelled!: (reason: unknown) => void;
+        const cancelled = new Promise<unknown>((resolve) => {
             handlerCancelled = resolve;
         });
         const tA = new MockTransport("peer-a");
@@ -814,7 +822,7 @@ describe("RpcRoom", () => {
         roomB.registerCancellable("job.peer-leave", async ({ signal }) => {
             handlerStarted();
             await waitForAbort(signal);
-            handlerCancelled();
+            handlerCancelled(signal.reason);
             return "late" as any;
         });
         const p = roomA.session("peer-b").call("job.peer-leave", [], 1000);
@@ -823,7 +831,7 @@ describe("RpcRoom", () => {
         try {
             await started;
             tB.detach();
-            await cancelled;
+            expectCancellationReason(await cancelled);
             tA.detach();
             await expect(p).rejects.toMatchObject({ code: "NOT_CONNECTED" });
         } finally {

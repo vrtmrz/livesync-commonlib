@@ -1,27 +1,34 @@
+import { asRpcErrorShape as asP2pRpcErrorShape, RpcError as P2pRpcError } from "@vrtmrz/rpc/p2p";
 import type { JsonLike, RpcErrorCode, RpcErrorShape } from "./types";
 
-export class RpcError extends Error {
+/** The Commonlib error contract used by both RPC implementations. */
+export interface RpcError extends Error {
     code: RpcErrorCode;
     details?: JsonLike;
-
-    constructor(code: RpcErrorCode, message: string, details?: JsonLike) {
-        super(message);
-        this.name = "RpcError";
-        this.code = code;
-        this.details = details;
-    }
-
-    toShape(): RpcErrorShape {
-        return { code: this.code, message: this.message, details: this.details };
-    }
+    toShape(): RpcErrorShape;
 }
 
-export function asRpcErrorShape(ex: unknown): RpcErrorShape {
-    if (ex instanceof RpcError) {
-        return ex.toShape();
+export const RpcError: {
+    new (code: RpcErrorCode, message: string, details?: JsonLike): RpcError;
+    readonly prototype: RpcError;
+} = class RpcError extends P2pRpcError {
+    constructor(code: RpcErrorCode, message: string, details?: JsonLike) {
+        super(code, message, details);
     }
-    if (ex instanceof Error) {
-        return { code: "REMOTE_ERROR", message: ex.message };
+
+    override toShape(): RpcErrorShape {
+        return { code: this.code, message: this.message, details: this.details };
     }
-    return { code: "REMOTE_ERROR", message: "Unknown remote error" };
+};
+
+export function toCommonlibRpcError(error: unknown): unknown {
+    if (error instanceof P2pRpcError && !(error instanceof RpcError)) {
+        return new RpcError(error.code, error.message, error.details);
+    }
+    return error;
+}
+
+/** Return the structured error through Commonlib's JSON-compatible type. */
+export function asRpcErrorShape(error: unknown): RpcErrorShape {
+    return asP2pRpcErrorShape(toCommonlibRpcError(error));
 }
