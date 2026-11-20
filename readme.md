@@ -44,7 +44,7 @@ ordinary replication before resuming local writers. Existing hosts can omit
 this optimisation. Resume cursors retain their existing meaning; this resource
 does not provide an arbitrary-time checkpoint jump or On Demand repair.
 
-Unreleased CouchDB work separates encrypted HTTP responses by Security Seed
+Commonlib 0.3.1 separates encrypted CouchDB HTTP responses by Security Seed
 while retaining conditional revalidation within a Seed. See
 [CouchDB response caching](docs/couchdb-http-cache.md) for the request,
 replication-preparation, and host-adapter boundaries.
@@ -67,7 +67,7 @@ the receive, skip, and replay boundaries.
 | `@vrtmrz/livesync-commonlib/conflicts`             | Keyed conflict-check scheduling with bounded concurrency and explicit completion  | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/context`               | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/diagnostics`           | Read-only Usage and integrity inspection, name projection, and reports            | Focused pre-1.0 diagnostic contract                                                         |
-| `@vrtmrz/livesync-commonlib/storage`               | Path types, namespace and comparison helpers, and strict Unicode path resolution  | Unreleased additive contract; host integration remains explicit                             |
+| `@vrtmrz/livesync-commonlib/storage`               | Path types, namespace and comparison helpers, and strict Unicode path resolution  | Available since 0.3.1. Host integration remains explicit.                                   |
 | `@vrtmrz/livesync-commonlib/hashing`               | Chunk ID calculation and exact file-content hashing                               | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/browser`               | Rooted File System Access API storage                                             | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/node`                  | Rooted Node storage, Node standard I/O, and selected Node capabilities            | Supported platform façade; keeps Node-only dependencies behind an explicit boundary         |
@@ -95,7 +95,8 @@ Import only the entry point required by the current runtime. Browser code must n
 
 The Node and browser entries are platform façades. They keep platform-specific adapters and capabilities behind package-owned boundaries, so a consumer does not have to reproduce those imports or their build and review exceptions. The Node entry's selected built-in-module exports are deliberate parts of that façade. Package checks ensure that the root, context, and browser entries do not load the Node implementation.
 
-The hosted P2P service uses the published `@vrtmrz/rpc/p2p` room. The
+Starting with [Commonlib 0.7.0](updates.md#070), the hosted P2P service uses
+the published `@vrtmrz/rpc/p2p` room. The
 transitional Commonlib `/rpc` entry retains the existing room and session
 constructors and the PouchDB bridge. Hosted rooms and sessions pass
 `instanceof` checks against those exports. New consumers can use the focused
@@ -205,8 +206,9 @@ Hosts can read the latest `services.replicator.replicationStatics.value` and
 subscribe to that reactive source. The focused `/replication` entry exports
 `ReplicationStatics`, `CouchDBReplicationProgress`, and
 `ReplicationCheckpointProgress`. Existing transfer counters and `syncStatus`
-retain their meanings. The initial snapshot has `syncStatus: 'NOT_CONNECTED'`
-and `statsUpdatedAt: null`. When the provider publishes statistics,
+retain their meanings. Starting with [Commonlib 0.7.0](updates.md#070), the
+initial snapshot has `syncStatus: 'NOT_CONNECTED'` and `statsUpdatedAt: null`.
+When the provider publishes statistics,
 `statsUpdatedAt` records the publication time in Unix epoch milliseconds.
 Replacing the provider restores the initial snapshot until new statistics
 are published.

@@ -2,7 +2,8 @@
 date: 2026-10-23
 commonlib-version: "0.1.44"
 self-hosted-livesync-version: "1.0.39"
-status: accepted-unreleased
+status: published
+published-in: "0.2.0"
 ---
 
 # Architectural Decision Record: Chunking Policy and Initial Replication
@@ -23,11 +24,12 @@ on the existing Replicator with its normal paired checkpoints. Chunk size and
 transport batching remain separate decisions.
 
 Rule A, recommendation alignment, the continuous-window correction, full-leaf
-Fast Fetch, and the fresh-import handoff are implemented in an unpublished
-candidate based on Commonlib 0.1.44. The reviewed candidate is distinct from
-the published artefact with the same version label. The
+Fast Fetch, and the fresh-import handoff are available in
+[Commonlib 0.2.0](../../updates.md#020). The date and versions above identify
+the original review baseline. The
 [implementation evidence](evidence/2026_10_rule_a_implementation.json) records
-the regression results and packed-consumer validation.
+the regression results and packed-consumer validation of the local candidate
+based on Commonlib 0.1.44.
 
 ## Context
 
@@ -235,18 +237,15 @@ setup, content-defined binary boundaries, unchanged Metadata and Chunk inventory
 across restart, exact binary reception after Fast Fetch, and two-way note
 transfer. These results do not establish Cloudant-service or mobile performance.
 
-The standalone Deno utilities separately pin Commonlib 0.1.34. Their generator
-tests pass against that immutable release and against this exact local candidate
-through a temporary import map. Publishing the reviewed library and updating
-those pins and their lockfile remain release integration work. No hard-coded
-Chunk-size override is added to bypass their package boundary.
+At the original review, the standalone Deno utilities pinned Commonlib 0.1.34.
+Their generator tests passed against that release and the local candidate
+through a temporary import map. A consumer adopting the published policy
+updates its exact dependency, independent Deno pins, and lockfile together,
+then repeats the applicable checks against the published package. The tools
+inherit the selected package's policy through their package boundary.
 
-`updates.md` records the compatibility effect, small-cap correction, and new
-recommendation. This change is intended for integration into Commonlib 0.2.0.
-The downstream draft retains its published dependency until the integrated
-library is available. Before that draft becomes ready for review, update its
-exact dependency and the independent Deno pins and lockfile to the reviewed
-immutable release, and repeat the applicable consumer checks against it.
+The [0.2.0 notes](../../updates.md#020) record the compatibility effect,
+small-cap correction, and new recommendation.
 
 [issue]: https://github.com/vrtmrz/obsidian-livesync/issues/1180#issuecomment-6261651086
 [experiments]: 2026_10_chunking_and_transport_batching_evidence.md
