@@ -1,8 +1,11 @@
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import type { APIService } from "./APIService";
 import type { AppLifecycleService } from "./AppLifecycleService";
 import { RemoteService } from "./RemoteService";
+import type { RemoteConnectionOpenOptions } from "./RemoteConnection.ts";
+import { getReplicationNetworkFailure } from "@lib/replication/remoteTransportFailure.ts";
 import { ServiceContext } from "./ServiceBase";
 import type { SettingService } from "./SettingService";
 import { PouchDB } from "@lib/pouchdb/pouchdb-http";
@@ -21,7 +24,8 @@ class TestRemoteService extends RemoteService {}
 
 function createService(
     fetchImplementation: (req: string | Request, opts?: RequestInit) => Promise<Response>,
-    pouchDB: PouchDB.Static = PouchDB
+    pouchDB: PouchDB.Static = PouchDB,
+    Service: typeof TestRemoteService = TestRemoteService
 ) {
     const requestCount = reactiveSource(0);
     const responseCount = reactiveSource(0);
@@ -34,16 +38,16 @@ function createService(
         requestCount,
         responseCount,
         webCompatFetch,
-    } as unknown as APIService;
+    };
     const appLifecycle = {
         getUnresolvedMessages: { addHandler: vi.fn() },
     } as unknown as AppLifecycleService;
     const setting = {
         currentSettings: vi.fn(() => ({ E2EEAlgorithm: "v2" })),
     } as unknown as SettingService;
-    const service = new TestRemoteService(new ServiceContext(), {
+    const service = new Service(new ServiceContext(), {
         pouchDB,
-        APIService,
+        APIService: APIService as unknown as APIService,
         appLifecycle,
         setting,
     });
@@ -70,20 +74,29 @@ function createDatabaseInfoResponse() {
     });
 }
 
-async function rawConnect(service: TestRemoteService, skipInfo = true) {
-    return await service.connect(
+function connectionArguments(
+    skipInfo: boolean,
+    options?: RemoteConnectionOpenOptions,
+    performSetup = false
+): Parameters<TestRemoteService["connect"]> {
+    return [
         "https://example.com/db",
         { username: "user", password: "password", type: "basic" },
         false,
         false,
         false,
-        false,
+        performSetup,
         skipInfo,
         false,
         {},
         false,
-        () => Promise.resolve(new Uint8Array())
-    );
+        () => Promise.resolve(new Uint8Array()),
+        options,
+    ];
+}
+
+async function rawConnect(service: TestRemoteService, skipInfo: boolean) {
+    return await service.connect(...connectionArguments(skipInfo));
 }
 
 type ConnectWithOptions = (
@@ -152,41 +165,199 @@ async function connect(service: TestRemoteService, skipInfo = true) {
     return connection;
 }
 
-describe("RemoteService request activity", () => {
-    it.each([false, true])("carries headers-only cache compatibility through the request and fallback (%s)", async (fallback) => {
-        type AdapterFetch = (request: string | Request, options?: RequestInit) => Promise<Response>;
-        let adapterFetch: AdapterFetch | undefined;
-        const database = { close: vi.fn().mockResolvedValue(undefined), transform: vi.fn() };
-        const FakePouchDB = vi.fn(function (_uri: string, configuration: { fetch: AdapterFetch }) {
-            adapterFetch = configuration.fetch;
-            return database;
+describe("RemoteService opening transport failure", () => {
+    const disconnect = () =>
+        new TypeError("fetch failed", { cause: Object.assign(new Error("reset"), { code: "ECONNRESET" }) });
+
+    it("captures the observed host online state and time before returning a failed CouchDB info result", async () => {
+        const { APIService, nativeFetch, service, webCompatFetch } = createService(async () =>
+            createDatabaseInfoResponse()
+        );
+        const beganAt = Date.now();
+        webCompatFetch.mockImplementationOnce(async () => {
+            APIService.isOnline = false;
+            throw disconnect();
         });
-        const { service, webCompatFetch, nativeFetch } = createService(
-            async () => createDatabaseInfoResponse(),
-            FakePouchDB as never
+        const result = await service.openCouchDBConnection(
+            ...connectionArguments(false, { allowNativeFallback: false })
         );
-        if (fallback) webCompatFetch.mockRejectedValue(new TypeError("CORS fixture"));
-        const getSeed = vi.fn(async () => new Uint8Array([1, 2, 3, 4]));
-        const opened = await service.connect(
-            "https://example.com/db",
-            { username: "user", password: "password", type: "basic" },
-            false, "secret", false, false, true, false, {}, false, getSeed,
-            { encryptionAlgorithm: E2EEAlgorithms.V2, useCouchDBCacheControlHeadersOnly: true }
-        );
-        if (typeof opened === "string") throw new Error(opened);
-        try {
-            await adapterFetch!("https://example.com/db/metadata?rev=1-current", { method: "GET" });
-            for (const fetch of fallback ? [webCompatFetch, nativeFetch] : [webCompatFetch]) {
-                expect(fetch).toHaveBeenCalledWith(
-                    "https://example.com/db/metadata?rev=1-current",
-                    expect.objectContaining({ cache: "no-store" })
-                );
-            }
-            expect(getSeed).not.toHaveBeenCalled();
-        } finally {
-            await opened.close();
-        }
+        assert("error" in result);
+        const failure = getReplicationNetworkFailure(result.error);
+        expect(failure).toEqual({
+            reason: "remote-transport",
+            hostOnlineAtFailure: false,
+            failedAt: expect.any(Number),
+        });
+        assert(failure);
+        expect(failure.failedAt).toBeGreaterThanOrEqual(beganAt);
+        expect(nativeFetch).not.toHaveBeenCalled();
     });
+
+    it("captures a connection reset while consuming a successful CouchDB info response", async () => {
+        const disconnectError = disconnect();
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"db_name":'));
+            },
+            pull(controller) {
+                controller.error(disconnectError);
+            },
+        });
+        const { service, nativeFetch } = createService(async () => new Response(body, { status: 200 }));
+
+        const result = await service.openCouchDBConnection(...connectionArguments(false));
+
+        assert("error" in result);
+        expect(getReplicationNetworkFailure(result.error)).toEqual({
+            reason: "remote-transport",
+            hostOnlineAtFailure: true,
+            failedAt: expect.any(Number),
+        });
+        expect(nativeFetch).not.toHaveBeenCalled();
+    });
+
+    it("captures a connection reset while reading a buffered attachment response", async () => {
+        const disconnectError = disconnect();
+        const { service } = createService(async (request) => {
+            const url = typeof request === "string" ? request : request.url;
+            if (url.endsWith("/db/doc/att")) {
+                const response = new Response(new Uint8Array([1, 2, 3]), {
+                    status: 200,
+                    headers: { "content-type": "application/octet-stream" },
+                }) as Response & { buffer(): Promise<Buffer> };
+                Object.defineProperty(response, "buffer", {
+                    configurable: true,
+                    value: async () => {
+                        throw disconnectError;
+                    },
+                });
+                return response;
+            }
+            return createDatabaseInfoResponse();
+        });
+
+        const connection = await connect(service);
+        let error: unknown;
+        try {
+            await connection.db.getAttachment("doc", "att");
+        } catch (caught) {
+            error = caught;
+        } finally {
+            await (connection as typeof connection & { close(): Promise<void> }).close();
+        }
+
+        expect(getReplicationNetworkFailure(error)).toEqual({
+            reason: "remote-transport",
+            hostOnlineAtFailure: true,
+            failedAt: expect.any(Number),
+        });
+    });
+
+    it("keeps malformed successful CouchDB info separate from network failures", async () => {
+        const { service } = createService(async () => new Response("{invalid", { status: 200 }));
+
+        const result = await service.openCouchDBConnection(...connectionArguments(false));
+
+        assert("error" in result);
+        expect(result.error.cause).toBeInstanceOf(SyntaxError);
+        expect(getReplicationNetworkFailure(result.error)).toBeUndefined();
+    });
+
+    it("keeps the offline description at the legacy connect entry point", async () => {
+        const { APIService, service, webCompatFetch } = createService(async () => createDatabaseInfoResponse());
+        APIService.isOnline = false;
+
+        await expect(service.connect(...connectionArguments(false))).resolves.toBe("Network is offline");
+        expect(webCompatFetch).not.toHaveBeenCalled();
+    });
+
+    it("reports the final request outcome when native fallback succeeds", async () => {
+        const { nativeFetch, service, webCompatFetch } = createService(async () => createDatabaseInfoResponse());
+        webCompatFetch.mockRejectedValueOnce(disconnect());
+
+        const result = await service.openCouchDBConnection(...connectionArguments(false));
+
+        assert(!("error" in result));
+        await result.close();
+        expect(nativeFetch).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+        ["opaque WebKit error", new TypeError("Load failed")],
+        ["HTTP authentication error", new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 })],
+    ] as const)("preserves the generic failure result for %s", async (_name, failure) => {
+        const { service } = createService(async () => {
+            if (failure instanceof Error) throw failure;
+            return failure.clone();
+        });
+
+        const result = await service.openCouchDBConnection(...connectionArguments(false, undefined, true));
+
+        assert("error" in result);
+        expect(getReplicationNetworkFailure(result.error)).toBeUndefined();
+    });
+
+    it("excludes connection-owner cancellation even when the request carries a transport code", async () => {
+        const controller = new AbortController();
+        const { service } = createService(async () => {
+            controller.abort();
+            throw disconnect();
+        });
+
+        const args = connectionArguments(false, { signal: controller.signal });
+        const result = await service.openCouchDBConnection(...args);
+
+        assert("error" in result);
+        expect(getReplicationNetworkFailure(result.error)).toBeUndefined();
+    });
+});
+
+describe("RemoteService request activity", () => {
+    it.each([false, true])(
+        "carries headers-only cache compatibility through the request and fallback (%s)",
+        async (fallback) => {
+            type AdapterFetch = (request: string | Request, options?: RequestInit) => Promise<Response>;
+            let adapterFetch: AdapterFetch | undefined;
+            const database = { close: vi.fn().mockResolvedValue(undefined), transform: vi.fn() };
+            const FakePouchDB = vi.fn(function (_uri: string, configuration: { fetch: AdapterFetch }) {
+                adapterFetch = configuration.fetch;
+                return database;
+            });
+            const { service, webCompatFetch, nativeFetch } = createService(
+                async () => createDatabaseInfoResponse(),
+                FakePouchDB as never
+            );
+            if (fallback) webCompatFetch.mockRejectedValue(new TypeError("CORS fixture"));
+            const getSeed = vi.fn(async () => new Uint8Array([1, 2, 3, 4]));
+            const opened = await service.connect(
+                "https://example.com/db",
+                { username: "user", password: "password", type: "basic" },
+                false,
+                "secret",
+                false,
+                false,
+                true,
+                false,
+                {},
+                false,
+                getSeed,
+                { encryptionAlgorithm: E2EEAlgorithms.V2, useCouchDBCacheControlHeadersOnly: true }
+            );
+            if (typeof opened === "string") throw new Error(opened);
+            try {
+                await adapterFetch!("https://example.com/db/metadata?rev=1-current", { method: "GET" });
+                for (const fetch of fallback ? [webCompatFetch, nativeFetch] : [webCompatFetch]) {
+                    expect(fetch).toHaveBeenCalledWith(
+                        "https://example.com/db/metadata?rev=1-current",
+                        expect.objectContaining({ cache: "no-store" })
+                    );
+                }
+                expect(getSeed).not.toHaveBeenCalled();
+            } finally {
+                await opened.close();
+            }
+        }
+    );
 
     it.each([
         ["Metadata", E2EEAlgorithms.V2],
@@ -207,7 +378,7 @@ describe("RemoteService request activity", () => {
                           ctime: 10,
                           mtime: 20,
                           size: 30,
-                          children: [],
+                          children: [] as string[],
                           eden: {},
                       } satisfies PlainEntry)
                     : ({
@@ -320,7 +491,7 @@ describe("RemoteService request activity", () => {
     });
 
     it("settles an in-flight request when its connection signal is aborted", async () => {
-        const fetchStarted = Promise.withResolvers<void>();
+        const fetchStarted = promiseWithResolvers<void>();
         const { service } = createService(
             (_request, options) =>
                 new Promise<Response>((_resolve, reject) => {
@@ -333,11 +504,7 @@ describe("RemoteService request activity", () => {
         expect(typeof connection).not.toBe("string");
         if (typeof connection === "string") throw new Error(connection);
 
-        const result = connection as {
-            db: PouchDB.Database<never>;
-            close?: () => Promise<void>;
-        };
-        const infoRequest = result.db.info();
+        const infoRequest = connection.db.info();
         await fetchStarted.promise;
         controller.abort(new Error("connectivity preflight expired"));
 
@@ -352,13 +519,13 @@ describe("RemoteService request activity", () => {
             }),
         ]);
         if (pendingTimer) clearTimeout(pendingTimer);
-        await (result.close?.() ?? result.db.close());
+        await connection.close();
 
         expect(outcome).toBe("rejected");
     });
 
     it("aborts a response body read before closing the PouchDB handle", async () => {
-        const bodyReadStarted = Promise.withResolvers<void>();
+        const bodyReadStarted = promiseWithResolvers<void>();
         const { service } = createService((_request, options) => {
             const body = new ReadableStream<Uint8Array>({
                 start(controller) {
@@ -389,6 +556,9 @@ describe("RemoteService request activity", () => {
         await owned.close();
 
         await expect(infoRequest).rejects.toThrow("Remote connection closed");
+        await infoRequest.catch((error: unknown) => {
+            expect(getReplicationNetworkFailure(error)).toBeUndefined();
+        });
     });
 
     it("does not fall back to the native request API for an owned preflight", async () => {

@@ -11,6 +11,7 @@ export {
     USER_INITIATED_REPLICATION_AUTHORITY,
     defineReplicatorProviderDefinitions,
     isReplicationCompleted,
+    observedOfflineReplicationFailure,
     outcomeFromContinuousOpenReplication,
     outcomeFromFiniteOpenReplication,
     replicationBlocked,
@@ -21,6 +22,8 @@ export {
     supportedStopActiveTransfer,
     supportedCapability,
 } from "./ReplicatorProvider.ts";
+export { EVENT_REPLICATION_ABORT_REQUESTED } from "@lib/events/coreEvents.ts";
+export { getReplicationNetworkFailure } from "./remoteTransportFailure.ts";
 export type { ReplicatorInstance } from "./ReplicatorInstance.ts";
 export { ContentReadError } from "./contentRead.ts";
 export type { ContentReadFailure, ContentReadResource } from "./contentRead.ts";
@@ -45,7 +48,10 @@ export { UnsupportedEncryptedDocumentFormatError } from "./UnsupportedEncryptedD
 export type {
     ActiveReplicatorContext,
     CapabilitySupport,
+    ContinuousReplicationNetworkFailure,
+    ReplicationPreparationResult,
     ContinuousReplicationRequest,
+    ContinuousReplicationStartResult,
     ContinuousReplicationTrigger,
     ContinuousRunner,
     InteractionAuthority,

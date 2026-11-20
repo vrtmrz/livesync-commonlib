@@ -9,6 +9,9 @@ export const EVENT_FILE_SAVED = "file-saved";
 export const EVENT_LEAF_ACTIVE_CHANGED = "leaf-active-changed";
 
 export const EVENT_DATABASE_REBUILT = "database-rebuilt";
+/** The replication service has received an explicit transfer stop request. */
+export const EVENT_REPLICATION_ABORT_REQUESTED = "replication-abort-requested";
+
 /** Emitted by `AppLifecycleService.markIsReady()` each time it establishes application readiness. */
 export const EVENT_APPLICATION_READY = "application-ready";
 
@@ -48,6 +51,7 @@ declare global {
 
         [EVENT_DATABASE_REBUILT]: undefined;
         [EVENT_APPLICATION_READY]: undefined;
+        [EVENT_REPLICATION_ABORT_REQUESTED]: undefined;
         [EVENT_REQUEST_OPEN_P2P_SETTINGS]: undefined;
         [EVENT_LEAF_ACTIVE_CHANGED]: undefined;
         [EVENT_REQUEST_OPEN_SETUP_URI]: undefined;

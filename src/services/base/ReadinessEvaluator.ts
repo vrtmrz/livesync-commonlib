@@ -1,5 +1,5 @@
 /** One ordered condition in a readiness evaluation. */
-export interface ReadinessCondition<TContext> {
+export interface ReadinessCondition<TContext, TRejection extends object = never> {
     /** Stable diagnostic name for the condition; it is not user-facing text. */
     readonly name: string;
     /**
@@ -10,23 +10,28 @@ export interface ReadinessCondition<TContext> {
      */
     readonly appliesTo?: (context: TContext) => boolean;
     /** Return whether the condition admits the requested operation. */
-    readonly evaluate: (context: TContext) => boolean | Promise<boolean>;
+    readonly evaluate: (context: TContext) => boolean | TRejection | Promise<boolean | TRejection>;
     /** Perform condition-specific reporting after a false result. */
     readonly onRejected?: (context: TContext) => void | Promise<void>;
 }
 
 /** A purpose and its ordered readiness conditions. */
-export interface ReadinessEvaluationRequest<TContext> {
+export interface ReadinessEvaluationRequest<TContext, TRejection extends object = never> {
     /** Stable diagnostic purpose; it is not user-facing text. */
     readonly purpose: string;
     readonly context: TContext;
-    readonly conditions: readonly ReadinessCondition<TContext>[];
+    readonly conditions: readonly ReadinessCondition<TContext, TRejection>[];
 }
 
 /** Structured result from an ordered readiness evaluation. */
-export type ReadinessEvaluationResult =
+export type ReadinessEvaluationResult<TRejection extends object = never> =
     | { readonly ready: true; readonly purpose: string }
-    | { readonly ready: false; readonly purpose: string; readonly rejectedCondition: string };
+    | {
+          readonly ready: false;
+          readonly purpose: string;
+          readonly rejectedCondition: string;
+          readonly rejection?: TRejection;
+      };
 
 /**
  * Evaluate applicable conditions in declaration order until one rejects.
@@ -35,17 +40,19 @@ export type ReadinessEvaluationResult =
  * from applicability, evaluation, or reporting callbacks propagate unchanged;
  * the evaluator does not reinterpret operational failures as policy results.
  */
-export async function evaluateReadiness<TContext>(
-    request: ReadinessEvaluationRequest<TContext>
-): Promise<ReadinessEvaluationResult> {
+export async function evaluateReadiness<TContext, TRejection extends object = never>(
+    request: ReadinessEvaluationRequest<TContext, TRejection>
+): Promise<ReadinessEvaluationResult<TRejection>> {
     for (const condition of request.conditions) {
         if (condition.appliesTo && !condition.appliesTo(request.context)) continue;
-        if (await condition.evaluate(request.context)) continue;
+        const decision = await condition.evaluate(request.context);
+        if (decision === true) continue;
         await condition.onRejected?.(request.context);
         return {
             ready: false,
             purpose: request.purpose,
             rejectedCondition: condition.name,
+            ...(decision !== false && { rejection: decision }),
         };
     }
     return { ready: true, purpose: request.purpose };

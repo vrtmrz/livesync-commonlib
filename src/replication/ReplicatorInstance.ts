@@ -1,4 +1,5 @@
 import type { RemoteDBSettings } from "@lib/common/types.ts";
+import type { ContinuousReplicationStartResult } from "./ReplicatorProvider.ts";
 
 /**
  * Minimal lifecycle contract shared by active Replicator instances.
@@ -22,6 +23,12 @@ export interface ReplicatorInstance {
         keepAlive: boolean,
         showResult: boolean,
         ignoreCleanLock: boolean
+    ): Promise<void | boolean>;
+
+    /** Admit a continuous task and report when its initial handoff settles. */
+    startContinuousReplication?(
+        setting: RemoteDBSettings,
+        onStartSettled: (result: ContinuousReplicationStartResult) => void
     ): Promise<void | boolean>;
 
     /** Stop active transfer work; providers may settle this synchronously. */

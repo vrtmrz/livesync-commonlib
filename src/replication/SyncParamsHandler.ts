@@ -68,17 +68,21 @@ export function isSyncParamsError(
  * This is for performance reasons, to avoid decoding it every time.
  */
 type SyncParametersWithDecoded = SyncParameters & {
-    pbkdf2saltDecoded?: Uint8Array<ArrayBuffer>;
+    pbkdf2saltDecoded: Uint8Array<ArrayBuffer>;
 };
+
+type SyncParamsFetchResult =
+    | { readonly status: "success"; readonly parameters: SyncParametersWithDecoded }
+    | { readonly status: "failure"; readonly cause: unknown };
 
 /** Create a handler owned by one operation rather than the process-wide server cache. */
 export function createSyncParamsHandler({ put, get, create }: CreateSyncParamsHanderOptions): SyncParamsHandler {
-    // To cache the fetched synchronisation parameters, we re-use the promise to save memory consumption.
-    let taskFetchParameters: Promise<SyncParametersWithDecoded | false> | undefined = undefined;
+    // Share the current fetch result; an explicit refresh starts a new operation.
+    let taskFetchParameters: Promise<SyncParamsFetchResult> | undefined;
 
     // This function fetches synchronisation parameters from the server, ensuring that they have PBKDF2 salt.
-    const _fetchSyncParameters = async (): Promise<SyncParametersWithDecoded | false> => {
-        let syncParams: SyncParametersWithDecoded | undefined = undefined;
+    const readSyncParameters = async (): Promise<SyncParamsFetchResult> => {
+        let syncParams: SyncParameters | undefined;
         try {
             let shouldRetry = false;
             do {
@@ -140,40 +144,40 @@ export function createSyncParamsHandler({ put, get, create }: CreateSyncParamsHa
             }
 
             Logger(`Synchronisation parameters fetched successfully`, LOG_LEVEL_INFO);
-            // 3. Decode PBKDF2 salt from base64 to Uint8Array.
-            if (!syncParams.pbkdf2saltDecoded) {
-                const decodedSalt = new Uint8Array(base64ToArrayBufferInternalBrowser(syncParams.pbkdf2salt));
-                if (!decodedSalt) {
-                    throw new SyncParamsFetchError(`Failed to decode PBKDF2 salt`);
-                }
-                syncParams.pbkdf2saltDecoded = decodedSalt;
-            }
-            return syncParams;
-        } catch (ex) {
+            const parameters = {
+                ...syncParams,
+                pbkdf2saltDecoded: new Uint8Array(base64ToArrayBufferInternalBrowser(syncParams.pbkdf2salt)),
+            };
+            return { status: "success", parameters };
+        } catch (cause) {
             Logger(`Failed to fetch synchronisation parameters`, LOG_LEVEL_INFO);
-            Logger(ex, LOG_LEVEL_VERBOSE);
-            // To retry fetching synchronisation parameters in the next call.
-            taskFetchParameters = undefined;
-            return false;
+            Logger(cause, LOG_LEVEL_VERBOSE);
+            return { status: "failure", cause };
         }
     };
-    const fetchSyncParameters = (refresh: boolean = false): Promise<SyncParametersWithDecoded | false> => {
-        if (taskFetchParameters && !refresh) {
-            return taskFetchParameters;
-        }
-        taskFetchParameters = _fetchSyncParameters();
-        return taskFetchParameters;
+    const fetchSyncParameters = (refresh = false): Promise<SyncParamsFetchResult> => {
+        if (taskFetchParameters && !refresh) return taskFetchParameters;
+        const task = readSyncParameters();
+        taskFetchParameters = task;
+        void task.then((result) => {
+            // An older refresh may settle after a newer cache entry has been installed.
+            if (result.status === "failure" && taskFetchParameters === task) taskFetchParameters = undefined;
+        });
+        return task;
     };
 
     return {
-        fetch: fetchSyncParameters,
+        fetch: async (refresh) => {
+            const result = await fetchSyncParameters(refresh);
+            return result.status === "success" ? result.parameters : false;
+        },
         getPBKDF2Salt: async (refresh: boolean = false) => {
-            const syncParams = await fetchSyncParameters(refresh);
-            if (!syncParams) {
+            const result = await fetchSyncParameters(refresh);
+            if (result.status === "failure") {
                 Logger(`Failed to fetch synchronisation parameters`, LOG_LEVEL_INFO);
-                throw new SyncParamsFetchError(`Failed to fetch synchronisation parameters`);
+                throw new SyncParamsFetchError(`Failed to fetch synchronisation parameters`, { cause: result.cause });
             }
-            return syncParams.pbkdf2saltDecoded!;
+            return result.parameters.pbkdf2saltDecoded;
         },
     };
 }

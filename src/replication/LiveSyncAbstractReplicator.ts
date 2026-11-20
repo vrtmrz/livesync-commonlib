@@ -20,6 +20,7 @@ import type { ReplicatorInstance } from "./ReplicatorInstance.ts";
 // import type { IServiceHub } from "@lib/services/base/IService.ts";
 
 export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<boolean> | boolean;
+export type SecuritySeedPreparationResult = { ready: true } | { ready: false; error: unknown };
 export type ReplicationStat = {
     sent: number;
     arrived: number;
@@ -113,19 +114,26 @@ export abstract class LiveSyncAbstractReplicator implements ReplicatorInstance {
         showMessage: boolean = false,
         useCache: boolean = true
     ): Promise<boolean> {
-        // Checking salt
+        return (await this.prepareSecuritySeed(setting, showMessage, useCache)).ready;
+    }
+
+    protected async prepareSecuritySeed(
+        setting: RemoteDBSettings,
+        showMessage: boolean,
+        useCache: boolean
+    ): Promise<SecuritySeedPreparationResult> {
         try {
             const hash = await this.getReplicationPBKDF2Salt(setting, !useCache);
             if (hash.length == 0) {
                 throw new Error("PBKDF2 salt (Security Seed) is empty");
             }
             Logger(`PBKDF2 salt (Security Seed): ${await arrayBufferToBase64Single(hash)}`, LOG_LEVEL_VERBOSE);
-            return true;
+            return { ready: true };
         } catch (ex) {
             const level = showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
             Logger(`Failed to obtain PBKDF2 salt (Security Seed) for replication`, level);
             Logger(ex, LOG_LEVEL_VERBOSE);
-            return false;
+            return { ready: false, error: ex };
         }
     }
     env: LiveSyncReplicatorEnv;

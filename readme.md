@@ -204,7 +204,11 @@ Hosts can read the latest `services.replicator.replicationStatics.value` and
 subscribe to that reactive source. The focused `/replication` entry exports
 `ReplicationStatics`, `CouchDBReplicationProgress`, and
 `ReplicationCheckpointProgress`. Existing transfer counters and `syncStatus`
-retain their meanings.
+retain their meanings. The initial snapshot has `syncStatus: 'NOT_CONNECTED'`
+and `statsUpdatedAt: null`. When the provider publishes statistics,
+`statsUpdatedAt` records the publication time in Unix epoch milliseconds.
+Replacing the provider restores the initial snapshot until new statistics
+are published.
 
 The optional `couchDB` snapshot describes the ordinary CouchDB replication
 attempt. Other providers omit it. Its `phase` distinguishes `one-shot`,

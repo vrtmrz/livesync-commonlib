@@ -36,7 +36,7 @@ export type UnattendedReplicationTrigger =
     | "daemon";
 
 /** Automatic trigger which may start or resume a long-lived connection. */
-export type ContinuousReplicationTrigger = "resume" | "daemon";
+export type ContinuousReplicationTrigger = "resume" | "daemon" | "online";
 
 /** No user interaction may be requested by an unattended replication path. */
 export const NO_INTERACTION = Object.freeze({ kind: "forbidden" } as const);
@@ -120,10 +120,32 @@ export interface UnattendedOneShotRequest {
     readonly interaction: NoInteraction;
 }
 
+export interface ContinuousReplicationNetworkFailure {
+    readonly reason: "offline" | "remote-transport";
+    readonly hostOnlineAtFailure: boolean;
+    readonly failedAt: number;
+}
+
+/** A preparation gate can return the observation which caused it to refuse this operation. */
+export type ReplicationPreparationResult = boolean | ContinuousReplicationNetworkFailure;
+
+/** Capture the host observation at the gate which refused this operation. */
+export function observedOfflineReplicationFailure(): ContinuousReplicationNetworkFailure {
+    return { reason: "offline", hostOnlineAtFailure: false, failedAt: Date.now() };
+}
+
+/** Result of preparation and initial handoff to a continuous transfer. */
+export type ContinuousReplicationStartResult =
+    | { readonly status: "started" }
+    | { readonly status: "cancelled" }
+    | { readonly status: "failed"; readonly networkFailure?: ContinuousReplicationNetworkFailure };
+
 /** A request which starts a provider's long-lived/continuous operation. */
 export interface ContinuousReplicationRequest {
     readonly trigger: ContinuousReplicationTrigger;
     readonly interaction: NoInteraction;
+    /** Receive the result once, independently of short startup admission. */
+    readonly onStartSettled?: (result: ContinuousReplicationStartResult) => void;
 }
 
 /** Stable reasons for which a provider role cannot be run. */
@@ -232,7 +254,8 @@ export type UnattendedOneShotRunner = (
  *
  * The runner must return after task ownership and pre-controller cancellation
  * have been registered. It must not retain the caller's active-publication
- * admission for the lifetime of the long-lived transfer.
+ * admission for the lifetime of the long-lived transfer. After successful
+ * admission the runner owns delivery of the request's eventual start result.
  */
 export type ContinuousRunner = (
     replicator: ReplicatorInstance,
@@ -430,7 +453,13 @@ export function supportedOpenReplicationContinuous(): SupportedCapability<Contin
             return replicationBlocked("interaction-required");
         }
         try {
+            const observe = request.onStartSettled;
+            if (observe && replicator.startContinuousReplication) {
+                const result = await replicator.startContinuousReplication(setting, observe);
+                return outcomeFromContinuousOpenReplication(result);
+            }
             const result = await replicator.openReplication(setting, true, false, false);
+            if (result !== false) observe?.({ status: "started" });
             return outcomeFromContinuousOpenReplication(result);
         } catch (error) {
             return replicationFailed(error);

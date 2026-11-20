@@ -56,3 +56,6 @@ export interface OwnedCouchDBConnection<T extends object> {
     /** Cancels scoped requests and closes the PouchDB handle exactly once. */
     close(): Promise<void>;
 }
+
+/** The connection attempt preserves its refusal or opening error until the caller handles it. */
+export type CouchDBConnectionOpenResult<T extends object> = OwnedCouchDBConnection<T> | { readonly error: Error };

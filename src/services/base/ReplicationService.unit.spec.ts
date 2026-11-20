@@ -1,11 +1,19 @@
 import { UnsupportedEncryptedDocumentFormatError } from "@lib/replication/UnsupportedEncryptedDocumentFormatError.ts";
 import { describe, expect, it, vi } from "vitest";
 import { ReplicationService, type ReplicationServiceDependencies } from "./ReplicationService.ts";
+import { bailFirstFailureFunction } from "@lib/services/lib/HandlerUtils.ts";
 import { ServiceContext } from "./ServiceBase.ts";
+import { RemoteService, type RemoteServiceDependencies } from "./RemoteService.ts";
+import { LiveSyncCouchDBReplicator } from "@lib/replication/couchdb/LiveSyncReplicator.ts";
+import {
+    captureRemoteTransportFailure,
+    getReplicationNetworkFailure,
+} from "@lib/replication/remoteTransportFailure.ts";
 import {
     CAPABILITY_NOT_APPLICABLE,
     CAPABILITY_SUPPORT_KINDS,
     CENTRAL_REMOTE_REPLICATION_READINESS,
+    observedOfflineReplicationFailure,
     NO_INTERACTION,
     PEER_REPLICATION_READINESS,
     REPLICATION_COMPLETED,
@@ -182,13 +190,23 @@ describe("ReplicationService typed provider roles", () => {
         const onFileReflectionFailed = vi.fn().mockResolvedValue(true);
         service.onFiniteReplicationCompleted.addHandler(onFiniteReplicationCompleted);
         service.onFileReflectionFailed.addHandler(onFileReflectionFailed);
-        const failure = { documentId: "file.md" as never, revision: "4-revision", resources: ["remote"], cause: new Error("request failed") };
+        const failure = {
+            documentId: "file.md" as never,
+            revision: "4-revision",
+            resources: ["remote"],
+            cause: new Error("request failed"),
+        };
 
         await expect(service.onFiniteReplicationCompleted()).resolves.toBe(true);
-        await expect(service.onFileReflectionFailed({ documentId: failure.documentId, revision: failure.revision! }, failure)).resolves.toBe(true);
+        await expect(
+            service.onFileReflectionFailed({ documentId: failure.documentId, revision: failure.revision! }, failure)
+        ).resolves.toBe(true);
 
         expect(onFiniteReplicationCompleted).toHaveBeenCalledOnce();
-        expect(onFileReflectionFailed).toHaveBeenCalledWith({ documentId: failure.documentId, revision: failure.revision }, failure);
+        expect(onFileReflectionFailed).toHaveBeenCalledWith(
+            { documentId: failure.documentId, revision: failure.revision },
+            failure
+        );
     });
 
     it("dispatches unattended one-shot work without interaction authority", async () => {
@@ -406,7 +424,7 @@ describe("ReplicationService typed provider roles", () => {
 
     it("does not invoke a not-applicable continuous role", async () => {
         const { activeContext, dependencies } = createTypedDependencies(true);
-        activeContext.provider.continuous = CAPABILITY_NOT_APPLICABLE;
+        Object.assign(activeContext.provider, { continuous: CAPABILITY_NOT_APPLICABLE });
         (dependencies.appLifecycleService as unknown as { isReady: () => boolean }).isReady = () => false;
         const service = new TestReplicationService(new ServiceContext(), dependencies);
 
@@ -416,14 +434,205 @@ describe("ReplicationService typed provider roles", () => {
         });
     });
 
+    it.each(["onBeforeReplicate", "onPrepareCentralRemoteReplication"] as const)(
+        "honours a host replacement of %s in readiness",
+        async (hook) => {
+            const { dependencies, openReplication } = createTypedDependencies();
+            const veto = vi.fn(async () => false);
+            const replacement = bailFirstFailureFunction<(showMessage: boolean) => Promise<boolean>>(hook);
+            replacement.addHandler(veto);
+            class HostReplicationService extends TestReplicationService {
+                declare readonly onBeforeReplicate: typeof replacement;
+                declare readonly onPrepareCentralRemoteReplication: typeof replacement;
+
+                constructor() {
+                    super(new ServiceContext(), dependencies);
+                    this[hook] = replacement;
+                }
+            }
+            const service = new HostReplicationService();
+            const onStartSettled = vi.fn();
+
+            await expect(
+                service.startContinuous({ trigger: "resume", interaction: NO_INTERACTION, onStartSettled })
+            ).resolves.toEqual({ status: "blocked", reason: "not-ready" });
+
+            expect(veto).toHaveBeenCalledExactlyOnceWith(false);
+            expect(openReplication).not.toHaveBeenCalled();
+            expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({ status: "failed" });
+        }
+    );
+
+    it("settles an offline continuous start for that request without dispatching the provider", async () => {
+        const { dependencies, openReplication } = createTypedDependencies();
+        dependencies.APIService.isOnline = false;
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const onStartSettled = vi.fn();
+        const request = { trigger: "resume", interaction: NO_INTERACTION, onStartSettled } as const;
+
+        await expect(service.startContinuous(request)).resolves.toEqual({ status: "blocked", reason: "not-ready" });
+
+        expect(openReplication).not.toHaveBeenCalled();
+        expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({
+            status: "failed",
+            networkFailure: { reason: "offline", hostOnlineAtFailure: false, failedAt: expect.any(Number) },
+        });
+    });
+
+    it.each([true, false])("attributes only a confirmed Security Seed transport failure (%s)", async (confirmed) => {
+        const { dependencies, openReplication } = createTypedDependencies();
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const error = confirmed
+            ? captureRemoteTransportFailure(
+                  Object.assign(new Error("unreachable"), { code: "ENETUNREACH" }),
+                  new AbortController().signal,
+                  () => true
+              )
+            : new TypeError("Load failed");
+        service.onPrepareCentralRemoteReplication.addHandler(async () => {
+            return getReplicationNetworkFailure(error) ?? false;
+        });
+        const onStartSettled = vi.fn();
+
+        await expect(
+            service.startContinuous({ trigger: "online", interaction: NO_INTERACTION, onStartSettled })
+        ).resolves.toEqual({ status: "blocked", reason: "not-ready" });
+
+        expect(openReplication).not.toHaveBeenCalled();
+        expect(onStartSettled).toHaveBeenCalledExactlyOnceWith(
+            confirmed
+                ? {
+                      status: "failed",
+                      networkFailure: {
+                          reason: "remote-transport",
+                          hostOnlineAtFailure: true,
+                          failedAt: expect.any(Number),
+                      },
+                  }
+                : { status: "failed" }
+        );
+    });
+
+    it.each([
+        ["offline at the owned connection gate", "https://couchdb.test", true, "Network is offline"],
+        ["invalid URI", "ftp://couchdb.test", false, "Remote URI is not valid"],
+    ] as const)("settles Security Seed preparation for %s", async (_case, uri, wentOffline, message) => {
+        const { dependencies, openReplication } = createTypedDependencies();
+        const context = new ServiceContext();
+        const service = new TestReplicationService(context, dependencies);
+        const pouchDB = vi.fn();
+        const remote = new (class extends RemoteService {})(context, {
+            APIService: dependencies.APIService,
+            appLifecycle: dependencies.appLifecycleService,
+            setting: dependencies.settingService,
+            pouchDB,
+        } as unknown as RemoteServiceDependencies);
+        const seedReader = new LiveSyncCouchDBReplicator({
+            services: { API: { isMobile: () => false, addLog: vi.fn() }, context, remote },
+        } as unknown as LiveSyncCouchDBReplicator["env"]);
+        const settings = {
+            couchDB_URI: uri,
+            couchDB_DBNAME: "seed-gate",
+            couchDB_CustomHeaders: "",
+        } as RemoteDBSettings;
+        const onStartSettled = vi.fn();
+        let seedFailure: unknown;
+        service.onPrepareCentralRemoteReplication.addHandler(async () => {
+            expect(dependencies.APIService.isOnline).toBe(true);
+            if (wentOffline) dependencies.APIService.isOnline = false;
+            try {
+                await seedReader.getReplicationPBKDF2Salt(settings, true);
+                return true;
+            } catch (error) {
+                seedFailure = error;
+                return getReplicationNetworkFailure(error) ?? false;
+            }
+        });
+
+        await expect(
+            service.startContinuous({ trigger: "resume", interaction: NO_INTERACTION, onStartSettled })
+        ).resolves.toEqual({ status: "blocked", reason: "not-ready" });
+
+        expect(pouchDB).not.toHaveBeenCalled();
+        expect(openReplication).not.toHaveBeenCalled();
+        expect(seedFailure).toMatchObject({ cause: { cause: { message: expect.stringContaining(message) } } });
+        expect(onStartSettled).toHaveBeenCalledExactlyOnceWith(
+            wentOffline
+                ? {
+                      status: "failed",
+                      networkFailure: { reason: "offline", hostOnlineAtFailure: false, failedAt: expect.any(Number) },
+                  }
+                : { status: "failed" }
+        );
+    });
+
+    it.each([true, false])("attributes a late offline preflight refusal only when reported (%s)", async (reported) => {
+        const { dependencies, openReplication } = createTypedDependencies();
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        service.onPrepareCentralRemoteReplication.addHandler(async () => {
+            expect(dependencies.APIService.isOnline).toBe(true);
+            await Promise.resolve();
+            dependencies.APIService.isOnline = false;
+            return true;
+        });
+        service.onBeforeReplicate.addHandler(async () => {
+            expect(dependencies.APIService.isOnline).toBe(false);
+            return reported ? observedOfflineReplicationFailure() : false;
+        });
+        const onStartSettled = vi.fn();
+
+        await expect(
+            service.startContinuous({ trigger: "resume", interaction: NO_INTERACTION, onStartSettled })
+        ).resolves.toEqual({ status: "blocked", reason: "not-ready" });
+
+        expect(openReplication).not.toHaveBeenCalled();
+        expect(onStartSettled).toHaveBeenCalledExactlyOnceWith(
+            reported
+                ? {
+                      status: "failed",
+                      networkFailure: { reason: "offline", hostOnlineAtFailure: false, failedAt: expect.any(Number) },
+                  }
+                : { status: "failed" }
+        );
+    });
+
     it("treats a continuous void result as an accepted start", async () => {
         const { dependencies, acquireActiveReplicatorContext } = createTypedDependencies(undefined);
         const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const beforeReplicate = vi.fn(async () => true);
+        service.onBeforeReplicate.addHandler(beforeReplicate);
 
         await expect(service.startContinuous({ trigger: "daemon", interaction: NO_INTERACTION })).resolves.toEqual({
             status: "completed",
         });
         expect(acquireActiveReplicatorContext).toHaveBeenCalledOnce();
+        expect(beforeReplicate).toHaveBeenCalledExactlyOnceWith(false);
+    });
+
+    it("preserves a boolean veto for direct preparation callers and only runs handlers up to the refusal", async () => {
+        const { dependencies } = createTypedDependencies();
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const later = vi.fn(async () => true);
+        service.onBeforeReplicate.addHandler(() => observedOfflineReplicationFailure());
+        service.onBeforeReplicate.addHandler(later);
+
+        await expect(service.onBeforeReplicate(false)).resolves.toBe(false);
+        expect(later).not.toHaveBeenCalled();
+    });
+
+    it("announces an operator stop when the service receives it, even without an active transfer", async () => {
+        const { dependencies, getActiveReplicator, acquireActiveReplicatorContext } = createTypedDependencies();
+        const context = new ServiceContext();
+        const requested = vi.fn();
+        context.events.onEvent("replication-abort-requested", requested);
+        const service = new TestReplicationService(context, dependencies);
+        acquireActiveReplicatorContext.mockResolvedValue(undefined);
+        getActiveReplicator.mockReturnValue(undefined);
+
+        const result = service.stopActiveTransfer();
+        expect(requested).toHaveBeenCalledOnce();
+        await expect(result).resolves.toEqual({ status: "blocked", reason: "no-active-replicator" });
+        expect(requested).toHaveBeenCalledOnce();
     });
 
     it("stops the captured active transfer without readiness or finite activity checks", async () => {
@@ -524,7 +733,7 @@ describe("ReplicationService activity boundary", () => {
                 commitPendingFileEvents: vi.fn().mockResolvedValue(true),
             },
             replicatorService: {
-                acquireActiveReplicatorContext: async () => undefined,
+                acquireActiveReplicatorContext: async (): Promise<undefined> => undefined,
                 getActiveReplicator: () => ({ openReplication }),
                 runFiniteReplicationActivity,
             },
@@ -1060,15 +1269,26 @@ describe("strict reflection dispatch", () => {
         const { dependencies } = createTypedDependencies();
         const service = new TestReplicationService(new ServiceContext(), dependencies);
         const error = { diagnostic: "read failed" };
-        service.processSynchroniseResult.addHandler(async () => { throw error; });
-        await expect(service.processSynchroniseResult({ _id: "note.md", _rev: "2-target" } as never)).rejects.toBe(error);
+        service.processSynchroniseResult.addHandler(async () => {
+            throw error;
+        });
+        await expect(service.processSynchroniseResult({ _id: "note.md", _rev: "2-target" } as never)).rejects.toBe(
+            error
+        );
     });
 
     it("propagates the snapshot save error unchanged after a reflection failure", async () => {
         const { dependencies } = createTypedDependencies();
         const service = new TestReplicationService(new ServiceContext(), dependencies);
         const error = new Error("snapshot save failed");
-        service.onFileReflectionFailed.addHandler(async () => { throw error; });
-        await expect(service.onFileReflectionFailed({ documentId: "note.md" as never, revision: "2-target" }, new Error("read failed"))).rejects.toBe(error);
+        service.onFileReflectionFailed.addHandler(async () => {
+            throw error;
+        });
+        await expect(
+            service.onFileReflectionFailed(
+                { documentId: "note.md" as never, revision: "2-target" },
+                new Error("read failed")
+            )
+        ).rejects.toBe(error);
     });
 });

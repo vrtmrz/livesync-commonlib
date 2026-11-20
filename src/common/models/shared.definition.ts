@@ -32,6 +32,10 @@ export type CouchDBReplicationProgress = {
     readonly push?: ReplicationCheckpointProgress;
 };
 
+/**
+ * Raw statistics accepted by the publication boundary. The optional timestamp
+ * is retained for compatibility and replaced when a value is published.
+ */
 export type ReplicationStatics = {
     sent: number;
     arrived: number;
@@ -40,16 +44,25 @@ export type ReplicationStatics = {
     lastSyncPullSeq: number;
     lastSyncPushSeq: number;
     syncStatus: DatabaseConnectingStatus;
+    statsUpdatedAt?: number | null;
     /** Present only when the provider supplies CouchDB checkpoint observations. */
     couchDB?: CouchDBReplicationProgress;
 };
 
-export const DEFAULT_REPLICATION_STATICS: ReplicationStatics = {
+/** Statistics as observed after publication; the timestamp is always present. */
+export type PublishedReplicationStatics = Readonly<
+    Omit<ReplicationStatics, "statsUpdatedAt"> & {
+        statsUpdatedAt: number | null;
+    }
+>;
+
+export const DEFAULT_REPLICATION_STATICS: PublishedReplicationStatics = Object.freeze({
     sent: 0,
     arrived: 0,
     maxPullSeq: 0,
     maxPushSeq: 0,
     lastSyncPullSeq: 0,
     lastSyncPushSeq: 0,
-    syncStatus: DatabaseConnectingStatuses.CLOSED,
-};
+    syncStatus: DatabaseConnectingStatuses.NOT_CONNECTED,
+    statsUpdatedAt: null,
+});

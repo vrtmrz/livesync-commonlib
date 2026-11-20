@@ -39,10 +39,12 @@ import {
     type UserInitiatedOneShotRequest,
 } from "@lib/replication/ReplicatorProvider.ts";
 import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
+import { EVENT_REPLICATION_ABORT_REQUESTED } from "@lib/events/coreEvents.ts";
 import { UnresolvedErrorManager } from "./UnresolvedErrorManager";
 import type { AppLifecycleService } from "./AppLifecycleService";
 import { isLockAcquired, shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import {
+    createReplicationPreparation,
     createReplicationReadinessEvaluator,
     type ReplicationReadinessEvaluator,
 } from "./ReplicationService.readiness.ts";
@@ -234,8 +236,14 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             },
             preparation: {
                 commitPendingFileEvents: () => this.fileProcessing.commitPendingFileEvents(),
-                prepareCentralRemote: (showMessage) => this.onPrepareCentralRemoteReplication(showMessage),
-                runBeforeReplicate: (showMessage) => this.onBeforeReplicate(showMessage),
+                prepareCentralRemote: (showMessage) =>
+                    this.onPrepareCentralRemoteReplication === this._prepareCentralRemote.invoke
+                        ? this._prepareCentralRemote.evaluate(showMessage)
+                        : this.onPrepareCentralRemoteReplication(showMessage),
+                runBeforeReplicate: (showMessage) =>
+                    this.onBeforeReplicate === this._beforeReplicate.invoke
+                        ? this._beforeReplicate.evaluate(showMessage)
+                        : this.onBeforeReplicate(showMessage),
             },
             diagnostics: {
                 getUnresolvedMessages: () => this.appLifecycleService.getUnresolvedMessages(),
@@ -248,7 +256,10 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         this._typedReplication = new TypedReplicationCoordinator({
             replicatorService: this.replicatorService,
             currentSettings: () => this.settingService.currentSettings(),
-            checkReadiness: (showMessage, readiness) => this.isReplicationReady(showMessage, readiness),
+            checkReadiness: async (showMessage, requirements) => {
+                const decision = await this._evaluateReadiness({ showMessage, requirements });
+                return decision.ready === true ? true : (decision.rejection ?? false);
+            },
             handleFailure: (request) => this.onReplicationFailed(request),
             recordFiniteAttempt: () => {
                 this.previousReplicated = Date.now();
@@ -276,19 +287,21 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      */
     readonly processVirtualDocument = handlers<IReplicationService>().anySuccess("processVirtualDocument");
 
+    private readonly _beforeReplicate = createReplicationPreparation("onBeforeReplicate");
+
     /**
      * An event triggered before starting replication.
      */
-    readonly onBeforeReplicate = handlers<IReplicationService>().bailFirstFailure("onBeforeReplicate");
+    readonly onBeforeReplicate = this._beforeReplicate.invoke;
 
     readonly onFiniteReplicationCompleted = handlers<IReplicationService>().allSettled("onFiniteReplicationCompleted");
 
     readonly onFileReflectionFailed = handlers<IReplicationService>().allOrThrow("onFileReflectionFailed");
 
+    private readonly _prepareCentralRemote = createReplicationPreparation("onPrepareCentralRemoteReplication");
+
     /** Provider preparation which applies only to the central remote. */
-    readonly onPrepareCentralRemoteReplication = handlers<IReplicationService>().bailFirstFailure(
-        "onPrepareCentralRemoteReplication"
-    );
+    readonly onPrepareCentralRemoteReplication = this._prepareCentralRemote.invoke;
 
     /**
      * Lightweight, repeatable policy checks shared by every replication entry point.
@@ -363,6 +376,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      * replication, so it does not invoke failure-recovery handlers.
      */
     async stopActiveTransfer(): Promise<ReplicationOutcome> {
+        this.context.events.emitEvent(EVENT_REPLICATION_ABORT_REQUESTED);
         return await this._typedReplication.stopActiveTransfer();
     }
 

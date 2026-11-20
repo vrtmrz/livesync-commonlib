@@ -294,6 +294,29 @@ The active local database identity, settings-selected reset sequence, and lifecy
 
 `TypedReplicationCoordinator` keeps user-initiated, unattended, continuous, and stop roles as explicit control flows. Their interaction authority, readiness position, activity accounting, and failure handling differ, so these roles must not be collapsed into a flag-driven capability table. Share only mechanics whose lifecycle meaning is identical, such as atomic context acquisition and finite activity accounting, and retain a focused sequencing test for each role.
 
+A host may supply `ContinuousReplicationRequest.onStartSettled` to observe the
+result of one continuous start. The ordinary `startContinuous()` result
+still reports admission. CouchDB settles the observer when it hands off a
+live PouchDB handle, when preparation or the initial finite pull fails, or
+when the start is cancelled. Requests that join the same CouchDB start
+observe the same handoff or failure. A later transport interruption belongs
+to the live handle's reconnect behaviour.
+
+An attributed failure carries the host's online state and the timestamp
+observed at the failing gate or request. The `networkFailure` field is
+present for an offline readiness refusal or a confirmed transport failure
+which prevents handoff after any internal fallback. Preparation handlers return
+`true` to continue, `false` to refuse, or the network failure observed by
+the rejecting operation. Legacy callers of the preparation hooks still receive
+a boolean. The readiness evaluator carries the first rejection to the start
+request. Hosts own the decision and lifecycle for requesting another start.
+
+An explicit call to `stopActiveTransfer()` emits
+`EVENT_REPLICATION_ABORT_REQUESTED` on the service context when the request
+arrives, including when the provider has no active transfer. A host can then
+withdraw a pending automatic start before the current transfer finishes
+stopping.
+
 ### P2P composition ownership
 
 `useP2PReplicatorFeature` composes one stable P2P service owner, one room-session owner, and their lifecycle bindings. The service exposes focused views, including owner-arbitrated connection-probe admission, over that same state. When `ReplicatorService` requests a P2P Replicator, the provider returns a fresh non-owning adapter. Replacing or disposing that active adapter does not cancel service-owned work or retire the room; the explicit stop capability and transport lifecycle view own those distinct operations. Database reset and explicit close reach the stable service through their pre-destruction lifecycle hooks, so non-ownership by the active adapter cannot leave a room using an unavailable local database.

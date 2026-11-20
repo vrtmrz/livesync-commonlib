@@ -12,6 +12,8 @@ import { replicationFilter } from "@lib/pouchdb/compress";
 import { disableEncryption, enableEncryption } from "@lib/pouchdb/encryption";
 import { isCloudantURI, isValidRemoteCouchDBURI } from "@lib/pouchdb/utils_couchdb";
 import { AuthorizationHeaderGenerator } from "@lib/replication/httplib";
+import { observedOfflineReplicationFailure } from "@lib/replication/ReplicatorProvider.ts";
+import { captureRemoteTransportFailure, ReplicationNetworkError } from "@lib/replication/remoteTransportFailure.ts";
 import type { APIService } from "@lib/services/base/APIService";
 import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
 import type { SettingService } from "@lib/services/base/SettingService";
@@ -22,7 +24,11 @@ import { createCouchDBHttpCache } from "@lib/services/lib/couchdbHttpCache.ts";
 import type PouchDB from "pouchdb-core";
 import type { PouchDBConstructor } from "@lib/pouchdb/PouchDBConstructor.ts";
 import { LiveSyncError } from "@lib/common/LSError";
-import type { OwnedCouchDBConnection, RemoteConnectionOpenOptions } from "./RemoteConnection.ts";
+import type {
+    CouchDBConnectionOpenResult,
+    OwnedCouchDBConnection,
+    RemoteConnectionOpenOptions,
+} from "./RemoteConnection.ts";
 
 type RemoteConnectionScope = {
     readonly signal: AbortSignal;
@@ -113,6 +119,44 @@ function createCouchDBConnection<T extends object>(
             return closePromise;
         },
     };
+}
+
+const responseBodyReaders = new Set<PropertyKey>([
+    "arrayBuffer",
+    "blob",
+    "buffer",
+    "bytes",
+    "formData",
+    "json",
+    "text",
+]);
+
+/** Capture failures when PouchDB consumes a successful response after fetch has settled. */
+function observeResponseBody(response: Response, captureFailure: (error: unknown) => unknown): Response {
+    if (!response.ok) {
+        return response;
+    }
+    return new Proxy(response, {
+        get(target, property) {
+            if (property === "clone") {
+                return () => observeResponseBody(target.clone(), captureFailure);
+            }
+            const member: unknown = Reflect.get(target, property);
+            if (typeof member !== "function" || property === "constructor") {
+                return member;
+            }
+            if (!responseBodyReaders.has(property)) {
+                return member.bind(target);
+            }
+            return async () => {
+                try {
+                    return await Reflect.apply(member, target, []);
+                } catch (error) {
+                    throw captureFailure(error);
+                }
+            };
+        },
+    });
 }
 
 export interface RemoteServiceDependencies {
@@ -238,7 +282,18 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
      * @returns An error description, or the owned connection. The caller must
      * transfer ownership or call `close()`.
      */
-    async connect(
+    async connect(...args: Parameters<IRemoteService["connect"]>): Promise<string | OwnedCouchDBConnection<EntryDoc>> {
+        const opened = await this.openCouchDBConnection(...args);
+        return "error" in opened ? opened.error.message : opened;
+    }
+
+    async openCouchDBConnection(
+        ...args: Parameters<IRemoteService["connect"]>
+    ): Promise<CouchDBConnectionOpenResult<EntryDoc>> {
+        return await this.openConnection(...args);
+    }
+
+    private async openConnection(
         uri: string,
         auth: CouchDBCredentials,
         disableRequestURI: boolean,
@@ -251,12 +306,20 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
         useRequestAPI: boolean,
         getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
         connectionOptions: RemoteConnectionOpenOptions = {}
-    ): Promise<string | OwnedCouchDBConnection<EntryDoc>> {
-        if (!isValidRemoteCouchDBURI(uri)) return "Remote URI is not valid";
-        if (uri.toLowerCase() != uri) return "Remote URI and database name could not contain capital letters.";
-        if (uri.indexOf(" ") !== -1) return "Remote URI and database name could not contain spaces.";
+    ): Promise<CouchDBConnectionOpenResult<EntryDoc>> {
+        if (!isValidRemoteCouchDBURI(uri)) {
+            return { error: new Error("Remote URI is not valid") };
+        }
+        if (uri.toLowerCase() !== uri) {
+            return { error: new Error("Remote URI and database name could not contain capital letters.") };
+        }
+        if (uri.includes(" ")) {
+            return { error: new Error("Remote URI and database name could not contain spaces.") };
+        }
         if (!this._APIService.isOnline) {
-            return "Network is offline";
+            return {
+                error: new ReplicationNetworkError("Network is offline", observedOfflineReplicationFailure()),
+            };
         }
         const connectionScope = createRemoteConnectionScope(connectionOptions.signal);
         const encryptionAlgorithm =
@@ -306,81 +369,52 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                         headers.append("authorization", authHeader);
                     }
                     const cachedRequest = await prepareCachedRequest(requestSrc, opts);
+                    const signal = connectionScope.combine(opts?.signal);
+                    const captureFailure = (error: unknown) =>
+                        captureRemoteTransportFailure(error, signal, () => this._APIService.isOnline);
                     try {
-                        // const response: Response = await (useRequestAPI
-                        //     ? this.nativeFetch(url.toString(), { ...opts, headers })
-                        //     : this.webCompatFetch(url, { ...opts, headers }));
-                        // if (method == "POST" || method == "PUT") {
-                        //     this.last_successful_post = response.ok;
-                        // } else {
-                        //     this.last_successful_post = true;
-                        // }
-                        // this._log(`HTTP:${method}${size} to:${localURL} -> ${response.status}`, LOG_LEVEL_DEBUG);
-                        // if (Math.floor(response.status / 100) !== 2) {
-                        //     if (response.status == 404) {
-                        //         if (method === "GET" && localURL.indexOf("/_local/") === -1) {
-                        //             this._log(
-                        //                 `Just checkpoint or some server information has been missing. The 404 error shown above is not an error.`,
-                        //                 LOG_LEVEL_VERBOSE
-                        //             );
-                        //         }
-                        //     } else {
-                        //         const r = response.clone();
-                        //         this._log(
-                        //             `The request may have failed. The reason sent by the server: ${r.status}: ${r.statusText}`,
-                        //             LOG_LEVEL_NOTICE
-                        //         );
-                        //         try {
-                        //             const result = await r.text();
-                        //             this._log(result, LOG_LEVEL_VERBOSE);
-                        //         } catch (_) {
-                        //             this._log("Cloud not fetch response body", LOG_LEVEL_VERBOSE);
-                        //             this._log(_, LOG_LEVEL_VERBOSE);
-                        //         }
-                        //     }
-                        // }
-                        // this.clearErrors();
-                        const signal = connectionScope.combine(opts?.signal);
                         const response = await this.performFetch(
                             cachedRequest.request,
                             { ...opts, headers, signal, cache: cachedRequest.cache },
                             useRequestAPI ? FetchMethod.native : FetchMethod.webCompat
                         );
-                        return response;
-                    } catch (ex) {
-                        if (ex instanceof TypeError) {
-                            if (connectionScope.signal.aborted || connectionOptions.allowNativeFallback === false) {
-                                throw ex;
-                            }
-                            if (useRequestAPI) {
+                        return observeResponseBody(response, captureFailure);
+                    } catch (error) {
+                        if (
+                            !(error instanceof TypeError) ||
+                            connectionScope.signal.aborted ||
+                            connectionOptions.allowNativeFallback === false ||
+                            useRequestAPI
+                        ) {
+                            if (useRequestAPI && error instanceof TypeError && !connectionScope.signal.aborted) {
                                 this._log("Failed to request by API.");
-                                throw ex;
                             }
-                            this._log(
-                                "Failed to fetch by native fetch API. Trying to fetch by API to get more information."
-                            );
-                            // const resp2 = await this.fetchByAPI(url.toString(), localURL, method, authHeader, {
-                            //     ...opts,
-                            //     headers,
-                            // });
-                            const resp2 = await this.performFetch(
+                            throw captureFailure(error);
+                        }
+
+                        this._log(
+                            "Failed to fetch by native fetch API. Trying to fetch by API to get more information."
+                        );
+                        let response: Response;
+                        try {
+                            response = await this.performFetch(
                                 cachedRequest.request,
                                 { ...opts, headers, cache: cachedRequest.cache },
                                 FetchMethod.native
                             );
-                            if (resp2.status / 100 == 2) {
-                                this.showError(
-                                    "The request was successful by API. But the native fetch API failed! Please check CORS settings on the remote database!. While this condition, you cannot enable LiveSync",
-                                    LOG_LEVEL_NOTICE
-                                );
-                                return resp2;
-                            }
-                            const r2 = resp2.clone();
-                            const msg = await r2.text();
-                            this.showError(`Failed to fetch by API. ${resp2.status}: ${msg}`, LOG_LEVEL_NOTICE);
-                            return resp2;
+                        } catch (fallbackError) {
+                            throw captureFailure(fallbackError);
                         }
-                        throw ex;
+                        if (response.status / 100 == 2) {
+                            this.showError(
+                                "The request was successful by API. But the native fetch API failed! Please check CORS settings on the remote database!. While this condition, you cannot enable LiveSync",
+                                LOG_LEVEL_NOTICE
+                            );
+                        } else {
+                            const msg = await response.clone().text();
+                            this.showError(`Failed to fetch by API. ${response.status}: ${msg}`, LOG_LEVEL_NOTICE);
+                        }
+                        return observeResponseBody(response, captureFailure);
                     }
                 } catch (ex) {
                     this._log(`HTTP:${method}${size} to:${localURL} -> failed`, LOG_LEVEL_VERBOSE);
@@ -445,11 +479,10 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
             const info = await db.info();
             return { ...connection, info };
         } catch (ex) {
-            const exMsg = ex instanceof Error ? ex : LiveSyncError.fromError(ex);
-            const msg = `${exMsg.name}:${exMsg.message}`;
+            const error = ex instanceof Error ? ex : LiveSyncError.fromError(ex);
             this._log(ex, LOG_LEVEL_VERBOSE);
             await closeAfterConnectionFailure();
-            return msg;
+            return { error: new Error(`${error.name}:${error.message}`, { cause: ex }) };
         }
     }
 }

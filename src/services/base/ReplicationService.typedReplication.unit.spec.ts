@@ -472,6 +472,37 @@ describe("TypedReplicationCoordinator", () => {
         expect(dependencies.handleFailure).not.toHaveBeenCalled();
     });
 
+    it("cancels a continuous start awaiting readiness and admits the next start", async () => {
+        const { continuous, coordinator, dependencies, stop } = createHarness();
+        const readinessStarted = createDeferred<void>();
+        const releaseReadiness = createDeferred<void>();
+        vi.mocked(dependencies.checkReadiness).mockImplementationOnce(async () => {
+            readinessStarted.resolve();
+            await releaseReadiness.promise;
+            return true;
+        });
+        const onStartSettled = vi.fn();
+        const request = { trigger: "resume", interaction: NO_INTERACTION, onStartSettled } as const;
+        const waiting = coordinator.startContinuous(request);
+        await readinessStarted.promise;
+
+        try {
+            await expect(coordinator.stopActiveTransfer()).resolves.toBe(REPLICATION_COMPLETED);
+            expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({ status: "cancelled" });
+            await expect(waiting).resolves.toEqual({ status: "cancelled" });
+        } finally {
+            releaseReadiness.resolve();
+        }
+        expect(stop).toHaveBeenCalledOnce();
+        expect(continuous).not.toHaveBeenCalled();
+
+        await expect(coordinator.startContinuous({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toBe(
+            REPLICATION_COMPLETED
+        );
+        expect(continuous).toHaveBeenCalledOnce();
+        expect(onStartSettled).toHaveBeenCalledOnce();
+    });
+
     it("stops the captured transfer without readiness, finite activity, or recovery", async () => {
         const { coordinator, dependencies, replicator, stop } = createHarness();
 

@@ -6,6 +6,7 @@ import type { IJournalStorage } from "./objectstore/JournalStorageAdapter.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import {
     DEFAULT_SETTINGS,
+    DEFAULT_SYNC_PARAMETERS,
     VERSIONING_DOCID,
     type BucketSyncSetting,
     type EntryDoc,
@@ -15,12 +16,14 @@ import {
     type FilePathWithPrefix,
     type PlainEntry,
     type EntryLeaf,
+    type EntryVersionInfo,
 } from "@lib/common/types.ts";
 import { type SimpleStore, pickBucketSyncSettings } from "@lib/common/utils.ts";
 import { CheckPointInfoDefault, type CheckPointInfo } from "./JournalSyncTypes.ts";
 import { wrappedDeflate, wrappedInflate } from "@lib/pouchdb/compress.ts";
 import { REMOTE_CHUNK_FETCHED } from "@lib/pouchdb/LiveSyncLocalDB.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase.ts";
+import { ReplicationStaticsOwner } from "@lib/services/base/ReplicationStaticsOwner.ts";
 import { LiveSyncError } from "@lib/common/LSError.ts";
 import {
     createSyncParamsHanderForServer,
@@ -84,17 +87,7 @@ describe("JournalSyncCore", () => {
                     currentSettings: () => ({ ...DEFAULT_SETTINGS }),
                 },
                 replicator: {
-                    replicationStatics: {
-                        value: {
-                            sent: 0,
-                            arrived: 0,
-                            maxPullSeq: 0,
-                            maxPushSeq: 0,
-                            lastSyncPullSeq: 0,
-                            lastSyncPushSeq: 0,
-                            syncStatus: "NOT_CONNECTED",
-                        },
-                    },
+                    replicationStatics: new ReplicationStaticsOwner().source,
                 },
             },
         } as unknown as LiveSyncJournalReplicatorEnv;
@@ -114,6 +107,25 @@ describe("JournalSyncCore", () => {
         await localDB.destroy();
     });
 
+    it("stamps Journal statistics when it publishes them", () => {
+        vi.useFakeTimers();
+        const publishedAt = Date.UTC(2026, 10, 19, 12);
+        vi.setSystemTime(publishedAt);
+
+        try {
+            core.updateInfo({ syncStatus: "COMPLETED" });
+            expect(env.services.replicator.replicationStatics.value).toMatchObject({
+                syncStatus: "COMPLETED",
+                statsUpdatedAt: publishedAt,
+            });
+
+            vi.setSystemTime(publishedAt + 1000);
+            expect(env.services.replicator.replicationStatics.value).toMatchObject({ statsUpdatedAt: publishedAt });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it.each(["sendLocalJournal", "receiveRemoteJournal"] as const)(
         "%s rejects incompatible local identity before a Journal transfer",
         async (operation) => {
@@ -122,7 +134,7 @@ describe("JournalSyncCore", () => {
                 type: "versioninfo",
                 version: 13,
                 used_features: ["nfc-path-identity-v1"],
-            } as EntryDoc);
+            } satisfies EntryVersionInfo);
 
             await expect(core[operation]()).rejects.toThrow(/path identity/);
             expect(mockStorage.upload).not.toHaveBeenCalled();
@@ -134,7 +146,16 @@ describe("JournalSyncCore", () => {
         "%s requires Rebuild for legacy local Metadata before NFC transfer",
         async (operation) => {
             env.services.setting.currentSettings = () => ({ ...DEFAULT_SETTINGS, pathNormalizationVersion: 1 });
-            await localDB.put({ _id: "cafe\u0301.md", type: "plain", path: "cafe\u0301.md" } as EntryDoc);
+            await localDB.put({
+                _id: "cafe\u0301.md" as DocumentID,
+                type: "plain",
+                path: "cafe\u0301.md" as FilePathWithPrefix,
+                children: [] as string[],
+                ctime: 1,
+                mtime: 1,
+                size: 0,
+                eden: {},
+            } satisfies PlainEntry);
 
             await expect(core[operation]()).rejects.toThrow(/path identity/);
             expect(mockStorage.upload).not.toHaveBeenCalled();
@@ -238,9 +259,9 @@ describe("JournalSyncCore", () => {
     it("does not evict another server's parameter handler during Journal setup", () => {
         const key = `other-server-${dbCounter}`;
         const options = {
-            get: vi.fn(async () => ({ protocolVersion: ProtocolVersions.ADVANCED_E2EE, pbkdf2salt: "salt" })),
+            get: vi.fn(async () => ({ ...DEFAULT_SYNC_PARAMETERS, pbkdf2salt: "salt" })),
             put: vi.fn(async () => true),
-            create: vi.fn(async () => ({ protocolVersion: ProtocolVersions.ADVANCED_E2EE, pbkdf2salt: "" })),
+            create: vi.fn(async () => ({ ...DEFAULT_SYNC_PARAMETERS })),
         };
         const existingHandler = createSyncParamsHanderForServer(key, options);
 
@@ -383,6 +404,7 @@ describe("JournalSyncCore", () => {
                 sentFiles: new Set(),
             };
             const receiverStore: SimpleStore<CheckPointInfo> = {
+                db: undefined,
                 get: async () => checkpoint,
                 set: async (_key, value) => {
                     checkpoint = value;
@@ -509,7 +531,7 @@ describe("JournalSyncCore", () => {
                 virtualStorage.set(deletedJournal, new Uint8Array([3]));
                 virtualStorage.set(milestone, control);
                 virtualStorage.set(DOCID_JOURNAL_SYNC_PARAMETERS, control);
-                mockStorage.deleteFiles = vi.fn(async (files) => {
+                mockStorage.deleteFiles = vi.fn(async (files: string[]) => {
                     for (const file of files) {
                         if (file !== journal) virtualStorage.delete(file);
                     }
@@ -524,7 +546,7 @@ describe("JournalSyncCore", () => {
                 expect(virtualStorage.get(DOCID_JOURNAL_SYNC_PARAMETERS)).toEqual(control);
                 expect(core.store.set).not.toHaveBeenCalled();
 
-                mockStorage.deleteFiles = vi.fn(async (files) => {
+                mockStorage.deleteFiles = vi.fn(async (files: string[]) => {
                     for (const file of files) virtualStorage.delete(file);
                     return true;
                 });
@@ -541,7 +563,7 @@ describe("JournalSyncCore", () => {
             }
             virtualStorage.set("z-last-journal.jsonl.gz", new Uint8Array([1]));
             virtualStorage.set("_00000000-milestone.json", new Uint8Array([2]));
-            mockStorage.deleteFiles = vi.fn(async (files) => {
+            mockStorage.deleteFiles = vi.fn(async (files: string[]) => {
                 expect(files.length).toBeLessThanOrEqual(100);
                 if (files.some((file) => file.startsWith("_"))) {
                     expect([...virtualStorage.keys()].filter((key) => !key.startsWith("_"))).toEqual([]);
@@ -568,7 +590,7 @@ describe("JournalSyncCore", () => {
                     .mockResolvedValueOnce([milestone, journal])
                     .mockResolvedValueOnce(cursor === "repeated" ? [milestone, journal] : [milestone])
                     .mockResolvedValue([]);
-                mockStorage.deleteFiles = vi.fn(async (files) => {
+                mockStorage.deleteFiles = vi.fn(async (files: string[]) => {
                     for (const file of files) virtualStorage.delete(file);
                     return true;
                 });
@@ -584,7 +606,7 @@ describe("JournalSyncCore", () => {
         it("retains checkpoints until control document deletion also succeeds", async () => {
             virtualStorage.set("1793597000000-docs.jsonl.gz", new Uint8Array([1]));
             virtualStorage.set("_00000000-milestone.json", new Uint8Array([2]));
-            mockStorage.deleteFiles = vi.fn(async (files) => {
+            mockStorage.deleteFiles = vi.fn(async (files: string[]) => {
                 for (const file of files) {
                     if (!file.startsWith("_")) virtualStorage.delete(file);
                 }
@@ -596,38 +618,41 @@ describe("JournalSyncCore", () => {
             expect(core.store.set).not.toHaveBeenCalled();
         });
 
-        it.each([false, true])("resets transfer progress after clearing a bucket (populated: %s)", async (populated) => {
-            let checkpoint = { ...CheckPointInfoDefault };
-            vi.spyOn(core.store, "get").mockImplementation(async () => checkpoint);
-            vi.spyOn(core.store, "set").mockImplementation(async (_key, value) => {
-                checkpoint = value;
-            });
-            await core.updateCheckPointInfo(() => ({
-                lastLocalSeq: 42,
-                journalEpoch: "old-epoch",
-                knownIDs: new Set(["known"]),
-                sentIDs: new Set(["sent"]),
-                receivedFiles: new Set(["received.jsonl.gz"]),
-                sentFiles: new Set(["sent.jsonl.gz"]),
-            }));
-            if (populated) virtualStorage.set("journal.jsonl.gz", new Uint8Array([1]));
-            mockStorage.deleteFiles = vi.fn(async (files) => {
-                for (const file of files) virtualStorage.delete(file);
-                return true;
-            });
+        it.each([false, true])(
+            "resets transfer progress after clearing a bucket (populated: %s)",
+            async (populated) => {
+                let checkpoint = { ...CheckPointInfoDefault };
+                vi.spyOn(core.store, "get").mockImplementation(async () => checkpoint);
+                vi.spyOn(core.store, "set").mockImplementation(async (_key, value) => {
+                    checkpoint = value;
+                });
+                await core.updateCheckPointInfo(() => ({
+                    lastLocalSeq: 42,
+                    journalEpoch: "old-epoch",
+                    knownIDs: new Set(["known"]),
+                    sentIDs: new Set(["sent"]),
+                    receivedFiles: new Set(["received.jsonl.gz"]),
+                    sentFiles: new Set(["sent.jsonl.gz"]),
+                }));
+                if (populated) virtualStorage.set("journal.jsonl.gz", new Uint8Array([1]));
+                mockStorage.deleteFiles = vi.fn(async (files: string[]) => {
+                    for (const file of files) virtualStorage.delete(file);
+                    return true;
+                });
 
-            await expect(core.resetBucket()).resolves.toBe(true);
+                await expect(core.resetBucket()).resolves.toBe(true);
 
-            expect(await core.getCheckpointInfo()).toEqual({
-                lastLocalSeq: 0,
-                journalEpoch: "",
-                knownIDs: new Set(),
-                sentIDs: new Set(),
-                receivedFiles: new Set(),
-                sentFiles: new Set(),
-            });
-            expect(virtualStorage.size).toBe(0);
-        });
+                expect(await core.getCheckpointInfo()).toEqual({
+                    lastLocalSeq: 0,
+                    journalEpoch: "",
+                    knownIDs: new Set(),
+                    sentIDs: new Set(),
+                    receivedFiles: new Set(),
+                    sentFiles: new Set(),
+                });
+                expect(virtualStorage.size).toBe(0);
+            }
+        );
 
         it("reports failure when deleting listed files returns false", async () => {
             const listFiles = vi

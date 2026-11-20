@@ -7,6 +7,11 @@
 - Hosts can identify an unsupported E2EE format when a CouchDB Fetch stops
   and present recovery instructions. ([Self-hosted LiveSync #1365](https://github.com/vrtmrz/obsidian-livesync/issues/1365))
 
+### Improved
+
+- Hosts can observe the result of a CouchDB continuous start, including a confirmed network failure during preparation or the initial pull. This allows the host to resume work when connectivity returns. ([Self-hosted LiveSync #1224](https://github.com/vrtmrz/obsidian-livesync/issues/1224))
+- Replication statistics include the time of their last publication in epoch milliseconds. A newly selected Replicator starts with `NOT_CONNECTED` and a `null` publication time.
+
 ## 0.6.0
 
 17th November, 2026
