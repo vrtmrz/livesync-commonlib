@@ -657,8 +657,8 @@ export class LiveSyncLocalDB {
     }
 
     // For compatibility
-    isTargetFile(filenameSrc: string) {
-        return this.managers.entryManager.isTargetFile(filenameSrc);
+    isTargetFile(filenameSrc: string, internalFileEvent = false) {
+        return this.managers.entryManager.isTargetFile(filenameSrc, internalFileEvent);
     }
     async getDBEntryMeta(
         path: FilePathWithPrefix | FilePath,

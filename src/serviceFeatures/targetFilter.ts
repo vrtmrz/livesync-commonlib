@@ -65,12 +65,12 @@ export function isAcceptedByLocalDBFactory(
         isReady = promiseWithResolvers<void>();
         return Promise.resolve(true);
     });
-    return async (file: string | UXFileInfoStub): Promise<boolean> => {
+    return async (file: string | UXFileInfoStub, options?: { internalFileEvent?: boolean }): Promise<boolean> => {
         // If DB is not ready, we might consider it not accepted or handle gracefully.
         await isReady.promise;
         const filepath = getStoragePathFromUXFileInfo(file);
         // Assuming DB exists for this check based on original logic.
-        if (!(await Promise.resolve(database.localDatabase.isTargetFile(filepath)))) {
+        if (!(await Promise.resolve(database.localDatabase.isTargetFile(filepath, options?.internalFileEvent)))) {
             log("File is not target by local DB: " + filepath);
             return false;
         }

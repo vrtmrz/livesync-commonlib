@@ -1,6 +1,6 @@
 import { LocalDatabaseReadScope } from "@lib/pouchdb/LocalDatabaseReadScope.ts";
 import { ContentReadError } from "@lib/common/LSError.ts";
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { assert, describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { LOG_LEVEL_VERBOSE, defaultLogger, setGlobalLogFunction } from "octagonal-wheels/common/logger";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
@@ -25,6 +25,7 @@ import {
 import type {
     DocumentID,
     EntryDoc,
+    EntryDocResponse,
     FilePathWithPrefix,
     LoadedEntry,
     SavingEntry,
@@ -98,7 +99,7 @@ function createHost(mockSettingService: ISettingService, mockPathService?: IPath
 /**
  * Create a test SavingEntry
  */
-function createSavingEntry(id: string, data: string | Blob, path?: FilePathWithPrefix): SavingEntry {
+function createSavingEntry(id: string, data: string | Blob, path?: FilePathWithPrefix): PlainEntry & SavingEntry {
     return {
         _id: id as DocumentID,
         path: (path || id) as FilePathWithPrefix,
@@ -108,8 +109,13 @@ function createSavingEntry(id: string, data: string | Blob, path?: FilePathWithP
         size: data instanceof Blob ? data.size : data.length,
         datatype: "plain",
         type: "plain",
+        children: [],
         eden: {},
-    } as SavingEntry;
+    };
+}
+
+function fileSelectionPattern(pattern: string): ObsidianLiveSyncSettings["syncOnlyRegEx"] {
+    return pattern as ObsidianLiveSyncSettings["syncOnlyRegEx"];
 }
 
 describe("EntryManagerImpls", () => {
@@ -290,7 +296,10 @@ describe("EntryManagerImpls", () => {
         );
 
         it("applies selection patterns to the complete colon path", () => {
-            const services = createMockServices({ syncOnlyRegEx: "^allowed/", syncIgnoreRegEx: "Poem:" });
+            const services = createMockServices({
+                syncOnlyRegEx: fileSelectionPattern("^allowed/"),
+                syncIgnoreRegEx: fileSelectionPattern("Poem:"),
+            });
             const host = createHost(services.mockSettingService);
             expect(isTargetFile(host, "allowed/Note: Example.md")).toBe(true);
             expect(isTargetFile(host, "allowed/Poem: Example.md")).toBe(false);
@@ -306,7 +315,7 @@ describe("EntryManagerImpls", () => {
 
         it("should respect syncOnlyRegEx setting", () => {
             const services = createMockServices({
-                syncOnlyRegEx: "^allowed/.*" as any,
+                syncOnlyRegEx: fileSelectionPattern("^allowed/.*"),
             });
             const host = createHost(services.mockSettingService);
 
@@ -317,7 +326,10 @@ describe("EntryManagerImpls", () => {
         it.each([".obsidian/plugins/example/main.js", ".obsidian/snippets/example.css", ".obsidian/settings.json"])(
             "uses the normal-file allow-list only for the unprefixed path: %s",
             (path) => {
-                const services = createMockServices({ syncInternalFiles: true, syncOnlyRegEx: "\\.(?:md|png|pdf)$" });
+                const services = createMockServices({
+                    syncInternalFiles: true,
+                    syncOnlyRegEx: fileSelectionPattern("\\.(?:md|png|pdf)$"),
+                });
                 const host = createHost(services.mockSettingService);
                 expect(isTargetFile(host, path)).toBe(false);
                 expect(isTargetFile(host, `${ICHeader}${path}`)).toBe(true);
@@ -327,8 +339,8 @@ describe("EntryManagerImpls", () => {
         it("compatibility: keeps the normal-file ignore-list effective for hidden documents", () => {
             const services = createMockServices({
                 syncInternalFiles: true,
-                syncOnlyRegEx: "\\.(?:md|png|pdf)$",
-                syncIgnoreRegEx: "^\\.obsidian/plugins/",
+                syncOnlyRegEx: fileSelectionPattern("\\.(?:md|png|pdf)$"),
+                syncIgnoreRegEx: fileSelectionPattern("^\\.obsidian/plugins/"),
             });
             const host = createHost(services.mockSettingService);
             expect(isTargetFile(host, "i:.obsidian/plugins/example/main.js")).toBe(false);
@@ -338,15 +350,15 @@ describe("EntryManagerImpls", () => {
         it.each([ICXHeader, PSCHeader])("preserves the %s selection exception", (prefix) => {
             const services = createMockServices({
                 syncInternalFiles: false,
-                syncOnlyRegEx: "\\.md$",
-                syncIgnoreRegEx: ".*",
+                syncOnlyRegEx: fileSelectionPattern("\\.md$"),
+                syncIgnoreRegEx: fileSelectionPattern(".*"),
             });
             expect(isTargetFile(createHost(services.mockSettingService), `${prefix}device/CONFIG/app.json`)).toBe(true);
         });
 
         it("should respect syncIgnoreRegEx setting", () => {
             const services = createMockServices({
-                syncIgnoreRegEx: "^ignored/.*" as any,
+                syncIgnoreRegEx: fileSelectionPattern("^ignored/.*"),
             });
             const host = createHost(services.mockSettingService);
 
@@ -511,7 +523,7 @@ describe("EntryManagerImpls", () => {
 
             expect(result).not.toBe(false);
             const stored = await db.get(entry._id);
-            expect(stored.size).toBe(body.size);
+            expect(stored).toHaveProperty("size", body.size);
         });
 
         it("should save entry to database", async () => {
@@ -907,7 +919,7 @@ describe("EntryManagerImpls", () => {
 
         it.each([false, true])("stores a colon path unless explicitly excluded: %s", async (excluded) => {
             const entry = createSavingEntry("invalid:file", "Should be skipped");
-            mockSettingService.currentSettings().syncIgnoreRegEx = excluded ? "^invalid:" : "";
+            mockSettingService.currentSettings().syncIgnoreRegEx = fileSelectionPattern(excluded ? "^invalid:" : "");
             const host = createHost(mockSettingService, mockPathService);
 
             const result = await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
@@ -999,7 +1011,7 @@ describe("EntryManagerImpls", () => {
         });
 
         it("should return false for non-target files", async () => {
-            mockSettingService.currentSettings().syncIgnoreRegEx = "^invalid:";
+            mockSettingService.currentSettings().syncIgnoreRegEx = fileSelectionPattern("^invalid:");
             const host = createHost(mockSettingService, mockPathService);
 
             const meta = await getDBEntryMetaByPath(
@@ -1117,7 +1129,9 @@ describe("EntryManagerImpls", () => {
             const original = await db.get(entry._id);
             await deleteDBEntryByPath(host, { localDatabase: db }, entry.path);
             const index = await db.allDocs({ keys: [entry._id] });
-            const deletedRevision = index.rows[0].value.rev;
+            const deleted = index.rows[0];
+            assert(deleted && "value" in deleted);
+            const deletedRevision = deleted.value.rev;
             const allDocs = db.allDocs.bind(db);
             let restoredRevision: string | undefined;
             vi.spyOn(db, "allDocs").mockImplementationOnce(async () => {
@@ -1136,11 +1150,13 @@ describe("EntryManagerImpls", () => {
             const host = createHost(services.mockSettingService, mockPathService);
             await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
             await deleteDBEntryByPath(host, { localDatabase: db }, entry.path);
-            const get = db.get.bind(db);
-            vi.spyOn(db, "get").mockImplementation(async (id, options) => {
+            const documents: { get(id: string, options?: PouchDB.Core.GetOptions): Promise<EntryDocResponse> } = db;
+            const get = documents.get.bind(documents);
+            vi.spyOn(documents, "get").mockImplementation(async (id, options) => {
                 const doc = await get(id, options);
                 if (options?.rev && doc._deleted) {
-                    await db.put({ ...doc, mtime: (doc.mtime ?? 0) + 1 });
+                    const mtime = "mtime" in doc ? doc.mtime : undefined;
+                    await db.put({ ...doc, mtime: (mtime ?? 0) + 1 });
                 }
                 return doc;
             });
@@ -1258,7 +1274,7 @@ describe("EntryManagerImpls", () => {
         });
 
         it.each([false, true])("reads colon metadata unless explicitly excluded: %s", async (excluded) => {
-            mockSettingService.currentSettings().syncIgnoreRegEx = excluded ? "^invalid:" : "";
+            mockSettingService.currentSettings().syncIgnoreRegEx = fileSelectionPattern(excluded ? "^invalid:" : "");
             const host = createHost(mockSettingService, mockPathService);
 
             const fakeMeta: LoadedEntry = {
@@ -1342,6 +1358,7 @@ describe("EntryManagerImpls", () => {
             expect(saved.rev.startsWith("1-")).toBe(true);
 
             const raw = await db.get(saved.id);
+            assert("children" in raw);
             const chunkId = raw.children.find((id) => !(id in (raw.eden ?? {})));
             if (!chunkId) {
                 throw new Error("Generation-one fixture did not create a separately stored chunk");
@@ -1912,6 +1929,22 @@ describe("EntryManagerImpls", () => {
                 expect(meta._rev).toBe((rev2b as any).rev);
                 expect(meta.mtime).toBe(2);
             }
+        });
+    });
+
+    describe("isTargetFile internalFileEvent option", () => {
+        it("skips ordinary-file allow-list and hidden-file disablement while retaining common exclusions", () => {
+            const { mockSettingService, mockPathService } = createMockServices({
+                syncInternalFiles: false,
+                syncOnlyRegEx: fileSelectionPattern("^notes/"),
+                syncIgnoreRegEx: fileSelectionPattern("secret\\.json$"),
+            });
+            const host = createHost(mockSettingService, mockPathService);
+
+            expect(isTargetFile(host, ".obsidian/appearance.json", false)).toBe(false);
+            expect(isTargetFile(host, ".obsidian/appearance.json", true)).toBe(true);
+            expect(isTargetFile(host, ".obsidian/secret.json", true)).toBe(false);
+            expect(isTargetFile(host, "h:chunk-id", true)).toBe(false);
         });
     });
 });

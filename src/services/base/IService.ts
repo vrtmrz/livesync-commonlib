@@ -603,8 +603,12 @@ export interface IVaultService {
 
     isTargetFile(
         file: string | UXFileInfoStub,
-        /** Inspect selection policy without treating a filename collision as an exclusion. */
-        options?: { skipCaseCollisionCheck?: boolean }
+        options?: {
+            /** Inspect selection policy without treating a filename collision as an exclusion. */
+            skipCaseCollisionCheck?: boolean;
+            /** Host-admitted internal file event. Preserve vetoes while omitting ordinary-file eligibility. */
+            internalFileEvent?: boolean;
+        }
     ): Promise<boolean>;
 
     isTargetFileInExtra(file: string | UXFileInfoStub): Promise<boolean>;

@@ -86,8 +86,8 @@ export class EntryManager {
         return true;
     }
 
-    isTargetFile(filenameSrc: string) {
-        return isTargetFile(this.serviceHost, filenameSrc);
+    isTargetFile(filenameSrc: string, internalFileEvent = false) {
+        return isTargetFile(this.serviceHost, filenameSrc, internalFileEvent);
     }
 
     async prepareChunk(piece: string): Promise<GeneratedChunk> {

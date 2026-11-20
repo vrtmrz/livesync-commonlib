@@ -76,6 +76,8 @@ export type { FileEventItemSentinel } from "./StorageEventManager/state";
  * @remarks These dependencies keep vault access, file processing, settings, and diagnostics at the adapter boundary.
  */
 export interface StorageEventManagerBaseDependencies {
+    /** Apply the host's admission checks to optional-file events before queuing them. */
+    isTargetInternalFile?: (path: FilePath) => Promise<boolean>;
     setting: SettingService;
     vaultService: IVaultService;
     fileProcessing: FileProcessingService;
@@ -226,6 +228,7 @@ export abstract class StorageEventManagerBase<
         this.adapter = adapter;
         this.setting = dependencies.setting;
         this.vaultService = dependencies.vaultService;
+        this.admission.isTargetInternal = dependencies.isTargetInternalFile?.bind(dependencies);
         this.fileProcessing = dependencies.fileProcessing;
         this.storageAccess = dependencies.storageAccessManager;
         this._log = createInstanceLogFunction("StorageEventManager", dependencies.APIService);

@@ -157,9 +157,15 @@ saved stub, cache, and event label cannot establish completion by themselves.
 ## Processing directions
 
 `StorageEventManager.appendQueue` receives watcher events, applies target and
-ignore policies, and queues `CREATE`, `CHANGED`, `DELETE`, or `RENAME` work. A
-rename from a selected path to a rejected path becomes a `DELETE` with an
-old-path deleted stub and the destination in `FileEventArgs.renameTarget`.
+ignore policies, and queues `CREATE`, `CHANGED`, `DELETE`, or `RENAME` work.
+When a host provides `isTargetInternalFile` in `StorageEventManagerBaseDependencies`,
+`INTERNAL` events bypass the ordinary `syncOnlyRegEx` allow-list and
+`syncInternalFiles` gate. The host callback determines internal-file eligibility
+within the manager's protected-path checks. For example, it can use
+`vaultService.isTargetFile(path, { internalFileEvent: true })`. Hosts without the
+callback use the ordinary admission path. A rename from a selected path to a
+rejected path becomes a `DELETE` with an old-path deleted stub and the destination
+in `FileEventArgs.renameTarget`.
 A rename from an excluded path to a selected path becomes a `CREATE`.
 
 `renameTarget` is recorded only when one incoming `RENAME` is converted in
