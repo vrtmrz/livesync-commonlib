@@ -1,4 +1,3 @@
-import { SuperCallCapture } from "@lib/common/SuperCallCapture.ts";
 import { E2EEAlgorithms, type CouchDBCredentials, type EntryDoc } from "@lib/common/types";
 import type { IRemoteService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
@@ -175,8 +174,6 @@ const FetchMethod = {
 
 type FetchMethod = (typeof FetchMethod)[keyof typeof FetchMethod];
 
-const connectSuperCall = new SuperCallCapture<CouchDBConnectionOpenResult<EntryDoc>>("connect");
-
 /**
  * The RemoteService provides methods for interacting with the remote database.
  */
@@ -286,26 +283,13 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
      * transfer ownership or call `close()`.
      */
     async connect(...args: Parameters<IRemoteService["connect"]>): Promise<string | OwnedCouchDBConnection<EntryDoc>> {
-        const record = connectSuperCall.takeRecorder(this);
-        const opened = await this.openConnection(...args);
-        record?.(opened);
+        const opened = await this.openCouchDBConnection(...args);
         return "error" in opened ? opened.error.message : opened;
     }
 
     async openCouchDBConnection(
         ...args: Parameters<IRemoteService["connect"]>
     ): Promise<CouchDBConnectionOpenResult<EntryDoc>> {
-        if (this.connect !== RemoteService.prototype.connect) {
-            const { result: opened, delegated } = await connectSuperCall.invoke(this, this.connect, ...args);
-            if (typeof opened !== "string") {
-                return opened;
-            }
-            const base = delegated.value;
-            if (base && "error" in base && base.error.message === opened) {
-                return base;
-            }
-            return { error: new Error(opened) };
-        }
         return await this.openConnection(...args);
     }
 

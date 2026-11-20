@@ -1,5 +1,4 @@
 import { UnsupportedEncryptedDocumentFormatError } from "@lib/replication/UnsupportedEncryptedDocumentFormatError.ts";
-import { promiseWithResolvers } from "octagonal-wheels/promises";
 import { describe, expect, it, vi } from "vitest";
 import { ReplicationService, type ReplicationServiceDependencies } from "./ReplicationService.ts";
 import { bailFirstFailureFunction } from "@lib/services/lib/HandlerUtils.ts";
@@ -435,31 +434,6 @@ describe("ReplicationService typed provider roles", () => {
         });
     });
 
-    it("honours a host readiness veto for manual, unattended, and continuous requests", async () => {
-        const { dependencies, openReplication, runFiniteReplicationActivity } = createTypedDependencies();
-        const readiness = vi.fn(async (_showMessage?: boolean) => false);
-        const service = new (class extends TestReplicationService {
-            override async isReplicationReady(showMessage?: boolean): Promise<boolean> {
-                return await readiness(showMessage);
-            }
-        })(new ServiceContext(), dependencies);
-        const onStartSettled = vi.fn();
-
-        const blocked = { status: "blocked", reason: "not-ready" };
-        await expect(service.replicateUserInitiated()).resolves.toEqual(blocked);
-        await expect(service.replicateUnattended({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toEqual(
-            blocked
-        );
-        await expect(
-            service.startContinuous({ trigger: "resume", interaction: NO_INTERACTION, onStartSettled })
-        ).resolves.toEqual(blocked);
-
-        expect(readiness.mock.calls).toEqual([[true], [false], [false]]);
-        expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({ status: "failed" });
-        expect(openReplication).not.toHaveBeenCalled();
-        expect(runFiniteReplicationActivity).not.toHaveBeenCalled();
-    });
-
     it.each(["onBeforeReplicate", "onPrepareCentralRemoteReplication"] as const)(
         "honours a host replacement of %s in readiness",
         async (hook) => {
@@ -492,117 +466,11 @@ describe("ReplicationService typed provider roles", () => {
     it("settles an offline continuous start for that request without dispatching the provider", async () => {
         const { dependencies, openReplication } = createTypedDependencies();
         dependencies.APIService.isOnline = false;
-        const service = new (class extends TestReplicationService {
-            #calls = 0;
-
-            override async isReplicationReady(showMessage?: boolean): Promise<boolean> {
-                expect(++this.#calls).toBe(1);
-                expect(this).toBe(service);
-                await Promise.resolve();
-                expect(++this.#calls).toBe(2);
-                expect(this).toBe(service);
-                return super.isReplicationReady(showMessage);
-            }
-        })(new ServiceContext(), dependencies);
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
         const onStartSettled = vi.fn();
         const request = { trigger: "resume", interaction: NO_INTERACTION, onStartSettled } as const;
 
         await expect(service.startContinuous(request)).resolves.toEqual({ status: "blocked", reason: "not-ready" });
-
-        expect(openReplication).not.toHaveBeenCalled();
-        expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({
-            status: "failed",
-            networkFailure: { reason: "offline", hostOnlineAtFailure: false, failedAt: expect.any(Number) },
-        });
-    });
-
-    it.each([
-        ["typed overlap", false],
-        ["typed overlap", true],
-        ["typed first", true],
-        ["direct first", true],
-    ] as const)(
-        "keeps overlapping delegated readiness results paired (%s, reverse order: %s)",
-        async (order, reverse) => {
-            const fallback = order !== "typed overlap";
-            const directIndex = order === "direct first" ? 0 : 1;
-            const { dependencies, openReplication } = createTypedDependencies();
-            dependencies.APIService.isOnline = false;
-            let Base: typeof ReplicationService<ServiceContext> = TestReplicationService;
-            if (fallback) {
-                vi.resetModules();
-                const loadBuiltin = vi.spyOn(process, "getBuiltinModule").mockReturnValue(undefined);
-                try {
-                    Base = (await import("./ReplicationService.ts")).ReplicationService;
-                } finally {
-                    loadBuiltin.mockRestore();
-                }
-            }
-            const gates = [promiseWithResolvers<void>(), promiseWithResolvers<void>()];
-            let entered = 0;
-            const service = new (class extends Base {
-                #receiver = this;
-
-                override async isReplicationReady(showMessage?: boolean): Promise<boolean> {
-                    expect(this.#receiver).toBe(service);
-                    await gates[entered++].promise;
-                    expect(this.#receiver).toBe(service);
-                    return await super.isReplicationReady(showMessage);
-                }
-            })(new ServiceContext(), dependencies);
-            const callbacks = [vi.fn(), vi.fn()];
-            const start = (index: number) =>
-                fallback && index === directIndex
-                    ? service.isReplicationReady()
-                    : service.startContinuous({
-                          trigger: "resume",
-                          interaction: NO_INTERACTION,
-                          onStartSettled: callbacks[index],
-                      });
-            const first = start(0);
-            if (fallback) {
-                await vi.waitFor(() => expect(entered).toBe(1));
-            }
-            const requests = [first, start(1)];
-            await vi.waitFor(() => expect(entered).toBe(2));
-            for (const index of reverse ? [1, 0] : [0, 1]) {
-                gates[index].resolve();
-                await expect(requests[index]).resolves.toEqual(
-                    fallback && index === directIndex ? false : { status: "blocked", reason: "not-ready" }
-                );
-            }
-
-            expect(openReplication).not.toHaveBeenCalled();
-            for (const [index, onStartSettled] of callbacks.entries()) {
-                if (fallback && index === directIndex) {
-                    expect(onStartSettled).not.toHaveBeenCalled();
-                    continue;
-                }
-                expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({
-                    status: "failed",
-                    networkFailure: { reason: "offline", hostOnlineAtFailure: false, failedAt: expect.any(Number) },
-                });
-            }
-        }
-    );
-
-    it("preserves an offline failure after a re-entrant readiness check succeeds", async () => {
-        const { dependencies, openReplication } = createTypedDependencies();
-        let stage = 0;
-        const service = new (class extends TestReplicationService {
-            override async isReplicationReady(showMessage?: boolean): Promise<boolean> {
-                if (stage++ === 0) {
-                    expect(await this.isReplicationReady(showMessage)).toBe(true);
-                    dependencies.APIService.isOnline = false;
-                }
-                return await super.isReplicationReady(showMessage);
-            }
-        })(new ServiceContext(), dependencies);
-        const onStartSettled = vi.fn();
-
-        await expect(
-            service.startContinuous({ trigger: "resume", interaction: NO_INTERACTION, onStartSettled })
-        ).resolves.toEqual({ status: "blocked", reason: "not-ready" });
 
         expect(openReplication).not.toHaveBeenCalled();
         expect(onStartSettled).toHaveBeenCalledExactlyOnceWith({
