@@ -2,7 +2,8 @@
 date: 2026-10-23
 commonlib-version: "0.1.44"
 self-hosted-livesync-version: "1.0.39"
-status: accepted-unreleased
+status: published
+published-in: "0.2.0"
 ---
 
 # Design: Corrected V3 Chunking and Initial Replication
@@ -13,14 +14,16 @@ The [ADR](../adr/2026_10_chunking_and_transport_batching.md) selects proportiona
 rule A within `v3-rabin-karp`, a common new-configuration recommendation of 0,
 complete initial reception, and native uploads. This document defines the
 implementation boundaries and checks needed to deliver that decision.
+The original review date and source versions are recorded above.
 
 | Work | Status |
 | --- | --- |
-| Continuous Rabin–Karp window | Implemented in the unpublished candidate |
-| Full-current-leaf Fast Fetch | Implemented in the unpublished candidate |
-| Fresh-import checkpoint handoff | Implemented in the unpublished candidate |
-| Rule A in V3 | Implemented and regression-tested |
-| New-setup and Doctor recommendation alignment | Implemented and tested; existing values retained |
+| Continuous Rabin–Karp window | Commonlib 0.2.0 |
+| Full-current-leaf Fast Fetch | Commonlib 0.2.0 |
+| Fresh-import checkpoint handoff | Commonlib 0.2.0 |
+| Rule A in V3 | Commonlib 0.2.0 |
+| New-setup and Doctor recommendation alignment | Commonlib 0.2.0, with existing values retained |
+| Bounded reads for V3 | Commonlib 0.7.0 |
 | Rule-A packed-writer, mixed-writer, and host validation | Local package, CLI transport matrix, and Linux Obsidian checks pass |
 | Upload batching, general Fast-forward, and Cloudant certification | Outside this implementation |
 
@@ -36,9 +39,10 @@ Chunk's start does not restart the removal of outgoing bytes or reset the
 rolling state. Boundary selection and byte reconstruction remain separate
 assertions.
 
-V3 reads the Blob on demand in ranges of up to 1 MiB. The rolling window and
-UTF-8 boundary check continue across range boundaries. Parts of the current
-Chunk can span several ranges and are joined only when that Chunk is emitted.
+Starting with [Commonlib 0.7.0](../../updates.md#070), V3 reads large Blobs
+on demand in ranges of up to 1 MiB. The rolling window and UTF-8 boundary
+check continue across range boundaries. Parts of the current Chunk can span
+several ranges and are joined only when that Chunk is emitted.
 
 ### Proportional binary thresholds
 
@@ -161,12 +165,11 @@ read-ahead in older translations. The primary-language settings documentation
 now describes the unchanged schema defaults of 25 and their actual roles.
 Translation changes remain separate work.
 
-The standalone Deno tools retain their own immutable Commonlib 0.1.34 pin.
-Their existing release and the local candidate both pass generator tests;
-candidate validation uses a temporary import map, including the spawned Deno
-process. Release integration must update the facades, version constant, and
-lockfile together to the reviewed immutable library release. The tools inherit
-the policy of their selected package rather than duplicating the value.
+At the original review, the standalone Deno tools pinned Commonlib 0.1.34.
+Generator tests passed against that version and against the local candidate
+through a temporary import map that also covered the spawned Deno process.
+When adopting the published policy, update the facades, version constant,
+and lockfile together. The tools inherit the value from the selected package.
 
 ## Full-current-leaf Fast Fetch
 
@@ -340,19 +343,16 @@ records artefact and CLI identities, conditions, and coverage. The release
 boundary is the immutable Commonlib dependency, including the independently
 pinned Deno utilities; no further algorithm-version decision is pending.
 
-Integration is planned for Commonlib 0.2.0. The downstream draft keeps its
-published dependency while that release is pending; the new resource contract
-requires the integrated package. Replace the exact package dependency, update
-the independent Deno pins and lockfile, and validate the resulting consumer
-before marking that draft ready for review.
+The original correction and fresh-import resource are available in
+[Commonlib 0.2.0](../../updates.md#020). Consumers adopting the resource
+install an exact version containing it and validate their integration
+against that package.
 
 ## Release-note contract
 
-The Unreleased note must explain that existing content remains readable,
-installing the correction does not re-chunk the whole Vault, and an edited or
-explicitly rewritten file can produce additional Chunks under the corrected
-boundaries. Avoid the unexplained word 'lossy' in end-user wording.
-
-The Unreleased note includes the small-cap reuse improvement and the common
-value-0 recommendation for new setup. It preserves larger existing choices and
-describes first-upload costs without claiming universal performance gains.
+The [0.2.0 notes](../../updates.md#020) record the small-cap correction and the
+value-0 recommendation for new setup. Existing content remains readable and
+installing the correction leaves unchanged files intact. Edits or explicit
+rewrites can create additional Chunks under the corrected boundaries. Larger
+existing choices remain valid and first-upload costs depend on the workload.
+Describe reduced Chunk reuse in terms of its effect on storage and transfer.

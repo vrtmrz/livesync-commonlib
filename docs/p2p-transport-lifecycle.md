@@ -128,9 +128,8 @@ persistent replication state is added.
 
 ## Best-effort change notifications
 
-Implementation note: this notification path is unreleased, reviewed against
-Commonlib 0.4.3 and Self-hosted LiveSync 1.0.49. It does not change the published
-status of the lifecycle and diagnostics described elsewhere in this document.
+This notification path is available in [Commonlib 0.5.0](../updates.md#050).
+The original review used Commonlib 0.4.3 and Self-hosted LiveSync 1.0.49.
 
 P2P change notifications ask a following peer to fetch database changes; they do
 not carry Vault data or confirm that a transfer has succeeded. The sender uses

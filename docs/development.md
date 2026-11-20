@@ -133,7 +133,8 @@ through their previous Server exports.
 
 The Server's optional third constructor argument accepts `createRoom`, defaulting
 to Trystero's `joinRoom`. The server subscribes to diagnostics before joining.
-It creates a Fancy Kit room over the `rpc2` action through `TrysteroRpcRoom`.
+Starting with [Commonlib 0.7.0](../updates.md#070), it creates a Fancy Kit
+room over the `rpc2` action through `TrysteroRpcRoom`.
 The adapter uses a native `AbortController` by default and converts handler
 cancellation reasons to Commonlib `RpcError` instances before aborting.
 The RPC room owns its message and peer-event subscriptions. Commonlib supplies peer admission,
@@ -156,8 +157,8 @@ reads sockets, pauses reconnection, closes the captured set, and starts the publ
 host-stop operation in the original order. Default controls use the shared
 Trystero registry.
 
-`src/rpc/RpcRoom.ts` retains registrations, inbound request routing, transport,
-and chunk state. `RpcRoom/pendingInvocations.ts` owns outbound response waits,
+The standalone `src/rpc/RpcRoom.ts` retains registrations, inbound request
+routing, transport, and chunk state. `RpcRoom/pendingInvocations.ts` owns outbound response waits,
 deadlines, abort subscriptions, settlement, and request-before-cancel ordering.
 The room supplies transport, request IDs, timing, and warning callbacks, and
 forwards peer departure and close events. Notifications bypass this coordinator.
@@ -264,7 +265,7 @@ The multiple-remote profile contract has focused unit coverage in `src/serviceFe
 
 The full offline scanner applies both the host's target-file policy and Commonlib's built-in `shouldBeIgnored` policy before constructing storage/database pairs. This keeps legacy LiveSync log files and flag files outside ordinary create, restore, and delete decisions even when a host accepts their file extension. Lower-level write guards remain a defence for direct calls; they are not the normal full-scan filter. The complete pair-state decision matrix and database-to-storage reflection result contract are documented in [Full offline scan](offline-scanner.md). Extend that document, the Cartesian action test, and both collection-side tests whenever the policy changes.
 
-The unreleased watcher deletion checks and the separate database-to-storage reflection path are recorded in [Storage events and database-to-storage reflection](storage-events-and-reflection.md).
+The watcher deletion checks and the separate database-to-storage reflection path are documented in [Storage events and database-to-storage reflection](storage-events-and-reflection.md).
 
 File-path parsing recognises only the leading `i:`, `ix:`, and `ps:` namespaces. Colons elsewhere belong to the path, including the complete remainder after one namespace. Document-ID parsing additionally recognises `h:` and `f:`; those document IDs are not ordinary storage paths. Keep normalisation, selection patterns, and database lookup on the complete path. `pathPrefixes.unit.spec.ts`, `typeUtils.unit.spec.ts`, and `PathService.unit.spec.ts` cover these conversions, and `ServiceFileHandlerBase.colonPaths.unit.spec.ts` exercises storage and reflection with real PouchDB Metadata and Chunks. Host filename restrictions remain a separate contract: a host must not interpret an unsupported name as permission to write a shortened one.
 
@@ -294,8 +295,9 @@ The active local database identity, settings-selected reset sequence, and lifecy
 
 `TypedReplicationCoordinator` keeps user-initiated, unattended, continuous, and stop roles as explicit control flows. Their interaction authority, readiness position, activity accounting, and failure handling differ, so these roles must not be collapsed into a flag-driven capability table. Share only mechanics whose lifecycle meaning is identical, such as atomic context acquisition and finite activity accounting, and retain a focused sequencing test for each role.
 
-A host may supply `ContinuousReplicationRequest.onStartSettled` to observe the
-result of one continuous start. The ordinary `startContinuous()` result
+Starting with [Commonlib 0.7.0](../updates.md#070), a host may supply
+`ContinuousReplicationRequest.onStartSettled` to observe the result of one
+continuous start. The ordinary `startContinuous()` result
 still reports admission. CouchDB settles the observer when it hands off a
 live PouchDB handle, when preparation or the initial finite pull fails, or
 when the start is cancelled. Requests that join the same CouchDB start
@@ -346,7 +348,7 @@ The [maintained-host examples and evidence](proven-in-use.md) are optional conte
 
 ### Testing an unpublished Octagonal Wheels dependency
 
-The current integration pins the published Octagonal Wheels 0.1.56 release and
+The current integration pins the published Octagonal Wheels 0.1.57 release and
 uses the ordinary package gate. The override below is for future unpublished
 dependency changes.
 
@@ -426,7 +428,7 @@ The platform and RPC ownership decisions are accepted:
 
 The package build records each compatibility path explicitly. Do not add a wildcard export. A new compatibility path requires a real downstream import, a packed-consumer or downstream test, and a migration plan towards a focused public entry or the owning package.
 
-For the unreleased reflection integration, service composition uses
+For the reflection integration introduced in Commonlib 0.6.0, service composition uses
 `handlers<T>().firstApplicable()` to select the first non-`undefined` result and
 `handlers<T>().allOrThrow()` to run boolean callbacks until one returns `false`.
 Both propagate callback exceptions unchanged and retain the existing registration,
