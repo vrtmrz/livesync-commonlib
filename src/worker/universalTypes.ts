@@ -25,10 +25,15 @@ export type SplitArguments = {
     useSegmenter: boolean;
     splitVersion: 1 | 2 | 3;
 };
+export type CancelSplitArguments = {
+    key: number;
+    type: "cancelSplit";
+};
 export type SplitProcessItem = {
     key: number;
     // task: PromiseWithResolvers<string | null>;
     type: SplitArguments["type"];
+    workerFinished?: boolean;
     finalize: () => void;
 };
 export type EncryptProcessItem = {
@@ -64,4 +69,7 @@ export type ResultPayloadWithSeqBase = ResultPayload & {
 export type ResultPayloadPiece = ResultPayloadWithSeqBase & {
     result: string | END_OF_DATA;
 };
-export type ResultPayloadWithSeq = ResultPayloadPiece | ResultPayloadWithError;
+export type SplitErrorPayload = ResultPayloadBase & {
+    error: { name: string; message: string; stack?: string };
+};
+export type ResultPayloadWithSeq = ResultPayloadPiece | SplitErrorPayload;

@@ -2,6 +2,8 @@ function isTextBlob(blob: Blob) {
     return blob.type === "text/plain";
 }
 
+import { iterateBlobBlocks } from "octagonal-wheels/binary/blob";
+import { concatUInt8Array } from "octagonal-wheels/binary/typedArray";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { arrayBufferToBase64Single, readString } from "./convert.ts";
 import { wrapByDefault } from "@lib/common/utils.ts";
@@ -496,7 +498,8 @@ export async function splitPiecesRabinKarp(
     doPlainSplit: boolean,
     minimumChunkSize: number,
     _filename?: string,
-    _useSegmenter?: boolean
+    _useSegmenter?: boolean,
+    signal?: AbortSignal
 ): Promise<() => AsyncGenerator<string, void, unknown>> {
     let plainSplit = doPlainSplit || isTextBlob(dataSrc);
     const dataSize = dataSrc.size;
@@ -540,116 +543,109 @@ export async function splitPiecesRabinKarp(
 
     const windowSize = 48;
 
-    // Rabin-Karp chunking illustration:
+    // Rabin-Karp fingerprint
+    //
+    // The 48-byte window follows the input across read blocks and Chunk boundaries.
+    //
+    // Read blocks    |----------- block 1 -----------|----------- block 2 -----------|
+    // Hash window                              |<--------- 48 bytes --------->|
+    //
+    // A matching fingerprint can end a Chunk once it reaches the minimum size.
+    // The maximum forces a boundary. For text, a following UTF-8
+    // continuation byte prevents a cut at that position.
+    //
+    // Current Chunk  |------ minimum size ------|----- candidate -----| next byte
+    // Hash window                        |<-------- 48 bytes -------->|
+    // Boundary                                                        ^
+    //
+    // Emitting a Chunk moves its start and keeps the rolling window intact.
 
-    // 1. The data is processed in a rolling hash manner, where each byte contributes to the hash.
-    // Yielding candidate is keep glowing until the hash matches the boundary pattern.
-    // Data:        |---------------------------------------------------------------|
-    // Buffer:      |---------------...===>|
-    // Hash window: |           |<---48--->|
-
-    // 2. The hash computed over the sliding window of 48 bytes got a modulus === 1, indicating a potential chunk boundary.
-    // Data:        |---------------------------------------------------------------|
-    // Buffer:      |{----  CANDIDATE ----}|
-    // Hash window: |           |<---48--->|  ==> hashModulus % 1 == 0
-
-    // 3. But, if the current chunk size is shorter than the minimum chunk size, we continue to grow the candidate.
-    //              |<=========MINIMUM=========>|========MAXIMUM=======>|           |
-    // Data:        |---------------------------------------------------------------|
-    // Buffer:      |{----  CANDIDATE ----}|
-    // Hash window: |           |<---48--->|  ==> hashModulus % 1 == 0
-
-    // 4. If the current chunk size is longer than the minimum chunk size, we want to yield the buffer. However, we must check.
-    //              |<=========MINIMUM=========>|========MAXIMUM=======>|           |
-    // Data:        |---------------------------------------------------------------|
-    // Buffer:      |{----  CANDIDATE -------------}|
-    // Hash window: |                    |<---48--->| ==> hashModulus % 1 == 0
-
-    // Check the last byte of the hash window to ensure it does not split in the middle of a surrogate pair (for text).
-    // (if `*` is the surrogate pair, progress the position to the next byte and extends the candidate), and find the next candidate.
-    //              |<=========MINIMUM=========>|========MAXIMUM=======>|           |
-    // Data:        |---------------------------------------------------------------|
-    // Buffer:      |{----  CANDIDATE ------------*-}|
-
-    // 5. Yield the candidate as a chunk, and reset the buffer, and continue processing the data.
-
-    // Probability of the hash modulus matching the boundary pattern is inversely proportional to the average chunk size. This is a notable very property so I very impressed.
-    // (This means that, when aiming for 100 bytes, there is a 1 in 100 chance of matching the boundary pattern).
     const hashModulus = avgChunkSize;
     const boundaryPattern = 1;
-
-    const PRIME = 31;
-    let P_pow_w = 1;
+    const prime = 31;
+    let outgoingByteWeight = 1;
     for (let i = 0; i < windowSize - 1; i++) {
-        P_pow_w = Math.imul(P_pow_w, PRIME);
+        outgoingByteWeight = Math.imul(outgoingByteWeight, prime);
     }
 
-    const buffer = new Uint8Array(await dataSrc.arrayBuffer());
-    let pos = 0;
-
-    let hash = 0;
-    let start = 0;
     const isText = isTextBlob(dataSrc);
+    const readBlockBytes = 1024 * 1024;
 
-    const length = buffer.length;
-    return async function* piecesBlob() {
-        while (pos < length) {
-            // Process the internal buffer byte by byte.
-            const byte = buffer[pos];
-
-            // Keep the rolling window continuous across chunk boundaries.
-            if (pos >= windowSize) {
-                const oldByte = buffer[pos - windowSize];
-                const oldByteTerm = Math.imul(oldByte, P_pow_w);
-                hash = (hash - oldByteTerm) | 0;
-                hash = Math.imul(hash, PRIME);
-                hash = (hash + byte) | 0;
-            } else {
-                hash = Math.imul(hash, PRIME);
-                hash = (hash + byte) | 0;
-            }
-
-            const currentChunkSize = pos - start + 1;
-            let isBoundaryCandidate = false;
-
-            // Boundary judgement.
-            if (currentChunkSize >= minChunkSize) {
-                if ((hash >>> 0) % hashModulus === boundaryPattern) {
-                    isBoundaryCandidate = true;
-                }
-            }
-            if (currentChunkSize >= maxChunkSize) {
-                isBoundaryCandidate = true;
-            }
-            // Extract the chunk.
-            if (isBoundaryCandidate) {
-                let isSafeBoundary = true;
-                // For text, ensure we do not split in the middle of a multi-byte character.
-                if (isText) {
-                    if (pos + 1 < length && (buffer[pos + 1] & 0xc0) === 0x80) {
-                        isSafeBoundary = false;
-                    }
-                }
-                if (isSafeBoundary) {
-                    if (isText) {
-                        yield Promise.resolve(readString(buffer.subarray(start, pos + 1)));
-                    } else {
-                        yield await arrayBufferToBase64Single(buffer.subarray(start, pos + 1));
-                    }
-                    start = pos + 1;
-                }
-            }
-            pos++;
+    async function* readChunks(): AsyncGenerator<string, void, unknown> {
+        if (dataSize === 0 || signal?.aborted) {
+            return;
         }
-        // After the stream ends, yield the remaining data in the buffer as the last chunk.
-        if (start < length) {
-            if (isText) {
-                yield Promise.resolve(readString(buffer.subarray(start, length)));
-            } else {
-                yield await arrayBufferToBase64Single(buffer.subarray(start, length));
+        const previousWindow = new Uint8Array(windowSize);
+        const pendingParts: Uint8Array<ArrayBuffer>[] = [];
+        let remainingBytes = dataSize;
+        let hash = 0;
+        let chunkSize = 0;
+
+        function isBoundaryCandidate(): boolean {
+            return (
+                chunkSize >= maxChunkSize ||
+                (chunkSize >= minChunkSize && (hash >>> 0) % hashModulus === boundaryPattern)
+            );
+        }
+
+        function finishChunk(lastPart: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {
+            if (pendingParts.length === 0) {
+                return lastPart;
+            }
+            if (lastPart.length > 0) {
+                pendingParts.push(lastPart);
+            }
+            const bytes = pendingParts.length === 1 ? pendingParts[0] : concatUInt8Array(pendingParts);
+            pendingParts.length = 0;
+            return bytes;
+        }
+
+        // Most Markdown notes are expected to fit in one read block. A direct read avoids
+        // creating a Blob slice and a block iterator for any input that fits.
+        const blocks = dataSize > readBlockBytes ? iterateBlobBlocks(dataSrc, readBlockBytes) : undefined;
+        try {
+            // Cancellation can arrive while a Blob read is in progress.
+            while (remainingBytes > 0 && !signal?.aborted) {
+                const block = blocks ? (await blocks.next()).value : new Uint8Array(await dataSrc.arrayBuffer());
+                if (!block || signal?.aborted) {
+                    return;
+                }
+                let chunkStart = 0;
+                for (let index = 0; index < block.length; index++) {
+                    const byte = block[index];
+                    // Check the preceding bytes before consuming this one, including at a block boundary.
+                    if (isBoundaryCandidate() && (!isText || (byte & 0xc0) !== 0x80)) {
+                        const chunk = finishChunk(block.subarray(chunkStart, index));
+                        chunkStart = index;
+                        chunkSize = 0;
+                        yield isText ? readString(chunk) : await arrayBufferToBase64Single(chunk);
+                    }
+
+                    const oldByte = index < windowSize ? previousWindow[index] : block[index - windowSize];
+                    hash = (Math.imul(hash - Math.imul(oldByte, outgoingByteWeight), prime) + byte) | 0;
+                    chunkSize++;
+                }
+                remainingBytes -= block.length;
+                const lastPart = block.subarray(chunkStart);
+                if (remainingBytes === 0 || (!isText && isBoundaryCandidate())) {
+                    const chunk = finishChunk(lastPart);
+                    chunkSize = 0;
+                    yield isText ? readString(chunk) : await arrayBufferToBase64Single(chunk);
+                } else {
+                    pendingParts.push(lastPart);
+                }
+                if (remainingBytes > 0) {
+                    previousWindow.set(block.subarray(block.length - windowSize));
+                }
+            }
+        } finally {
+            if (blocks) {
+                await blocks.return();
             }
         }
-    };
+    }
+    const chunks = readChunks();
+    return () => chunks;
 }
 
 // This may used as compatibilities for old version, but now disabled.

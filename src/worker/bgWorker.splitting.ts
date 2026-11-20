@@ -1,7 +1,7 @@
 // Foreground part of Content-Splitter
 
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
-import { startWorker, removeTask } from "./bgWorker.ts";
+import { startWorker, removeTask, cancelSplitTask } from "./bgWorker.ts";
 import { type ResultPayloadWithSeq, type SplitProcessItem } from "./universalTypes";
 
 const SYMBOL_USED = Symbol("used");
@@ -9,7 +9,6 @@ const SYMBOL_END_OF_DATA = Symbol("endOfData");
 type SYMBOL_USED = typeof SYMBOL_USED;
 type SYMBOL_END_OF_DATA = typeof SYMBOL_END_OF_DATA;
 
-const workerStreams = new Map<number, TransformStream<string | null, string | null>>();
 const writers = new Map<number, WritableStreamDefaultWriter<string | null>>();
 
 const responseBuf = new Map<number, Map<number, string | SYMBOL_USED | SYMBOL_END_OF_DATA>>();
@@ -36,43 +35,32 @@ export function _splitPieces2Worker(
     splitVersion: 1 | 2 | 3,
     useSegmenter: boolean
 ) {
-    // Prepare the worker, since here, handleTaskSplit can be called.
-    // Do not use asynchronous call until setting the writers.
-    const process = startWorker({
-        type: "split",
-        dataSrc,
-        pieceSize,
-        plainSplit,
-        minimumChunkSize,
-        filename,
-        useSegmenter,
-        splitVersion,
-    });
-    const _key = process.key;
-    const stream = new TransformStream<string | null, string>({
-        transform: (chunk, controller) => {
-            // If chunk is null, it means the end of data, so we should terminate the stream
-            if (chunk === null) {
-                controller.terminate();
-                return;
-            }
-            // While chunk has arrived, we can process it on the reader
-            controller.enqueue(chunk);
-        },
-        flush: () => {},
-    });
-
-    // Register the stream and its reader/writer
-    workerStreams.set(_key, stream);
-    const readable = stream.readable;
-    const reader = readable.getReader();
-    const writer = stream.writable.getWriter();
-    // Lock the writer for this stream
-    writers.set(_key, writer);
-    // Okay, we are ready to respond, create the generator function.
     return async function* () {
+        const stream = new TransformStream<string | null, string>({
+            transform(chunk, controller) {
+                if (chunk === null) {
+                    controller.terminate();
+                    return;
+                }
+                controller.enqueue(chunk);
+            },
+        });
+        const reader = stream.readable.getReader();
+        const writer = stream.writable.getWriter();
+        const process = startWorker({
+            type: "split",
+            dataSrc,
+            pieceSize,
+            plainSplit,
+            minimumChunkSize,
+            filename,
+            useSegmenter,
+            splitVersion,
+        });
+        const key = process.key;
+        writers.set(key, writer);
+        let done = false;
         try {
-            let done = false;
             do {
                 // Reading from the stream (I am so happy on iOS 14.5+).
                 const results = await reader.read();
@@ -83,36 +71,38 @@ export function _splitPieces2Worker(
                 yield results.value!; // results.value is never null here
             } while (!done);
         } catch (ex) {
-            Logger(`Error in worker stream for key ${_key}`);
+            Logger(`Error in worker stream for key ${key}`);
             Logger(ex, LOG_LEVEL_VERBOSE);
             throw ex;
         } finally {
             // Tearing down.
             process.finalize();
-            workerStreams.delete(_key);
-            writers.delete(_key);
+            writers.delete(key);
+            responseBuf.delete(key);
+            if (done) {
+                removeTask(key);
+            } else {
+                cancelSplitTask(key);
+            }
+            void reader.cancel().catch((error) => Logger(error, LOG_LEVEL_VERBOSE));
         }
     };
 }
 
 /**
  * Aborts all in-flight split tasks identified by the given keys.
- * Called when the background worker that owned these tasks has crashed, so the streams
- * will never receive any more data and must be torn down to unblock callers.
+ * Called when a split fails or its background worker crashes.
  * @param keys The task keys to abort.
  * @param error The error to report to each stream.
  */
-export function abortSplitTasks(keys: number[], error: Error): void {
+export function abortSplitTasks(keys: number[], error: unknown): void {
     for (const key of keys) {
+        removeTask(key);
         responseBuf.delete(key);
-        writerPromise = writerPromise.then(async () => {
-            const writer = writers.get(key);
-            if (writer) {
-                await writer.abort(error);
-                writers.delete(key);
-            }
-            workerStreams.delete(key);
-        });
+        const writer = writers.get(key);
+        writers.delete(key);
+        // Abort immediately so backpressure from an unread chunk cannot delay the failure.
+        void writer?.abort(error).catch((abortError) => Logger(abortError, LOG_LEVEL_VERBOSE));
     }
 }
 
@@ -126,14 +116,11 @@ export function handleTaskSplit(process: SplitProcessItem, data: ResultPayloadWi
     const key = data.key;
 
     if (!("result" in data)) {
-        responseBuf.delete(key);
-        const reportError = data.error || new Error("Unknown error in background splitting");
-        writerPromise = writerPromise.then(async () => {
-            const writer = writers.get(key);
-            if (writer) {
-                await writer.abort(reportError);
-            }
-        });
+        const { name, message, stack } = data.error;
+        const error = new Error(message);
+        error.name = name;
+        error.stack = stack ?? error.stack;
+        abortSplitTasks([key], error);
         return;
     }
     let thisBuf = responseBuf.get(key);
@@ -166,10 +153,12 @@ export function handleTaskSplit(process: SplitProcessItem, data: ResultPayloadWi
         writerPromise = writerPromise.then(async () => {
             // Sending NULL for end of data causes the stream to close, no need to call close()
             const writer = writers.get(key);
-            if (!writer) {
-                throw new Error(`Invalid writer for key ${key} in background splitting`);
+            try {
+                await writer?.write(result === SYMBOL_END_OF_DATA ? null : result);
+            } catch (error) {
+                abortSplitTasks([key], error);
+                return;
             }
-            await writer.write(result === SYMBOL_END_OF_DATA ? null : result);
             if (result === SYMBOL_END_OF_DATA) {
                 // Task is complete; clean up the task map and the worker's key tracking.
                 removeTask(key);

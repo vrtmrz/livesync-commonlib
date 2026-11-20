@@ -8,7 +8,9 @@ import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import { info, LOG_KIND_ERROR } from "octagonal-wheels/common/logger.js";
 import { encryptionOnWorker, encryptionHKDFOnWorker, handleTaskEncrypt } from "./bgWorker.encryption.ts";
 import { _splitPieces2Worker, handleTaskSplit, abortSplitTasks } from "./bgWorker.splitting.ts";
+import { END_OF_DATA } from "./universalTypes.ts";
 import type {
+    CancelSplitArguments,
     EncryptArguments,
     EncryptHKDFArguments,
     EncryptHKDFProcessItem,
@@ -24,6 +26,8 @@ export type WorkerInstance = {
     processing: number;
     /** Keys of tasks currently dispatched to this worker instance. */
     taskKeys: Set<number>;
+    /** Cancelled splits awaiting their terminal response. */
+    cancelledSplitKeys: Set<number>;
 };
 
 export function splitPieces2Worker(
@@ -97,6 +101,20 @@ export function removeTask(key: number): void {
     }
 }
 
+/** Worker-side cancellation takes effect asynchronously when the worker receives the `cancelSplit` message. */
+export function cancelSplitTask(key: number): void {
+    const process = tasks.get(key);
+    const inst = taskWorkerMap.get(key);
+    removeTask(key);
+    if (process?.type !== "split" || process.workerFinished || !inst) {
+        return;
+    }
+
+    inst.cancelledSplitKeys.add(key);
+    const data: CancelSplitArguments = { type: "cancelSplit", key };
+    inst.worker.postMessage({ data });
+}
+
 function initialiseWorkers() {
     const maxConcurrency = ~~((compatGlobal.navigator.hardwareConcurrency || 8) / 2);
     return Array.from(
@@ -109,6 +127,7 @@ function initialiseWorkers() {
                 worker: WorkerX() as Worker,
                 processing: 0,
                 taskKeys: new Set<number>(),
+                cancelledSplitKeys: new Set<number>(),
             }) satisfies WorkerInstance
     );
 }
@@ -123,13 +142,22 @@ export function initialiseWorkerModule(events: LiveSyncEventHub) {
     for (const inst of workers) {
         inst.worker.onmessage = ({ data }) => {
             const key = data.key as number;
-            // debugger;
+            const splitFinished = data.result === END_OF_DATA || "error" in data;
+            if (inst.cancelledSplitKeys.has(key)) {
+                if (splitFinished) {
+                    inst.cancelledSplitKeys.delete(key);
+                }
+                return;
+            }
             const process = tasks.get(key);
             if (!process) {
                 info(`Invalid key ${key} of background processing`, LOG_KIND_ERROR);
                 return;
             }
             if (process.type === "split") {
+                if (splitFinished) {
+                    process.workerFinished = true;
+                }
                 handleTaskSplit(process, data);
             } else if (process.type === "encrypt" || process.type === "decrypt") {
                 handleTaskEncrypt(process, data);
@@ -159,6 +187,7 @@ export function initialiseWorkerModule(events: LiveSyncEventHub) {
                 }
             }
             inst.taskKeys.clear();
+            inst.cancelledSplitKeys.clear();
             if (splitKeys.length > 0) {
                 abortSplitTasks(splitKeys, crashError);
             }
@@ -201,15 +230,22 @@ export function startWorker(data: Omit<EncryptArguments | SplitArguments | Encry
     inst.taskKeys.add(_key);
     taskWorkerMap.set(_key, inst);
     inst.processing++;
-    inst.worker.postMessage({
-        data: { ...data, key: _key },
-    });
-    return item;
+    try {
+        inst.worker.postMessage({
+            data: { ...data, key: _key },
+        });
+        return item;
+    } catch (error) {
+        item.finalize();
+        removeTask(_key);
+        throw error;
+    }
 }
 
 export function terminateWorker() {
     for (const inst of workers) {
         inst.worker.terminate();
+        inst.cancelledSplitKeys.clear();
     }
     workers = [];
     offPlatformUnloaded?.();
