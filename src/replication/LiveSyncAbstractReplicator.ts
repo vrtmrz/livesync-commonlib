@@ -20,6 +20,7 @@ import type { ReplicatorInstance } from "./ReplicatorInstance.ts";
 // import type { IServiceHub } from "@lib/services/base/IService.ts";
 
 export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<boolean> | boolean;
+export type SecuritySeedPreparationResult = { ready: true } | { ready: false; error: unknown };
 export type ReplicationStat = {
     sent: number;
     arrived: number;
@@ -120,7 +121,7 @@ export abstract class LiveSyncAbstractReplicator implements ReplicatorInstance {
         setting: RemoteDBSettings,
         showMessage: boolean,
         useCache: boolean
-    ): Promise<{ ready: true } | { ready: false; error: unknown }> {
+    ): Promise<SecuritySeedPreparationResult> {
         try {
             const hash = await this.getReplicationPBKDF2Salt(setting, !useCache);
             if (hash.length == 0) {

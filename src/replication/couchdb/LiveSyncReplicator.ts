@@ -61,9 +61,10 @@ import {
     LiveSyncAbstractReplicator,
     type LiveSyncReplicatorEnv,
     type RemoteDBStatus,
+    type SecuritySeedPreparationResult,
 } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock";
-import { promiseWithResolvers } from "octagonal-wheels/promises";
+import { promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { Trench } from "octagonal-wheels/memory/memutil";
 import { StreamInbox } from "octagonal-wheels/bureau/StreamInbox";
@@ -152,6 +153,10 @@ function couchDBReplicationFailure(
     networkFailure: ContinuousReplicationNetworkFailure | undefined
 ): CouchDBReplicationFailure {
     return networkFailure ? { status: "failed", networkFailure } : COUCHDB_REPLICATION_FAILED;
+}
+
+function couchDBReplicationFailureFromError(error: unknown): CouchDBReplicationFailure {
+    return couchDBReplicationFailure(getReplicationNetworkFailure(error));
 }
 
 // eslint-disable-next-line
@@ -266,7 +271,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
      * controller, so a stop request cannot be lost during catch-up.
      */
     private continuousTask: Promise<boolean> | undefined;
-    private continuousStart: ReturnType<typeof promiseWithResolvers<ContinuousReplicationStartResult>> | undefined;
+    private continuousStart: PromiseWithResolvers<ContinuousReplicationStartResult> | undefined;
     private continuousStopWaiter: Promise<void> | undefined;
     private continuousStopRequested = false;
     private continuousPhase?: "catch-up" | "continuous";
@@ -1125,7 +1130,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     return COUCHDB_REPLICATION_FAILED;
                 }
                 if (seed.ready === false) {
-                    return couchDBReplicationFailure(getReplicationNetworkFailure(seed.error));
+                    return couchDBReplicationFailureFromError(seed.error);
                 }
                 if (this.controller) {
                     this.log(
@@ -1285,7 +1290,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     private async prepareOneShotSecuritySeed(
         setting: RemoteDBSettings,
         showResult: boolean
-    ): ReturnType<LiveSyncCouchDBReplicator["prepareSecuritySeed"]> {
+    ): Promise<SecuritySeedPreparationResult> {
         if (this.ensurePBKDF2Salt !== LiveSyncAbstractReplicator.prototype.ensurePBKDF2Salt) {
             const ready = await this.ensurePBKDF2Salt(setting, showResult, false);
             return ready ? { ready } : { ready, error: undefined };
@@ -1478,7 +1483,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             );
         } catch (ex) {
             if (this.reportConnectivityPreflightTimeout(connectionOptions, showResult, ex)) {
-                return couchDBReplicationFailure(getReplicationNetworkFailure(ex));
+                return couchDBReplicationFailureFromError(ex);
             }
             throw ex;
         }
@@ -1489,7 +1494,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
                 );
             }
-            return couchDBReplicationFailure(getReplicationNetworkFailure(dbRet.error));
+            return couchDBReplicationFailureFromError(dbRet.error);
         }
         // Keep ownership here until the fully checked connection is returned.
         let ownershipTransferred = false;
@@ -1505,7 +1510,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.INCOMPATIBLE_VERSION)
                 );
                 this.log(error, LOG_LEVEL_NOTICE);
-                return couchDBReplicationFailure(getReplicationNetworkFailure(error));
+                return couchDBReplicationFailureFromError(error);
             }
             if (!skipCheck) {
                 this.remoteCleaned = false;
@@ -1649,7 +1654,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return connection;
         } catch (ex) {
             if (this.reportConnectivityPreflightTimeout(connectionOptions, showResult, ex)) {
-                return couchDBReplicationFailure(getReplicationNetworkFailure(ex));
+                return couchDBReplicationFailureFromError(ex);
             }
             throw ex;
         } finally {
@@ -1697,7 +1702,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             },
             (error: unknown) => {
                 task.reject(error);
-                reportIncompleteStart(couchDBReplicationFailure(getReplicationNetworkFailure(error)));
+                reportIncompleteStart(couchDBReplicationFailureFromError(error));
             }
         );
         return task.promise;
