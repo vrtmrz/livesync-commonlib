@@ -9,6 +9,9 @@ type HkdfEncryptionArguments = [input: string, passphrase: string, salt: Uint8Ar
 
 export const backgroundWorkerContract = defineContract({
     split: call<[request: WorkerSplitRequest], WorkerStreamPort>().transfer({ result: "required" }),
+    splitWindowed: call<[request: WorkerSplitRequest, windowBytes: number], WorkerStreamPort>().transfer({
+        result: "required",
+    }),
     encrypt: call<EncryptionArguments, string>(),
     decrypt: call<EncryptionArguments, string>(),
     encryptHKDF: call<HkdfEncryptionArguments, string>(),

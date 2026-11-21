@@ -1,24 +1,27 @@
-import { readWorkerStream, type WorkerPool, type WorkerRpcConnection } from "@vrtmrz/rpc/worker";
+import { readWorkerStream, type WorkerPool, type WorkerRpcConnection, type WorkerStreamPort } from "@vrtmrz/rpc/worker";
 import { RpcError } from "@vrtmrz/rpc";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
-import {
-    type backgroundWorkerContract,
-    splitChunkCapacity,
-    type WorkerSplitRequest,
-} from "./backgroundWorkerRpcContract.ts";
+import type { backgroundWorkerContract, WorkerSplitRequest } from "./backgroundWorkerRpcContract.ts";
 import { toBackgroundWorkerError } from "./bgWorker.errors.ts";
 
 type Connection = WorkerRpcConnection<typeof backgroundWorkerContract>;
 type SplitPool = Pick<WorkerPool<Connection, Awaited<Connection["ready"]>>, "acquire">;
 type SplitEnd = "complete" | "return" | { error: unknown };
 
-export function createSplitOperation(
+export interface SplitDelivery<Result> {
+    readonly frameCapacity: (input: Blob) => number;
+    readonly connect: (client: Awaited<Connection["ready"]>, request: WorkerSplitRequest) => Promise<WorkerStreamPort>;
+    readonly decode: (frame: string) => Result;
+}
+
+export function createSplitOperation<Result>(
     getPool: () => SplitPool,
     request: WorkerSplitRequest,
-    onFinish: (workerFinished: boolean) => void
+    onFinish: (workerFinished: boolean) => void,
+    delivery: SplitDelivery<Result>
 ) {
     const stopped = promiseWithResolvers<void>();
-    const maxChunkBytes = splitChunkCapacity(request.dataSrc);
+    const maxChunkBytes = delivery.frameCapacity(request.dataSrc);
     let end: SplitEnd | undefined;
     let reader: ReturnType<typeof readWorkerStream> | undefined;
     let releaseLease: (() => void) | undefined;
@@ -55,7 +58,7 @@ export function createSplitOperation(
                 onDisconnect();
                 return;
             }
-            const port = await lease.client.call.split([request]);
+            const port = await delivery.connect(lease.client, request);
             const stream = readWorkerStream({ port, maxChunkBytes, signal });
             if (end !== undefined) {
                 // A port transferred during cancellation must still be claimed and closed.
@@ -71,7 +74,7 @@ export function createSplitOperation(
         }
     }
 
-    async function* read(): AsyncGenerator<string, void, unknown> {
+    async function* read(): AsyncGenerator<Result, void, unknown> {
         try {
             await Promise.race([open(), stopped.promise]);
             if (reader !== undefined) {
@@ -82,7 +85,7 @@ export function createSplitOperation(
                     if (typeof chunk !== "string") {
                         throw new TypeError("A split result must be a string.");
                     }
-                    yield chunk;
+                    yield delivery.decode(chunk);
                 }
             }
             if (typeof end === "object") {

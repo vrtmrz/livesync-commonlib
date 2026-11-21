@@ -694,6 +694,14 @@ for (const split of [workerApi.splitPieces2Worker, workerApi.splitPieces2WorkerV
     for await (const piece of piecesFactory()) pieces.push(piece);
     assert.equal(pieces.join(""), "abcdef");
 }
+const windowedInput = new Blob(["abcdef".repeat(1024)], { type: "text/plain" });
+const windowed = workerApi.splitPieces2WorkerRabinKarpWindowed(windowedInput, 1024, true, 1, 256);
+const windowedChunks = [];
+for await (const chunks of windowed()) windowedChunks.push(...chunks);
+const single = workerApi.splitPieces2WorkerRabinKarp(windowedInput, 1024, true, 1);
+const singleChunks = [];
+for await (const chunk of single()) singleChunks.push(chunk);
+assert.deepEqual(windowedChunks, singleChunks);
 const stub = workerApi.startWorker({ type: "encrypt", input: "fixture", passphrase: "fixture", autoCalculateIterations: false });
 assert.equal(await stub.task.promise, "");
 stub.finalize();
@@ -758,7 +766,7 @@ await writeConsumerFile(
 );
 await writeConsumerFile(
     "browser-worker.ts",
-    `export { initialiseWorkerModule, splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
+    `export { initialiseWorkerModule, splitPieces2Worker, splitPieces2WorkerRabinKarpWindowed } from "${packageName}/compat/worker/bgWorker";
 export { encryptHKDF } from "./node_modules/${packageName}/dist/encryption/encryptHKDF.js";
 `
 );

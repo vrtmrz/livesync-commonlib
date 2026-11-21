@@ -7,9 +7,14 @@ import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import type { LiveSyncEventHub } from "@lib/hub/hub.ts";
 // @ts-expect-error The browser package build supplies the inline Worker factory.
 import createInlineWorker from "./bg.worker.ts?worker&inline";
-import { backgroundWorkerContract, type WorkerSplitRequest } from "./backgroundWorkerRpcContract.ts";
+import {
+    backgroundWorkerContract,
+    splitChunkCapacity,
+    type WorkerSplitRequest,
+} from "./backgroundWorkerRpcContract.ts";
 import { toBackgroundWorkerError } from "./bgWorker.errors.ts";
-import { createSplitOperation } from "./bgWorker.splitting.ts";
+import { createSplitOperation, type SplitDelivery } from "./bgWorker.splitting.ts";
+import { decodeSplitWindow, splitWindowFrameCapacity } from "./splitWindows.ts";
 import type {
     EncryptArguments,
     EncryptHKDFArguments,
@@ -85,7 +90,13 @@ export function cancelSplitTask(key: number): void {
     cancelSplits.get(key)?.(new RpcError("aborted", "Background split was cancelled."));
 }
 
-function createTrackedSplit(request: WorkerSplitRequest) {
+const singleChunkDelivery: SplitDelivery<string> = {
+    frameCapacity: splitChunkCapacity,
+    connect: (client, request) => client.call.split([request]),
+    decode: (chunk) => chunk,
+};
+
+function createTrackedSplit<Result>(request: WorkerSplitRequest, delivery: SplitDelivery<Result>) {
     const process: SplitProcessItem = { key: nextKey++, type: "split", finalize() {} };
     const operation = createSplitOperation(
         () => {
@@ -99,7 +110,8 @@ function createTrackedSplit(request: WorkerSplitRequest) {
             process.workerFinished = workerFinished;
             cancelSplits.delete(process.key);
             removeTask(process.key);
-        }
+        },
+        delivery
     );
     return { process, iterator: operation.iterator };
 }
@@ -130,7 +142,7 @@ export function startWorker(data: EncryptionRequest | Omit<SplitArguments, "key"
     const current = getPool();
     if (data.type === "split") {
         const { type: _type, ...request } = data;
-        const { process, iterator } = createTrackedSplit(request);
+        const { process, iterator } = createTrackedSplit(request, singleChunkDelivery);
         void consumeSplit(iterator).catch((error: unknown) => Logger(error, LOG_LEVEL_VERBOSE));
         return process;
     }
@@ -168,8 +180,10 @@ function prepareSplit(
     useSegmenter = false
 ) {
     return () =>
-        createTrackedSplit({ dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter, splitVersion })
-            .iterator;
+        createTrackedSplit(
+            { dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter, splitVersion },
+            singleChunkDelivery
+        ).iterator;
 }
 
 export function splitPieces2Worker(
@@ -203,6 +217,33 @@ export function splitPieces2WorkerRabinKarp(
     useSegmenter?: boolean
 ) {
     return prepareSplit(3, dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
+}
+
+/**
+ * Returns ordered windows of original chunks from the existing Worker pool.
+ * Await the current window's writes before requesting another window.
+ *
+ * @experimental
+ */
+export function splitPieces2WorkerRabinKarpWindowed(
+    dataSrc: Blob,
+    pieceSize: number,
+    plainSplit: boolean,
+    minimumChunkSize: number,
+    windowBytes: number,
+    filename?: string,
+    useSegmenter = false
+): () => AsyncGenerator<readonly string[], void, unknown> {
+    const delivery: SplitDelivery<readonly string[]> = {
+        frameCapacity: (input) => splitWindowFrameCapacity(splitChunkCapacity(input), windowBytes),
+        connect: (client, request) => client.call.splitWindowed([request, windowBytes]),
+        decode: decodeSplitWindow,
+    };
+    return () =>
+        createTrackedSplit(
+            { dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter, splitVersion: 3 },
+            delivery
+        ).iterator;
 }
 
 export function encryptWorker(input: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {

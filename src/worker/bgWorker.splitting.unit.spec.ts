@@ -5,6 +5,7 @@ import {
     cancelSplitTask,
     initialiseWorkerModule,
     splitPieces2WorkerRabinKarp,
+    splitPieces2WorkerRabinKarpWindowed,
     tasks,
     terminateWorker,
 } from "./bgWorker.ts";
@@ -38,7 +39,7 @@ function holdSecondRead() {
     return { source, secondReadStarted, secondBlock, ranges };
 }
 
-async function expectNextSplit(): Promise<void> {
+async function expectNextSplit(activeTasks = 0): Promise<void> {
     const next = splitPieces2WorkerRabinKarp(
         new Blob(["next split"], { type: "text/plain" }),
         blockBytes,
@@ -50,7 +51,7 @@ async function expectNextSplit(): Promise<void> {
         chunks.push(chunk);
     }
     expect(chunks).toEqual(["next split"]);
-    expect(tasks.size).toBe(0);
+    expect(tasks.size).toBe(activeTasks);
 }
 
 describe("Rabin–Karp background Worker splitting", () => {
@@ -143,19 +144,61 @@ describe("Rabin–Karp background Worker splitting", () => {
         expect(worker.terminate).not.toHaveBeenCalled();
     });
 
-    it("rejects the next read after a Worker crashes while the consumer holds a chunk", async () => {
+    it("waits for the write before pulling another window and shares the Worker with single-chunk splitting", async () => {
         initialiseWorkerModule(createLiveSyncEventHub());
-        const source = new Blob([new Uint8Array(blockBytes)]);
-        const iterator = splitPieces2WorkerRabinKarp(source, blockBytes / 2, false, blockBytes / 2)();
-        await expect(iterator.next()).resolves.toMatchObject({ done: false });
-        const failedWorker = worker;
-        failedWorker.crash("fixture split crash");
+        const { source, secondReadStarted, secondBlock, ranges } = holdSecondRead();
+        const iterator = splitPieces2WorkerRabinKarpWindowed(source, blockBytes, false, blockBytes, 256 * 1024)();
+        const write = promiseWithResolvers<void>();
+        try {
+            const first = await iterator.next();
+            expect(first.done).toBe(false);
+            expect(first.value).toHaveLength(1);
+            expect(first.value?.[0]).toHaveLength(4 * Math.ceil(blockBytes / 3));
+
+            const next = write.promise.then(() => iterator.next());
+            await expectNextSplit(1);
+            expect(ranges).toEqual([[0, blockBytes]]);
+
+            write.resolve();
+            await secondReadStarted.promise;
+            await iterator.return();
+            await expect(next).resolves.toMatchObject({ done: true });
+        } finally {
+            write.resolve();
+            secondBlock.resolve(new ArrayBuffer(blockBytes));
+            await iterator.return();
+        }
         expect(tasks.size).toBe(0);
-        await expect(iterator.next()).rejects.toMatchObject({ code: "disconnected", message: "fixture split crash" });
-        await expectNextSplit();
-        expect(failedWorker.terminate).toHaveBeenCalledTimes(1);
-        expect(inlineWorkerFactory).toHaveBeenCalledTimes(2);
+        expect(ranges).toEqual([
+            [0, blockBytes],
+            [blockBytes, 2 * blockBytes],
+        ]);
+        expect(inlineWorkerFactory).toHaveBeenCalledTimes(1);
     });
+
+    it.each(["chunk", "window"] as const)(
+        "rejects the next read after a Worker crashes while the consumer holds a %s",
+        async (delivery) => {
+            initialiseWorkerModule(createLiveSyncEventHub());
+            const source = new Blob([new Uint8Array(blockBytes)]);
+            const create =
+                delivery === "chunk"
+                    ? splitPieces2WorkerRabinKarp(source, blockBytes / 2, false, blockBytes / 2)
+                    : splitPieces2WorkerRabinKarpWindowed(source, blockBytes / 2, false, blockBytes / 2, 256 * 1024);
+            const iterator = create();
+            await expect(iterator.next()).resolves.toMatchObject({ done: false });
+            const failedWorker = worker;
+            failedWorker.crash("fixture split crash");
+            expect(tasks.size).toBe(0);
+            await expect(iterator.next()).rejects.toMatchObject({
+                code: "disconnected",
+                message: "fixture split crash",
+            });
+            await expectNextSplit();
+            expect(failedWorker.terminate).toHaveBeenCalledTimes(1);
+            expect(inlineWorkerFactory).toHaveBeenCalledTimes(2);
+        }
+    );
 
     it("can exit between pulls and independently reuse the same factory", async () => {
         initialiseWorkerModule(createLiveSyncEventHub());

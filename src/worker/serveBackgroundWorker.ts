@@ -5,6 +5,7 @@ import { decrypt as decryptHKDF, encrypt as encryptHKDF } from "octagonal-wheels
 import { serveWorkerRpc, serveWorkerStream, type ServeWorkerRpcOptions } from "@vrtmrz/rpc/worker";
 import { backgroundWorkerContract, splitChunkCapacity } from "./backgroundWorkerRpcContract.ts";
 import { splitBackgroundRequest } from "./bg.worker.splitting.ts";
+import { encodeSplitWindow, groupSplitChunks, splitWindowFrameCapacity } from "./splitWindows.ts";
 
 export function serveBackgroundWorker(port: ServeWorkerRpcOptions<typeof backgroundWorkerContract>["port"]) {
     return serveWorkerRpc({
@@ -25,6 +26,21 @@ export function serveBackgroundWorker(port: ServeWorkerRpcOptions<typeof backgro
                     maxChunkBytes: splitChunkCapacity(request.dataSrc),
                     signal: lifetime,
                     createSource: (signal) => splitBackgroundRequest(request, signal),
+                })
+            );
+            endpoint.handle("splitWindowed", (_context, request, windowBytes) =>
+                serveWorkerStream({
+                    createChannel: () => new MessageChannel(),
+                    maxChunkBytes: splitWindowFrameCapacity(splitChunkCapacity(request.dataSrc), windowBytes),
+                    signal: lifetime,
+                    async *createSource(signal) {
+                        for await (const chunks of groupSplitChunks(
+                            splitBackgroundRequest(request, signal),
+                            windowBytes
+                        )) {
+                            yield encodeSplitWindow(chunks);
+                        }
+                    },
                 })
             );
         },

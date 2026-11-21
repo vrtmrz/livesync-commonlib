@@ -253,6 +253,8 @@ npm run test:package
 
 The browser Worker bundle uses one RPC pool for chunking, encryption, and decryption. The Self-hosted LiveSync plug-in initialises it with the event hub for its own lifecycle. The package check exercises the existing compatibility entry and verifies that it and Commonlib's internal alias resolve to the same implementation for each runtime. Both runtimes return a synchronous factory for each Worker splitter. Node consumers can still `await` the factory and should use `await` when migrating a call that chained `.then()` on the former direct V1 or V2 result.
 
+The experimental `splitPieces2WorkerRabinKarpWindowed` splitter returns arrays of whole, ordered chunks. The browser implementation uses the same Worker pool and requests each window when the consumer advances the iterator. A chunk larger than the byte budget occupies a window on its own. A caller pacing writes awaits the current window's writes before advancing the iterator. The Node compatibility implementation groups chunks from the direct splitter.
+
 `test:contracts` runs the host-neutral result contracts which are intended to be reusable while implementations move:
 
 - `test:contract:context` verifies event delivery, default instance isolation, translation results, and host extension of `ServiceContextContract`;
