@@ -436,10 +436,11 @@ export async function repairMetadataDocumentIdentity(
  */
 export async function collectDeletedFiles(
     host: NecessaryServices<"setting" | "database" | "path", never>,
-    log: LogFunction
+    log: LogFunction,
+    isStopping: () => boolean = () => false
 ): Promise<void> {
     const limitDays = host.services.setting.currentSettings().automaticallyDeleteMetadataOfDeletedFiles;
-    if (limitDays <= 0) return;
+    if (isStopping() || limitDays <= 0) return;
     log(`Checking expired file history`);
     const limit = Date.now() - 86400 * 1000 * limitDays;
     const notes: {
@@ -449,26 +450,31 @@ export async function collectDeletedFiles(
         doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.AllDocsMeta>;
     }[] = [];
     for await (const doc of host.services.database.localDatabase.findAllDocs({ conflicts: true })) {
-        if (isAnyNote(doc)) {
-            if (doc.deleted && doc.mtime - limit < 0) {
-                if (isMetaEntry(doc)) {
-                    const identity = await inspectMetadataDocumentIdentity(host, doc);
-                    if (identity.status === MetadataDocumentIdentityStatuses.UNRESOLVED) {
-                        log(
-                            `Expired deletion history has an unresolved Metadata identity and will be left unchanged: ${identity.diagnostic.declaredPath} (${identity.diagnostic.reason})`,
-                            LOG_LEVEL_INFO
-                        );
-                        continue;
-                    }
-                }
-                notes.push({
-                    path: doc.path,
-                    mtime: doc.mtime,
-                    ttl: (doc.mtime - limit) / 1000 / 86400,
-                    doc: doc,
-                });
+        if (isStopping()) return;
+        if (!isAnyNote(doc) || !doc.deleted) {
+            continue;
+        }
+        const expired = doc.mtime < limit;
+        if (!expired) {
+            continue;
+        }
+        if (isMetaEntry(doc)) {
+            const identity = await inspectMetadataDocumentIdentity(host, doc);
+            if (isStopping()) return;
+            if (identity.status === MetadataDocumentIdentityStatuses.UNRESOLVED) {
+                log(
+                    `Expired deletion history has an unresolved Metadata identity and will be left unchanged: ${identity.diagnostic.declaredPath} (${identity.diagnostic.reason})`,
+                    LOG_LEVEL_INFO
+                );
+                continue;
             }
         }
+        notes.push({
+            path: doc.path,
+            mtime: doc.mtime,
+            ttl: (doc.mtime - limit) / 1000 / 86400,
+            doc,
+        });
     }
     if (notes.length === 0) {
         log("There are no old documents");
@@ -476,6 +482,7 @@ export async function collectDeletedFiles(
         return;
     }
     for (const v of notes) {
+        if (isStopping()) return;
         log(`Deletion history expired: ${v.path}`);
         const delDoc = v.doc;
         delDoc._deleted = true;

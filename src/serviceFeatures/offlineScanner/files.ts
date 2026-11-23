@@ -28,6 +28,7 @@ async function reflectScannedEntry(
     entry: MetaEntry,
     file: FilePath | null,
     force: boolean,
+    isStopping: () => boolean,
     options?: VaultScanOptions
 ): Promise<FilePairProcessResult> {
     const target = entry._rev ? { documentId: entry._id, revision: entry._rev } : undefined;
@@ -42,7 +43,7 @@ async function reflectScannedEntry(
     } catch (error) {
         // The owner notification is awaited after the reflection operation fails.
         // Its rejection must remain a persistence failure, not another read failure.
-        if (target && options?.onReflectionFailed) {
+        if (!isStopping() && target && options?.onReflectionFailed) {
             await options.onReflectionFailed(target, error);
         }
         return FilePairProcessResults.FAILED;
@@ -68,7 +69,10 @@ export async function syncFileBetweenDBandStorage(
         throw new Error(`Missing doc:${docPath}`);
     }
 
-    // const settings = host.services.setting.currentSettings();
+    const isStopping = () => host.serviceModules.storageAccess?.isStopping?.() === true;
+    if (isStopping()) {
+        return FilePairProcessResults.FAILED;
+    }
     const compareResult = host.services.path.compareFileFreshness(file, doc);
     switch (compareResult) {
         case BASE_IS_NEW:
@@ -87,7 +91,10 @@ export async function syncFileBetweenDBandStorage(
         case TARGET_IS_NEW:
             if (!host.services.vault.isFileSizeTooLarge(doc.size)) {
                 log("STORAGE <- DB :" + docPath);
-                const reflection = await reflectScannedEntry(host, doc, stripAllPrefixes(docPath), false, scanOptions);
+                const reflection = await reflectScannedEntry(host, doc, stripAllPrefixes(docPath), false, isStopping, scanOptions);
+                if (isStopping()) {
+                    return FilePairProcessResults.FAILED;
+                }
                 if (reflection === FilePairProcessResults.COMPLETED) {
                     host.services.context.events.emitEvent("event-file-changed", {
                         file: file.path,
@@ -105,46 +112,81 @@ export async function syncFileBetweenDBandStorage(
                 return FilePairProcessResults.SKIPPED;
             }
         case EVEN:
-            if (
-                host.services.vault.isFileSizeTooLarge(file.stat.size) ||
-                host.services.vault.isFileSizeTooLarge(doc.size)
-            ) {
-                log(
-                    `STORAGE ? DB : ${file.path} has been skipped due to file size exceeding the limit`,
-                    LOG_LEVEL_NOTICE
-                );
-                return FilePairProcessResults.SKIPPED;
-            }
-            if (
-                scanOptions?.strictContentCheck === false &&
-                (await host.serviceModules.fileHandler.canSkipUnchangedFile?.(file, doc))
-            ) {
-                log(
-                    `STORAGE ? DB : ${file.path} skipped using unchanged storage and revision metadata`,
-                    LOG_LEVEL_DEBUG
-                );
-                return FilePairProcessResults.SKIPPED;
-            }
-            if (doc._rev && (await host.serviceModules.fileHandler.tryRecordUntrackedFileRevision(file, doc._rev))) {
-                log("STORAGE == DB :" + file.path, LOG_LEVEL_DEBUG);
-                return FilePairProcessResults.COMPLETED;
-            }
-            log("STORAGE ? DB :" + file.path + " Checking content", LOG_LEVEL_DEBUG);
-            try {
-                return (await host.serviceModules.fileHandler.storeFileToDB(file, false, false, {
-                    revalidateStorage: true,
-                }))
-                    ? FilePairProcessResults.COMPLETED
-                    : FilePairProcessResults.FAILED;
-            } catch (error) {
-                log(`STORAGE ? DB : Could not reconcile ${file.path}`, LOG_LEVEL_NOTICE);
-                log(error, LOG_LEVEL_VERBOSE);
-                return FilePairProcessResults.FAILED;
-            }
+            return reconcileEqualTimeFile(host, log, file, doc, isStopping, scanOptions);
         default:
             log("STORAGE ?? DB :" + file.path + " Something got weird");
             return FilePairProcessResults.FAILED;
     }
+}
+
+async function reconcileEqualTimeFile(
+    host: NecessaryServices<"vault", "fileHandler">,
+    log: LogFunction,
+    file: UXFileInfoStub,
+    doc: MetaEntry,
+    isStopping: () => boolean,
+    scanOptions?: VaultScanOptions
+): Promise<FilePairProcessResult> {
+    if (
+        host.services.vault.isFileSizeTooLarge(file.stat.size) ||
+        host.services.vault.isFileSizeTooLarge(doc.size)
+    ) {
+        log(
+            `STORAGE ? DB : ${file.path} has been skipped due to file size exceeding the limit`,
+            LOG_LEVEL_NOTICE
+        );
+        return FilePairProcessResults.SKIPPED;
+    }
+    const observed = await checkEqualTimeProvenance(host, log, file, doc, isStopping, scanOptions);
+    if (isStopping()) {
+        return FilePairProcessResults.FAILED;
+    }
+    if (observed !== undefined) {
+        return observed;
+    }
+    log("STORAGE ? DB :" + file.path + " Checking content", LOG_LEVEL_DEBUG);
+    try {
+        return (await host.serviceModules.fileHandler.storeFileToDB(file, false, false, {
+            revalidateStorage: true,
+        }))
+            ? FilePairProcessResults.COMPLETED
+            : FilePairProcessResults.FAILED;
+    } catch (error) {
+        log(`STORAGE ? DB : Could not reconcile ${file.path}`, LOG_LEVEL_NOTICE);
+        log(error, LOG_LEVEL_VERBOSE);
+        return FilePairProcessResults.FAILED;
+    }
+}
+
+async function checkEqualTimeProvenance(
+    host: NecessaryServices<never, "fileHandler">,
+    log: LogFunction,
+    file: UXFileInfoStub,
+    doc: MetaEntry,
+    isStopping: () => boolean,
+    scanOptions?: VaultScanOptions
+): Promise<FilePairProcessResult | undefined> {
+    if (scanOptions?.strictContentCheck === false) {
+        const unchanged = await host.serviceModules.fileHandler.canSkipUnchangedFile?.(file, doc);
+        if (isStopping()) {
+            return FilePairProcessResults.FAILED;
+        }
+        if (unchanged) {
+            log(`STORAGE ? DB : ${file.path} skipped using unchanged storage and revision metadata`, LOG_LEVEL_DEBUG);
+            return FilePairProcessResults.SKIPPED;
+        }
+    }
+    if (doc._rev) {
+        const tracked = await host.serviceModules.fileHandler.tryRecordUntrackedFileRevision(file, doc._rev);
+        if (isStopping()) {
+            return FilePairProcessResults.FAILED;
+        }
+        if (tracked) {
+            log("STORAGE == DB :" + file.path, LOG_LEVEL_DEBUG);
+            return FilePairProcessResults.COMPLETED;
+        }
+    }
+    return undefined;
 }
 
 function createComparisonPathLookup(settings: ObsidianLiveSyncSettings, paths: readonly FilePathWithPrefix[]) {
@@ -173,6 +215,7 @@ export async function collectFilesOnStorage(
     const _filesStorage: UXFileInfoStub[] = [];
 
     for (const f of filesStorageSrc) {
+        if (host.serviceModules.storageAccess.isStopping?.()) break;
         if (shouldBeIgnored(f.path)) continue;
         if (await host.services.vault.isTargetFile(f.path)) {
             _filesStorage.push(f);
@@ -201,7 +244,8 @@ export async function collectDatabaseFiles(
     host: NecessaryServices<"database" | "vault" | "path", never>,
     settings: ObsidianLiveSyncSettings,
     log: LogFunction,
-    showingNotice: boolean
+    showingNotice: boolean,
+    isStopping: () => boolean = () => false
 ) {
     log("Collecting local files on the DB", LOG_LEVEL_VERBOSE);
     const _DBEntries: MetaEntry[] = [];
@@ -210,6 +254,7 @@ export async function collectDatabaseFiles(
     let count = 0;
     // Fetch all documents from the database (including conflicts to prevent overwriting).
     for await (const doc of host.services.database.localDatabase.findAllNormalDocs({ conflicts: true }) || []) {
+        if (isStopping()) break;
         count++;
         if (count % 25 === 0)
             log(
@@ -223,6 +268,7 @@ export async function collectDatabaseFiles(
             continue;
         }
         const identity = await inspectMetadataDocumentIdentity(host, doc);
+        if (isStopping()) break;
         if (identity.status === MetadataDocumentIdentityStatuses.EXCLUDED) {
             continue;
         }
@@ -238,11 +284,12 @@ export async function collectDatabaseFiles(
         }
         const path = identity.declaredPath;
 
-        if (
+        const selected =
             host.services.vault.isValidPath(path) &&
             !shouldBeIgnored(path) &&
-            (await host.services.vault.isTargetFile(path))
-        ) {
+            (await host.services.vault.isTargetFile(path));
+        if (isStopping()) break;
+        if (selected) {
             _DBEntries.push(doc);
             resolvableFileNamesLC.add(convertCase(settings, stripAllPrefixes(path)));
         }
@@ -273,11 +320,15 @@ export async function updateToDatabase(
     host: NecessaryServices<"vault", "fileHandler">,
     log: LogFunction,
     logLevel: LOG_LEVEL,
-    file: UXFileInfoStub
+    file: UXFileInfoStub,
+    isStopping: () => boolean = () => false
 ): Promise<FilePairProcessResult> {
     if (!host.services.vault.isFileSizeTooLarge(file.stat.size)) {
         const path = file.path;
         if (!(await host.serviceModules.fileHandler.storeFileToDB(file))) {
+            return FilePairProcessResults.FAILED;
+        }
+        if (isStopping()) {
             return FilePairProcessResults.FAILED;
         }
         host.services.context.events.emitEvent("event-file-changed", { file: path, automated: true });
@@ -293,41 +344,40 @@ export async function updateToStorage(
     log: LogFunction,
     logLevel: LOG_LEVEL,
     w: MetaEntry,
-    scanOptions?: VaultScanOptions
+    scanOptions?: VaultScanOptions,
+    isStopping: () => boolean = () => false
 ): Promise<FilePairProcessResult> {
-    // Exists in database but not in storage.
     const path = getPathFromEntry(host, w);
-    if (w && !(w.deleted || w._deleted)) {
-        if (!host.services.vault.isFileSizeTooLarge(w.size)) {
-            // Prevent applying the conflicted state to the storage.
-            if ((w._conflicts?.length ?? 0) > 0) {
-                log(`UPDATE STORAGE: ${path} has conflicts. skipped (x)`, LOG_LEVEL_INFO);
-                return FilePairProcessResults.SKIPPED;
-            }
-            const reflected = await reflectScannedEntry(host, w, null, true, scanOptions);
-            // Keep a failed reflection retryable. Treating it as success would let
-            // the caller persist the database mtime as a locally observed file and
-            // a later newer-wins scan could misclassify the missing file as deleted.
-            if (reflected !== FilePairProcessResults.COMPLETED) {
-                return reflected;
-            }
-            host.services.context.events.emitEvent("event-file-changed", {
-                file: path,
-                automated: true,
-            });
-            log(`Check or pull from db:${path} OK`);
-            return FilePairProcessResults.COMPLETED;
-        } else {
-            log(`UPDATE STORAGE: ${path} has been skipped due to file size exceeding the limit`, logLevel);
-            return FilePairProcessResults.SKIPPED;
-        }
-    } else if (w) {
-        log(`Deletion history skipped: ${path}`, LOG_LEVEL_VERBOSE);
-        return FilePairProcessResults.SKIPPED;
-    } else {
+    if (!w) {
         log(`entry not found: ${path}`);
         return FilePairProcessResults.FAILED;
     }
+    if (w.deleted || w._deleted) {
+        log(`Deletion history skipped: ${path}`, LOG_LEVEL_VERBOSE);
+        return FilePairProcessResults.SKIPPED;
+    }
+    if (host.services.vault.isFileSizeTooLarge(w.size)) {
+        log(`UPDATE STORAGE: ${path} has been skipped due to file size exceeding the limit`, logLevel);
+        return FilePairProcessResults.SKIPPED;
+    }
+    if ((w._conflicts?.length ?? 0) > 0) {
+        log(`UPDATE STORAGE: ${path} has conflicts. skipped (x)`, LOG_LEVEL_INFO);
+        return FilePairProcessResults.SKIPPED;
+    }
+    const reflected = await reflectScannedEntry(host, w, null, true, isStopping, scanOptions);
+    if (isStopping()) {
+        return FilePairProcessResults.FAILED;
+    }
+    // Keep a failed reflection eligible for a later scan without recording it as locally observed.
+    if (reflected !== FilePairProcessResults.COMPLETED) {
+        return reflected;
+    }
+    host.services.context.events.emitEvent("event-file-changed", {
+        file: path,
+        automated: true,
+    });
+    log(`Check or pull from db:${path} OK`);
+    return FilePairProcessResults.COMPLETED;
 }
 
 export async function syncStorageAndDatabase(

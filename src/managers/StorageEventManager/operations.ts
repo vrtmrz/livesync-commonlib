@@ -6,7 +6,12 @@ import type { FileEventItem } from "@lib/common/models/fileaccess.type";
 import { promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
 
 /** The settled outcome of one attempt; a later retry receives a different outcome promise. */
-export type OperationResult = { ok: true } | { ok: false; error: unknown };
+export type OperationResult = { ok: true } | { ok: false; error: unknown; stopped?: false } | { ok: false; stopped: true };
+
+/** Whether a settled attempt ended because its manager was stopped. */
+export function isStoppedResult(result: OperationResult): result is { ok: false; stopped: true } {
+    return result.ok === false && result.stopped === true;
+}
 
 /** Per-attempt execution state, separate from the durable operation that may be retried. */
 export type FileEventAttempt = {
@@ -14,12 +19,17 @@ export type FileEventAttempt = {
     completion: PromiseWithResolvers<OperationResult>;
     /** Prevents concurrent dispatch from starting the same attempt twice. */
     started: boolean;
+    /** Whether execution crossed the host-handler start boundary. */
+    handlerStarted?: boolean;
     /** Marks this invocation for current-state reconciliation inside the ordinary handler. */
     reconcile: boolean;
     /** Failure-sequence cutoff used when this attempt captures retryable dependencies. */
     retryBefore?: number;
     /** An admission failure which must be observed after an active handler settles. */
     admissionFailure?: { error: unknown };
+    /** Settled outcome of the first durable intent write, independent of queue dispatch. */
+    admissionPersistence?: Promise<void>;
+    admissionPersistenceStoreGeneration?: number;
     /** Related operations whose captured attempts must succeed before this one proceeds. */
     prerequisites?: Map<PendingFileEvent, FileEventAttempt>;
     /** Earlier ordered work which must settle, regardless of whether it succeeded. */
@@ -36,6 +46,7 @@ export type FileEventAttempt = {
 export type PendingFileEvent = {
     /** Original event intent retained for persistence and replay. */
     event: FileEventItem;
+    readonly indexedPaths: readonly string[];
     /** Manager-local ordering position used by snapshots and finite boundaries. */
     sequence: number;
     /** Admission time for this event; batch planning may inherit an earlier gate start. */
@@ -69,6 +80,13 @@ export type PendingFileEvent = {
  */
 export function createFileEventAttempt(reconcile = false): FileEventAttempt {
     return { completion: promiseWithResolvers<OperationResult>(), started: false, reconcile };
+}
+
+/** Settle an unstarted attempt as an orderly stop while retaining its durable operation. */
+export function stopFileEventAttempt(attempt: FileEventAttempt): void {
+    if (attempt.result || attempt.handlerStarted) return;
+    attempt.result = { ok: false, stopped: true };
+    attempt.completion.resolve(attempt.result);
 }
 
 /**
@@ -201,6 +219,6 @@ export function planFileEventPredecessors(
  * @remarks Does not alter any result or operation.
  */
 export function assertSuccessfulFileEvents(results: readonly OperationResult[]): void {
-    const failure = results.find((result) => !result.ok);
-    if (failure?.ok === false) throw failure.error;
+    const failure = results.find((result) => !result.ok && !isStoppedResult(result));
+    if (failure?.ok === false && !isStoppedResult(failure)) throw failure.error;
 }

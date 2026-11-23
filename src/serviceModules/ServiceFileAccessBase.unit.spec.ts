@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 import { ServiceFileAccessBase } from "./ServiceFileAccessBase";
 import type { FilePath, FilePathWithPrefix } from "@lib/common/types";
 import type { PathComparisonSettings } from "@lib/platform/pathTypes.ts";
@@ -250,6 +251,35 @@ describe("ServiceFileAccessBase local completion lifecycle", () => {
             finish();
             await unloading;
         }
+    });
+
+    it("returns the stopped outcome when watcher startup and explicit completion overlap unload", async () => {
+        const watch = promiseWithResolvers<void>();
+        const flush = promiseWithResolvers<void>();
+        let stopping = false;
+        const beginWatch = vi.fn(() => watch.promise);
+        const waitForIdle = vi.fn(() => flush.promise);
+        const service = new ServiceFileAccessBase({
+            API: { addLog: vi.fn() } as any,
+            appLifecycle: { onFirstInitialise: { addHandler: vi.fn() }, onBeforeUnload: { addHandler: vi.fn() } } as any,
+            fileProcessing: { commitPendingFileEvents: { addHandler: vi.fn() } } as any,
+            vault: {} as any,
+            setting: {} as any,
+            storageEventManager: { isStopping: () => stopping, beginWatch, waitForIdle } as any,
+            storageAccessManager: {} as any,
+            vaultAccess: {} as any,
+        });
+        const starting = service._everyOnFirstInitialize();
+        const committing = service._everyCommitPendingFileEvent();
+        stopping = true;
+        watch.resolve();
+        flush.resolve();
+        await expect(starting).resolves.toBe(false);
+        await expect(committing).resolves.toBe(false);
+        await expect(service._everyOnFirstInitialize()).resolves.toBe(false);
+        await expect(service._everyCommitPendingFileEvent()).resolves.toBe(false);
+        expect(beginWatch).toHaveBeenCalledOnce();
+        expect(waitForIdle).toHaveBeenCalledOnce();
     });
 
     it("preserves a snapshot-write failure at the lifecycle boundary", async () => {

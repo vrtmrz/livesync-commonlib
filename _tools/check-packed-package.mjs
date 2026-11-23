@@ -18,6 +18,8 @@ const artefactDirectory = resolve(root, "artifacts");
 const consumerDirectory = resolve(root, ".package-consumer");
 const packageName = "@vrtmrz/livesync-commonlib";
 const inventory = JSON.parse(await readFile(resolve(root, "docs/migration/downstream-imports.json"), "utf8"));
+const storageEventApiPaths = ["storage", "compat/managers/adapters", "compat/managers/StorageEventManager"];
+
 
 function formatFileMode(mode) {
     return typeof mode === "number" ? mode.toString(8).padStart(4, "0") : String(mode);
@@ -252,6 +254,24 @@ import {
     type DirectFileManipulatorRuntimeOptions,
 } from "${packageName}";
 import { declareUICommand, UICommandRegistry } from "${packageName}/ui-commands";
+${storageEventApiPaths.map((subpath, index) => `
+import {
+    isIncrementalPersistenceAdapter as isIncrementalPersistenceAdapter${index},
+    type IStorageEventIncrementalPersistenceAdapter as IncrementalAdapter${index},
+    type StorageEventSnapshotRecord as SnapshotRecord${index},
+    type StorageEventSnapshotDelta as SnapshotDelta${index},
+} from "${packageName}/${subpath}";
+const incrementalStorage${index}: IncrementalAdapter${index} = {
+    loadSnapshot: async () => null,
+    saveSnapshot: async () => {},
+    loadSnapshotEntries: async (): Promise<readonly SnapshotRecord${index}[]> => [],
+    applySnapshotDelta: async (_delta: SnapshotDelta${index}): Promise<void> => {},
+};
+const useIncrementalStorage${index} = (adapter: Pick<IncrementalAdapter${index}, "loadSnapshot" | "saveSnapshot">) =>
+    isIncrementalPersistenceAdapter${index}(adapter) ? adapter.loadSnapshotEntries() : adapter.loadSnapshot();
+void useIncrementalStorage${index}(incrementalStorage${index});
+`).join("")}
+
 import { createConflictCheckQueue, type ConflictCheckQueue, type FilePathWithPrefix } from "${packageName}/conflicts";
 import {
     createFileSystemAccessStorage,
@@ -530,6 +550,17 @@ const before = {
 };
 
 const contextApi = await import("${packageName}/context");
+const fullSnapshot = { loadSnapshot: async () => null, saveSnapshot: async () => {} };
+const incrementalSnapshot = {
+    ...fullSnapshot,
+    loadSnapshotEntries: async () => [],
+    applySnapshotDelta: async () => {},
+};
+for (const entry of ${JSON.stringify(storageEventApiPaths.map((subpath) => `${packageName}/${subpath}`))}) {
+    const { isIncrementalPersistenceAdapter } = await import(entry);
+    assert.equal(isIncrementalPersistenceAdapter(fullSnapshot), false, entry);
+    assert.equal(isIncrementalPersistenceAdapter(incrementalSnapshot), true, entry);
+}
 const rootApi = await import("${packageName}");
 const settingsApi = await import("${packageName}/settings");
 const hashingApi = await import("${packageName}/hashing");

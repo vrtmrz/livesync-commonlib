@@ -3,12 +3,9 @@
  * Snapshot writes are delegated to the snapshot module; these state transitions do not commit them.
  */
 import type { FileEventItem, FilePath } from "@lib/common/types";
-import {
-    createFileEventAttempt,
-    getFileEventPaths,
-    type FileEventAttempt,
-    type PendingFileEvent,
-} from "./operations";
+import type { PromiseWithResolvers } from "octagonal-wheels/promises";
+import { createFileEventAttempt, getFileEventPaths, type FileEventAttempt, type PendingFileEvent } from "./operations";
+import type { StorageEventReplayQueue } from "./StorageEventReplayQueue";
 
 /** Queue marker which closes the ordered boundary before a delete or rename. */
 export const TYPE_SENTINEL_FLUSH = "SENTINEL_FLUSH";
@@ -33,20 +30,37 @@ export type EventAdmission = {
 
 /** Queue and persistence view of one event, optionally linked to its durable operation. */
 export type PendingSnapshotEntry = {
+    /** Store-scoped durable ordering identifier, stable across retries. */
+    id: string;
+    /** Snapshot generation which first made this live intent dirty. */
+    mutationVersion: number;
+    /** Whether the intent is already durable in the current store. */
+    persisted: boolean;
+    /** Payload and path index captured when the intent was retained. */
+    readonly persistedEvent: QueuedFileEvent;
+    readonly indexedPaths: readonly string[];
     /** Event intent written to or restored from the existing snapshot format. */
     event: QueuedFileEvent;
     /** Stable insertion order within this manager's pending snapshot. */
     sequence: number;
-    /** Provisional completion within a serial snapshot step; a failed save rolls it back. */
+    /** Completion marker for the legacy projection helper. The writer keeps provisional completions private. */
     completed: boolean;
     /** Durable operation for file events; sentinels have no operation. */
     operation?: PendingFileEvent;
     /** Whether a sentinel has passed through dispatch and may be acknowledged after its predecessors. */
     dispatched?: boolean;
+    sentinelReplay?: PromiseWithResolvers<void>;
 };
 
 /** Completion acknowledgement tied to both the retained entry and its exact attempt. */
 export type SnapshotCompletion = { entry: PendingSnapshotEntry; attempt: FileEventAttempt };
+
+/** Detached persistence work; mutations arriving during its I/O belong to a later batch. */
+export type PendingSnapshotBatch = {
+    completions: Array<{ completion: SnapshotCompletion; waiter: PromiseWithResolvers<void> }>;
+    waiters: PromiseWithResolvers<void>[];
+    requiredMutationVersion: number;
+};
 
 /** Optional wait policy for a queue dispatch request. */
 export type RunQueuedEventsOptions = { waitForProcessing?: boolean };
@@ -63,6 +77,30 @@ export interface StorageEventState {
     nextSequence: number;
     /** Monotonic failure counter; its current value bounds a new retry request. */
     nextFailureSequence: number;
+    storeGeneration: number;
+    nextRecordSequence: bigint;
+    storeAcquired: boolean;
+    restoreFailure?: { error: unknown };
+    snapshotMutationVersion: number;
+    persistedMutationVersion: number;
+    hasPersisted: boolean;
+    pendingOperationCount: number;
+    pendingPathCounts: Map<string, number>;
+    dirtyUpserts: Set<PendingSnapshotEntry>;
+    committedEntryIds: Set<string>;
+    activeRecordIds: Set<string>;
+    pendingBatch: PendingSnapshotBatch | null;
+    snapshotWriterRunning: boolean;
+    stopping: boolean;
+    stopped: boolean;
+    inFlightOperations: Set<Promise<void>>;
+    restorePromise: Promise<void> | null;
+    restorePending: boolean;
+    restoreStoreGeneration: number | null;
+    replayQueue?: StorageEventReplayQueue;
+    activeDispatchSlots: number;
+    dispatchSlotWakeSignal: PromiseWithResolvers<void> | null;
+    dispatchWindowSize: number;
     /** Admission switch controlled by the owning manager's lifecycle. */
     acceptingEvents: boolean;
     /** Admissions in progress which a finite flush must account for. */
@@ -105,6 +143,28 @@ export function createStorageEventState(): StorageEventState {
         latestByPath: new Map(),
         nextSequence: 0,
         nextFailureSequence: 0,
+        storeGeneration: 0,
+        nextRecordSequence: 0n,
+        storeAcquired: false,
+        snapshotMutationVersion: 0,
+        persistedMutationVersion: 0,
+        hasPersisted: false,
+        pendingOperationCount: 0,
+        pendingPathCounts: new Map(),
+        dirtyUpserts: new Set(),
+        committedEntryIds: new Set(),
+        activeRecordIds: new Set(),
+        pendingBatch: null,
+        snapshotWriterRunning: false,
+        stopping: false,
+        stopped: false,
+        inFlightOperations: new Set(),
+        restorePromise: null,
+        restorePending: false,
+        restoreStoreGeneration: null,
+        activeDispatchSlots: 0,
+        dispatchSlotWakeSignal: null,
+        dispatchWindowSize: 5,
         acceptingEvents: true,
         admissions: new Set(),
         snapshotTail: Promise.resolve(),
@@ -124,11 +184,68 @@ export function createStorageEventState(): StorageEventState {
 function registerOperation(state: StorageEventState, operation: PendingFileEvent): void {
     if (operation.registered) return;
     operation.registered = true;
-    for (const path of getFileEventPaths(operation.event)) {
+    for (const path of operation.indexedPaths) {
         const previous = state.latestByPath.get(path);
         if (previous && !previous.attempt.result?.ok) operation.predecessors.set(path, previous);
         state.latestByPath.set(path, operation);
     }
+}
+
+/** Rebuild path ownership after restored intents are prepended to live entries. */
+export function rebuildLatestOperations(state: StorageEventState): void {
+    state.latestByPath.clear();
+    for (const entry of state.pendingSnapshot.values()) {
+        const operation = entry.operation;
+        if (!operation) continue;
+        if (!operation.initialised) {
+            operation.registered = false;
+            operation.predecessors.clear();
+            registerOperation(state, operation);
+        } else {
+            for (const path of operation.indexedPaths) state.latestByPath.set(path, operation);
+        }
+    }
+}
+
+function clonePersistenceContext(ctx: unknown): unknown {
+    if (ctx === null || ctx === undefined || typeof ctx !== "object") return ctx;
+    if (typeof structuredClone === "function") {
+        try {
+            return structuredClone(ctx);
+        } catch {
+            // Forward non-structured-cloneable host context verbatim for the host's adapter.
+        }
+    }
+    return ctx;
+}
+
+/** Capture durable intent independently of the live object sent to handlers. */
+export function sanitiseEventForPersistence(event: QueuedFileEvent): QueuedFileEvent {
+    if (event.type === TYPE_SENTINEL_FLUSH) return { type: TYPE_SENTINEL_FLUSH };
+    const { restoredFromPreviousRuntime: _restored, skipBatchWait: _skip, args, ...rest } = event;
+    const { oldPath, renameTarget, ctx } = args;
+    const file = { ...args.file };
+    if (file.stat) file.stat = { ...file.stat };
+    const persistedArgs: FileEventItem["args"] = { file };
+    if (oldPath !== undefined) persistedArgs.oldPath = oldPath;
+    if (renameTarget !== undefined) persistedArgs.renameTarget = renameTarget;
+    const persistedContext = clonePersistenceContext(ctx);
+    if (persistedContext !== undefined) persistedArgs.ctx = persistedContext;
+    return { ...rest, args: persistedArgs };
+}
+
+export function prepareRetainedEvent(event: QueuedFileEvent) {
+    const persistedEvent = sanitiseEventForPersistence(event);
+    const indexedPaths = persistedEvent.type === TYPE_SENTINEL_FLUSH ? [] : getFileEventPaths(persistedEvent);
+    return { event, persistedEvent, indexedPaths };
+}
+
+export function allocateStorageEventRecordId(state: StorageEventState): string {
+    let id: string;
+    do {
+        id = String(++state.nextRecordSequence).padStart(12, "0");
+    } while (state.activeRecordIds.has(id) || state.committedEntryIds.has(id));
+    return id;
 }
 
 /**
@@ -152,10 +269,30 @@ export function retainFileEvent(
         if (register && existing.operation) registerOperation(state, existing.operation);
         return existing;
     }
-    const entry: PendingSnapshotEntry = { event, sequence: ++state.nextSequence, completed: false };
+    return installRetainedEvent(state, prepareRetainedEvent(event), register);
+}
+
+/** Install a prepared entry after its payload and durable ID have been checked. */
+export function installRetainedEvent(
+    state: StorageEventState,
+    prepared: ReturnType<typeof prepareRetainedEvent>,
+    register: boolean,
+    restoredId?: string,
+    restored = false
+): PendingSnapshotEntry {
+    const { event, indexedPaths } = prepared;
+    const entry: PendingSnapshotEntry = {
+        ...prepared,
+        id: restoredId ?? allocateStorageEventRecordId(state),
+        mutationVersion: restored ? 0 : ++state.snapshotMutationVersion,
+        persisted: restored,
+        sequence: ++state.nextSequence,
+        completed: false,
+    };
     if (event.type !== TYPE_SENTINEL_FLUSH) {
         const operation = state.operations.get(event) ?? {
             event,
+            indexedPaths,
             sequence: entry.sequence,
             acceptedAt: Date.now(),
             attempt: createFileEventAttempt(),
@@ -169,9 +306,31 @@ export function retainFileEvent(
         entry.operation = operation;
         if (register) registerOperation(state, operation);
         state.operations.set(event, operation);
+        state.pendingOperationCount++;
+        for (const path of indexedPaths) {
+            state.pendingPathCounts.set(path, (state.pendingPathCounts.get(path) ?? 0) + 1);
+        }
     }
     state.pendingSnapshot.set(event, entry);
+    state.activeRecordIds.add(entry.id);
+    if (restored) state.committedEntryIds.add(entry.id);
+    else state.dirtyUpserts.add(entry);
     return entry;
+}
+
+/** Remove one still-owned entry and update its O(1) pending indexes. */
+export function removePendingEntry(state: StorageEventState, entry: PendingSnapshotEntry): void {
+    if (state.pendingSnapshot.get(entry.event) !== entry) return;
+    state.pendingSnapshot.delete(entry.event);
+    state.activeRecordIds.delete(entry.id);
+    if (entry.operation) {
+        state.pendingOperationCount = Math.max(0, state.pendingOperationCount - 1);
+        for (const path of entry.indexedPaths) {
+            const count = state.pendingPathCounts.get(path) ?? 0;
+            if (count <= 1) state.pendingPathCounts.delete(path);
+            else state.pendingPathCounts.set(path, count - 1);
+        }
+    }
 }
 
 /**
@@ -203,9 +362,12 @@ export function retainBufferedFileEvents(state: StorageEventState, events: reado
  * itself or later operations. This is a read-only selection and does not capture attempts or retry failures.
  */
 export function pendingFileOperations(state: StorageEventState, before = Number.POSITIVE_INFINITY): PendingFileEvent[] {
-    return [...state.pendingSnapshot.values()].flatMap((entry) =>
-        entry.operation && entry.sequence < before ? [entry.operation] : []
-    );
+    const operations: PendingFileEvent[] = [];
+    for (const entry of state.pendingSnapshot.values()) {
+        if (entry.sequence >= before) break;
+        if (entry.operation) operations.push(entry.operation);
+    }
+    return operations;
 }
 
 /**
@@ -243,7 +405,7 @@ export function completeFileEventAttempt(
 ): void {
     attempt.result = { ok: true };
     attempt.completion.resolve(attempt.result);
-    for (const path of getFileEventPaths(operation.event)) {
+    for (const path of operation.indexedPaths) {
         if (state.latestByPath.get(path) === operation && operation.attempt === attempt)
             state.latestByPath.delete(path);
     }
@@ -258,14 +420,12 @@ export function completeFileEventAttempt(
  * @remarks This is a read-only prefix check. It does not test whether the queried path is an ancestor of an event.
  */
 export function hasPendingStorageEvent(state: StorageEventState, filename: FilePath): boolean {
-    for (const entry of state.pendingSnapshot.values()) {
-        if (entry.completed || entry.event.type === TYPE_SENTINEL_FLUSH) continue;
-        if (
-            getFileEventPaths(entry.event).some(
-                (path) => path && (filename === path || filename.startsWith(`${path}/`))
-            )
-        )
-            return true;
+    let prefix: string = filename;
+    while (prefix) {
+        if ((state.pendingPathCounts.get(prefix) ?? 0) > 0) return true;
+        const slash = prefix.lastIndexOf("/");
+        if (slash < 0) break;
+        prefix = prefix.slice(0, slash);
     }
     return false;
 }

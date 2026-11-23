@@ -18,6 +18,7 @@ import type { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorM
 import { VaultScanResults, type VaultScanResult } from "@lib/services/base/VaultScanResult";
 import { getPathFromEntry, convertCase } from "./paths";
 import {
+    cancelFileStatusSave,
     fileStatus,
     loadFileStatus,
     flushFileStatus,
@@ -127,62 +128,90 @@ export function resolveFilePairAction(state: FilePairState, options: FullScanOpt
     return "skip";
 }
 
+type FilePairHost = NecessaryServices<"setting" | "vault" | "path" | "keyValueDB", "storageAccess" | "fileHandler">;
+
+function scanAction(
+    host: FilePairHost,
+    log: LogFunction,
+    options: FullScanOptions,
+    state: FilePairState,
+    path: string,
+    fileMapKey: string,
+    doc?: MetaEntry
+): FilePairAction {
+    const action = resolveFilePairAction(state, options);
+    if (options.mode !== FullScanModes.NEWER_WINS || state !== "db-only" || !doc) {
+        return action;
+    }
+    // A recent last-seen observation distinguishes an offline deletion from a new remote file.
+    const lastSeenMTime = getFileMTimeFromMap(host, fileMapKey);
+    if (lastSeenMTime === undefined) {
+        return action;
+    }
+    const recency = compareMTime(lastSeenMTime, doc.mtime);
+    if (recency === BASE_IS_NEW || recency === EVEN) {
+        log(`NEWER_WINS: Treating missing local file as deletion (${path})`, LOG_LEVEL_VERBOSE);
+        return "delete-db";
+    }
+    return action;
+}
+
+function afterScannedDeletion(
+    host: FilePairHost,
+    fileMapKey: string,
+    isStopping: () => boolean
+): FilePairProcessResult {
+    if (isStopping()) {
+        return FilePairProcessResults.FAILED;
+    }
+    fileStatus(host).map.delete(fileMapKey);
+    saveFileStatus(host, isStopping);
+    return FilePairProcessResults.COMPLETED;
+}
+
 /**
  * Process a single file pair based on the determined action from the file pair state and scan options.
  */
 export async function processFilePair(
-    host: NecessaryServices<"setting" | "vault" | "path" | "keyValueDB", "storageAccess" | "fileHandler">,
+    host: FilePairHost,
     log: LogFunction,
     pair: FilePair,
     options: FullScanOptions
 ): Promise<FilePairProcessResult> {
-    const fileMaps = fileStatus(host).map;
     const { file, doc } = pair;
-    const canonicalPath = doc ? getPathFromEntry(host, doc) : file?.path;
-    if (!canonicalPath) {
+    const path = doc ? getPathFromEntry(host, doc) : file?.path;
+    if (!path) {
         throw new Error("Corrupted file pair");
     }
-    const path = canonicalPath;
-    const fileMapKey = convertCase(host.services.setting.currentSettings(), canonicalPath);
-
-    if (file) {
-        updateFileMTimeInMap(host, fileMapKey, file.stat.mtime);
+    const isStopping = () => host.serviceModules.storageAccess.isStopping?.() === true;
+    if (isStopping()) {
+        return FilePairProcessResults.FAILED;
     }
-
+    const fileMapKey = convertCase(host.services.setting.currentSettings(), path);
+    if (file) {
+        updateFileMTimeInMap(host, fileMapKey, file.stat.mtime, isStopping);
+    }
     if (doc && (doc._conflicts?.length ?? 0) > 0) {
         log(`SKIP ${options.mode}: ${path} has conflicts`, LOG_LEVEL_INFO);
         return FilePairProcessResults.SKIPPED;
     }
+
     const state = getFilePairState(pair);
-    let action = resolveFilePairAction(state, options);
-
-    // If the file existed locally on a previous run and is now missing while DB-only,
-    // treat it as an offline local deletion when local mtime is not older than DB mtime.
-    if (options.mode === FullScanModes.NEWER_WINS && state === "db-only" && doc) {
-        const lastSeenMTime = getFileMTimeFromMap(host, fileMapKey);
-        if (lastSeenMTime !== undefined) {
-            const recency = compareMTime(lastSeenMTime, doc.mtime);
-            if (recency === BASE_IS_NEW || recency === EVEN) {
-                action = "delete-db";
-                log(`NEWER_WINS: Treating missing local file as deletion (${path})`, LOG_LEVEL_VERBOSE);
-            }
-        }
-    }
-
+    const action = scanAction(host, log, options, state, path, fileMapKey, doc);
     try {
         switch (action) {
             case "update-db":
                 if (!file) {
                     throw new Error(`Missing storage file for ${path}`);
                 }
-                return await updateToDatabase(host, log, LOG_LEVEL_INFO, file);
+                return await updateToDatabase(host, log, LOG_LEVEL_INFO, file, isStopping);
             case "update-storage":
                 if (!doc) {
                     throw new Error(`Missing database entry for ${path}`);
                 }
-                const updateStorageResult = await updateToStorage(host, log, LOG_LEVEL_INFO, doc, options);
+                const updateStorageResult = await updateToStorage(host, log, LOG_LEVEL_INFO, doc, options, isStopping);
                 if (updateStorageResult === FilePairProcessResults.COMPLETED) {
-                    updateFileMTimeInMap(host, fileMapKey, doc.mtime);
+                    updateFileMTimeInMap(host, fileMapKey, doc.mtime, isStopping);
                 }
                 return updateStorageResult;
             case "sync-newer":
@@ -191,7 +220,7 @@ export async function processFilePair(
                 }
                 const syncResult = await syncStorageAndDatabase(host, log, file, LOG_LEVEL_INFO, doc, options);
                 if (syncResult === FilePairProcessResults.COMPLETED) {
-                    updateFileMTimeInMap(host, fileMapKey, Math.max(file.stat.mtime, doc.mtime));
+                    updateFileMTimeInMap(host, fileMapKey, Math.max(file.stat.mtime, doc.mtime), isStopping);
                 }
                 return syncResult;
             case "delete-local":
@@ -201,32 +230,22 @@ export async function processFilePair(
                 }
                 log(`DELETE LOCAL: ${file.path}`, LOG_LEVEL_INFO);
                 await host.serviceModules.storageAccess.delete(file.path, true);
-                fileMaps.delete(fileMapKey);
-                saveFileStatus(host);
-                return FilePairProcessResults.COMPLETED;
+                return afterScannedDeletion(host, fileMapKey, isStopping);
             case "delete-db": {
                 if (!doc) {
                     throw new Error(`Missing database entry for ${path}`);
                 }
                 log(`DELETE DATABASE: ${path}`, LOG_LEVEL_INFO);
-                // deleteFileFromDB returns false when nothing was deleted, but the return
-                // value was ignored and the fileStatusMap last-seen entry was wiped
-                // regardless. The next scan then classified the doc as database-only with
-                // no last-seen record -> update-storage -> the deleted file was resurrected
-                // from the database. Only clear the last-seen record when the database
-                // delete actually succeeded.
+                // Keep last-seen evidence if the database deletion could not be verified.
                 const dbDeleted = await host.serviceModules.fileHandler.deleteFileFromDB(stripAllPrefixes(path));
                 if (dbDeleted) {
-                    fileMaps.delete(fileMapKey);
-                    saveFileStatus(host);
-                    return FilePairProcessResults.COMPLETED;
-                } else {
-                    log(
-                        `DELETE DATABASE did not delete ${path}; keeping last-seen record to avoid resurrecting the file`,
-                        LOG_LEVEL_NOTICE
-                    );
-                    return FilePairProcessResults.FAILED;
+                    return afterScannedDeletion(host, fileMapKey, isStopping);
                 }
+                log(
+                    `DELETE DATABASE did not delete ${path}; keeping last-seen record to avoid resurrecting the file`,
+                    LOG_LEVEL_NOTICE
+                );
+                return FilePairProcessResults.FAILED;
             }
             case "skip":
                 log(`SKIP ${options.mode}: ${path} (${state})`, LOG_LEVEL_VERBOSE);
@@ -242,7 +261,7 @@ export async function processFilePair(
  * Run one scan at a time for each backing-store owner.
  * @param host - Borrowed scan services and file-operation capabilities.
  * @param log - Operation-local diagnostics and progress reporting.
- * @param errorManager - Existing scan error-reporting boundary.
+ * @param _errorManager - Existing scan error-reporting boundary.
  * @param options - Freshness, explicit-policy, suspension, and failure handling options.
  * @returns The aggregate result after required bookkeeping has been attempted.
  * @remarks File processing retains ten scanner slots; deletion recovery shares
@@ -254,10 +273,17 @@ export async function processFilePair(
 export async function synchroniseAllFilesBetweenDBandStorage(
     host: NecessaryServices<"setting" | "vault" | "path" | "database" | "keyValueDB", "storageAccess" | "fileHandler">,
     log: LogFunction,
-    errorManager: UnresolvedErrorManager,
+    _errorManager: UnresolvedErrorManager,
     options: FullScanOptions
 ): Promise<VaultScanResult> {
-    return await withLock(fileStatus(host).scanLock, () => synchroniseFilePairs(host, log, errorManager, options));
+    const isStopping = () => host.serviceModules.storageAccess.isStopping?.() === true;
+    return await withLock(fileStatus(host).scanLock, async () => {
+        try {
+            return await synchroniseFilePairs(host, log, options, isStopping);
+        } finally {
+            if (isStopping()) cancelFileStatusSave(host);
+        }
+    });
 }
 
 /**
@@ -269,15 +295,19 @@ async function collectScanPairs(
     host: NecessaryServices<"setting" | "vault" | "path" | "database", "storageAccess">,
     settings: ObsidianLiveSyncSettings,
     log: LogFunction,
-    showingNotice: boolean
+    showingNotice: boolean,
+    isStopping: () => boolean
 ): Promise<FilePair[]> {
     const { storageFileNameMap, storageFileNameCI2CS } = await collectFilesOnStorage(host, settings, log);
+    if (isStopping()) return [];
     const { databaseFileNameMap, databaseFileNameCI2CS, quarantinedFileNamesLC } = await collectDatabaseFiles(
         host,
         settings,
         log,
-        showingNotice
+        showingNotice,
+        isStopping
     );
+    if (isStopping()) return [];
 
     const pairs: FilePair[] = [];
     for (const fileNameLC of unique([
@@ -308,7 +338,8 @@ async function planDeletionRecovery(
     host: NecessaryServices<"setting" | "path" | "keyValueDB", "fileHandler">,
     pairs: FilePair[],
     options: FullScanOptions,
-    log: LogFunction
+    log: LogFunction,
+    isStopping: () => boolean
 ) {
     const handler = host.serviceModules.fileHandler;
     const settings = host.services.setting.currentSettings();
@@ -336,7 +367,9 @@ async function planDeletionRecovery(
     // Only absent candidates need key discovery; existing evidence can identify interrupted cleanup without body reads.
     if (absent.length) {
         try {
-            const keys = new Set((await handler.listDeletionRecoveryPaths!()).map((p) => convertCase(settings, p)));
+            const paths = await handler.listDeletionRecoveryPaths!();
+            if (isStopping()) return { enabled, recoveries, cleanup, maintenanceFailures };
+            const keys = new Set(paths.map((p) => convertCase(settings, p)));
             const fileMaps = fileStatus(host).map;
             for (const pair of absent) {
                 const key = convertCase(settings, getPathFromEntry(host, pair.doc!));
@@ -352,6 +385,24 @@ async function planDeletionRecovery(
     return { enabled, recoveries, cleanup, maintenanceFailures };
 }
 
+async function collectScanObservations(
+    host: NecessaryServices<"setting" | "vault" | "path" | "database" | "keyValueDB", "storageAccess">,
+    log: LogFunction,
+    options: FullScanOptions,
+    isStopping: () => boolean
+) {
+    if (isStopping()) return undefined;
+    const settings = host.services.setting.currentSettings();
+    const showingNotice = options.showingNotice ?? false;
+    await loadFileStatus(host, isStopping);
+    if (isStopping()) return undefined;
+    const fileMaps = fileStatus(host).map;
+    const pairs = await collectScanPairs(host, settings, log, showingNotice, isStopping);
+    if (isStopping()) return undefined;
+
+    return { fileMaps, pairs, settings, showingNotice };
+}
+
 /**
  * Finish interrupted cleanup before reconciling the remaining collected pairs.
  * @returns The existing aggregate scan result, including bookkeeping failures.
@@ -361,22 +412,24 @@ async function planDeletionRecovery(
 async function synchroniseFilePairs(
     host: NecessaryServices<"setting" | "vault" | "path" | "database" | "keyValueDB", "storageAccess" | "fileHandler">,
     log: LogFunction,
-    errorManager: UnresolvedErrorManager,
-    options: FullScanOptions
+    options: FullScanOptions,
+    isStopping: () => boolean
 ): Promise<VaultScanResult> {
-    const settings = host.services.setting.currentSettings();
-    const showingNotice = options.showingNotice ?? false;
-    await loadFileStatus(host);
-    const fileMaps = fileStatus(host).map;
-    const pairs = await collectScanPairs(host, settings, log, showingNotice);
-
+    const observations = await collectScanObservations(host, log, options, isStopping);
+    if (!observations || isStopping()) {
+        return VaultScanResults.FAILED;
+    }
+    const { fileMaps, pairs, settings, showingNotice } = observations;
     log(`Total files to synchronise: ${pairs.length}`, LOG_LEVEL_VERBOSE, "syncAll");
-    let completedCount = 0;
-    let skippedCount = 0;
-    let failedCount = 0;
+    const counts = {
+        [FilePairProcessResults.COMPLETED]: 0,
+        [FilePairProcessResults.SKIPPED]: 0,
+        [FilePairProcessResults.FAILED]: 0,
+    };
     let processedCount = 0;
     const handler = host.serviceModules.fileHandler;
-    const plan = await planDeletionRecovery(host, pairs, options, log);
+    const plan = await planDeletionRecovery(host, pairs, options, log, isStopping);
+    if (isStopping()) return VaultScanResults.FAILED;
     const { enabled, recoveries, cleanup } = plan;
     let maintenanceFailures = plan.maintenanceFailures;
     let recoveryApplied = 0;
@@ -394,6 +447,7 @@ async function synchroniseFilePairs(
         // Keep the observed file retryable even when verification rejects or throws.
         if (e.file) fileMaps.set(key, e.file.stat.mtime);
         const result = await handler.recoverDatabaseDeletion!(e.doc!, cleanup.has(e));
+        if (isStopping()) return FilePairProcessResults.FAILED;
         // Physical absence clears last-seen state independently of incomplete provenance cleanup.
         if (result.file === "absent") {
             fileMaps.delete(key);
@@ -411,12 +465,20 @@ async function synchroniseFilePairs(
         if (result.status === "failed") return FilePairProcessResults.FAILED;
         return result.status === "deferred" ? FilePairProcessResults.SKIPPED : FilePairProcessResults.COMPLETED;
     };
+    function* dispatchablePairs(phase: Iterable<FilePair>) {
+        for (const pair of phase) {
+            if (isStopping()) return;
+            yield pair;
+        }
+    }
     // Both phases reuse the existing ten scanner slots; the handler owns the shared three-file cap.
     async function* processPhases() {
         for (const phase of phases) {
             yield* withConcurrency(
-                phase,
+                dispatchablePairs(phase),
                 async (e) => {
+                    // The concurrency runner can prefetch a pair while waiting for a slot.
+                    if (isStopping()) return undefined;
                     const path = e.file?.path ?? getPathFromEntry(host, e.doc!);
                     try {
                         return { path, result: await processPair(e) };
@@ -430,22 +492,16 @@ async function synchroniseFilePairs(
             );
         }
     }
-    for await (const { path, result } of processPhases()) {
+    for await (const outcome of processPhases()) {
+        if (!outcome) continue;
+        const { path, result } = outcome;
         processedCount++;
-        switch (result) {
-            case FilePairProcessResults.COMPLETED:
-                completedCount++;
-                break;
-            case FilePairProcessResults.SKIPPED:
-                skippedCount++;
-                break;
-            case FilePairProcessResults.FAILED:
-                failedCount++;
-                log(
-                    `Offline scan failed to synchronise ${path} between storage and the local database; this path remains eligible for a later scan.`,
-                    LOG_LEVEL_VERBOSE
-                );
-                break;
+        counts[result]++;
+        if (result === FilePairProcessResults.FAILED) {
+            log(
+                `Offline scan failed to synchronise ${path} between storage and the local database; this path remains eligible for a later scan.`,
+                LOG_LEVEL_VERBOSE
+            );
         }
         if (processedCount % 25 === 0) {
             log(
@@ -455,6 +511,8 @@ async function synchroniseFilePairs(
             );
         }
     }
+    if (isStopping()) return VaultScanResults.FAILED;
+    const { completed: completedCount, skipped: skippedCount, failed: failedCount } = counts;
     log(
         `Synchronisation completed: ${processedCount} files processed (${completedCount} completed, ${skippedCount} skipped, ${failedCount} failed)`,
         showingNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
@@ -467,15 +525,16 @@ async function synchroniseFilePairs(
         );
         // Commit the combined map once after both phases; a failed write leaves the scan incomplete.
         try {
-            await flushFileStatus(host);
+            await flushFileStatus(host, isStopping);
         } catch (error) {
             maintenanceFailures++;
             log("Deletion recovery bookkeeping could not be persisted; the scan remains incomplete.", LOG_LEVEL_NOTICE);
             log(error, LOG_LEVEL_VERBOSE);
         }
     } else {
-        saveFileStatus(host, true);
+        saveFileStatus(host, isStopping, true);
     }
+    if (isStopping()) return VaultScanResults.FAILED;
     if (failedCount === 0 && maintenanceFailures === 0) return VaultScanResults.COMPLETED;
     return options.continueOnFileFailure === true
         ? VaultScanResults.COMPLETED_WITH_FILE_FAILURES

@@ -506,6 +506,10 @@ export interface IAppLifecycleService {
 
     isReady(): boolean;
 
+    isUnloading?(): boolean;
+
+    markIsUnloading?(): void;
+
     markIsReady(): void;
 
     resetIsReady(): void;

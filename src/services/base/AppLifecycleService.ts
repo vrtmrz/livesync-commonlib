@@ -146,6 +146,7 @@ export abstract class AppLifecycleService<T extends ServiceContext = ServiceCont
     }
 
     private _isReady = false;
+    private _isUnloading = false;
     /**
      * Check if the plug-in is ready.
      * A ready plug-in means it has been fully initialised and is operational.
@@ -161,9 +162,17 @@ export abstract class AppLifecycleService<T extends ServiceContext = ServiceCont
      * continue work it held while the plug-in was not ready. Marking a plug-in which is already ready emits nothing.
      */
     markIsReady(): void {
-        if (this._isReady) return;
+        if (this._isReady || this._isUnloading) return;
         this._isReady = true;
         this.context.events.emitEvent(EVENT_APPLICATION_READY);
+    }
+
+    isUnloading(): boolean {
+        return this._isUnloading;
+    }
+
+    markIsUnloading(): void {
+        this._isUnloading = true;
     }
 
     /**

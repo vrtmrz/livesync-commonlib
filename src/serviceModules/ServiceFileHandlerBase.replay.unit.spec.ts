@@ -26,6 +26,7 @@ import {
 import { StorageEventManagerBase, type FileEventItemSentinel } from "@lib/managers/StorageEventManager";
 import type { IStorageEventManagerAdapter } from "@lib/managers/adapters";
 import type { StorageEventManagerBaseDependencies } from "@lib/managers/StorageEventManager";
+import { sanitiseEventForPersistence } from "@lib/managers/StorageEventManager/snapshot";
 
 PouchDB.plugin(MemoryAdapter);
 
@@ -517,7 +518,7 @@ describe("StorageEventManager current-state retry with PouchDB", () => {
         await expectDatabaseBody(fixture, targetPath, "rename bytes");
         await expectDatabaseBody(fixture, sourcePath, "rename bytes");
         expect(deletion).toHaveBeenCalledOnce();
-        expect(runtime.snapshot()).toEqual([rename]);
+        expect(runtime.snapshot()).toEqual([sanitiseEventForPersistence(rename)]);
     });
 
     it("retries a completed rename after snapshot failure without adding any revisions", async () => {

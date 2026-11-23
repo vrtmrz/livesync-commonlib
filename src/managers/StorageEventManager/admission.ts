@@ -254,7 +254,9 @@ async function appendStorageEvents(
     if (!settings.isConfigured || settings.suspendFileWatching || isRemediationModeActive(settings)) return;
     effects.onStorageFileEvent();
     for (const param of params) {
+        if (!state.acceptingEvents || state.stopping || state.stopped) return;
         const item = await prepareEvent(param, settings, ctx, effects);
+        if (!state.acceptingEvents || state.stopping || state.stopped) return;
         if (item) registerAdmission(state, admission, item, effects);
     }
 }

@@ -19,6 +19,12 @@ operations. The version fields identify the original reviewed source versions.
 > The original review date and version baseline are retained above. Host
 > applications adopt this package through their own dependency updates.
 
+> Update note (23rd November, 2026): The persistence, dispatch, and unload
+> contracts described below include unreleased Commonlib Step 1 work for
+> [Issue 1380](https://github.com/vrtmrz/obsidian-livesync/issues/1380).
+> The original review baseline and the publication note above record their
+> respective releases.
+
 ## Event-manager terminology
 
 Hosts normally supply an adapter and, where necessary, override protected
@@ -90,8 +96,8 @@ are the queue and snapshot shapes:
 | `args.file`                    | The ordinary or internal-file observation. A rename uses the destination observation; a source-only selected rename becomes a deletion with a source-path observation. |
 | `args.oldPath?`                | The source path for a retained `RENAME`.                                                                                                                               |
 | `args.renameTarget?`           | The destination of a rename converted into source-only `DELETE`, retained for exclusion and preservation checks.                                                       |
-| `args.cache?`                  | Optional cached text or `ArrayBuffer`; host `cachedData` is mapped here. It is not an authoritative historical file version.                                           |
-| `args.ctx?`                    | Opaque host context passed to `appendQueue()`, forwarded to the handler. Its durable representation depends on the host snapshot adapter.                              |
+| `args.cache?`                  | Optional in-memory cached text or `ArrayBuffer`. Admission maps host `cachedData` here.                                                                  |
+| `args.ctx?`                    | Opaque host context passed to `appendQueue()` and forwarded to the handler. The manager snapshots it with `structuredClone` when available and otherwise passes the reference through to the adapter. Hosts own `args.ctx` serialisability and immutability (do not rely on Commonlib to detach shared memory or guard mutating getters). |
 | `key`                          | A generated event label. Operation ownership and acknowledgement use event/attempt identity, not equality of this string or path.                                      |
 | `restoredFromPreviousRuntime?` | `true` on a replayed event; selects current-state revalidation. Restoration adds this marker and `skipBatchWait` to loaded file events.                                |
 | `skipBatchWait?`               | Bypass the intentional batch delay; processing and snapshot acknowledgement must still complete.                                                                       |
@@ -133,12 +139,11 @@ the current attempt, leaving earlier callers attached to their original
 result. These maps, promises, and counters are not the persisted event schema.
 
 [`PendingSnapshotEntry`](../src/managers/StorageEventManager/state.ts) links an
-event to its operation and provisional completion state. Its exact entry and
+event to its operation and durable acknowledgement state. Its exact entry and
 attempt identities must still match before acknowledgement. A
-`FileEventItemSentinel` contains only `{ type: 'SENTINEL_FLUSH' }`; it has no
-file body or operation and orders only preceding work. Snapshots contain the
-original events and sentinels, with insertion and attempt state reconstructed
-when a new manager restores them.
+`FileEventItemSentinel` contains only `{ type: 'SENTINEL_FLUSH' }` and orders
+preceding work. Snapshots contain sanitised file intents and sentinels. A new
+manager reconstructs insertion and attempt state during restoration.
 
 ### Transient reconciliation request
 
@@ -210,24 +215,27 @@ The full scanner's optional `strictContentCheck: false` path is gated by the hos
 
 Once admitted, a file operation remains pending while buffered, waiting for its
 batch boundary, or running in a handler. The manager includes all three states
-in its existing event snapshot. It saves snapshots in order, so an older write
-cannot replace a newer view of pending work. The manager acknowledges an
-ordinary file operation only after its effect is durable locally, current state proves the
-effect is already represented or safely covered by a successful successor, or
-the handler returns a skip explicitly allowed by policy. A handler
-failure or exception leaves the saved operation pending. A failed initial
-snapshot prevents the handler from starting; a later snapshot failure is
-reported and cannot be treated as completion. Completion of an older operation
-cannot remove a newer operation for the same path.
+in its pending-intent store. The handler starts only after the admission
+write commits. Its effect must be durable locally, already represented,
+covered by a successful successor, or skipped under an explicit handler
+policy before the manager can acknowledge it.
 
-The event snapshot records operation intent, not authoritative current file
-content. Admission does not read a file body merely to wait. When a `CREATE` or
-`CHANGED` operation becomes eligible, the handler rechecks the current path and
-obtains its current content for processing. Restored events are revalidated
-against current storage and selection before they can affect the database. The
-saved stub and any optional cache are not used as a historical file version.
-The current-storage deletion checks and rename-exclusion rules below continue to
-apply.
+The serial writer coalesces eligible requests into a detached commit batch.
+Changes arriving during a write enter a later batch. The writer plans
+provisional acknowledgements privately, so `hasPendingFileEvent()` and the
+pending count continue to include the operation until the write commits. A
+failed write leaves the pending intent available for retry and rejects the
+callers that relied on that commit. Stale completions and admission failures
+settle individually. An older attempt can acknowledge only the intent it
+still owns.
+
+The manager saves a copy of the operation intent with `args.ctx`. It omits
+`args.cache`, `restoredFromPreviousRuntime`, and `skipBatchWait` while
+preserving the live event object. When a `CREATE` or `CHANGED` operation
+becomes eligible, the handler rechecks the path and obtains its current
+content. Replay adds the transient restore flags and revalidates the intent
+against current storage and selection. The current-storage deletion checks
+and rename-exclusion rules below continue to apply.
 
 A restored deletion whose database entry is already absent or deleted completes
 without another revision. A restored rename whose source deletion is already
@@ -249,15 +257,77 @@ the caller and leaves unresolved work in the snapshot. This boundary covers
 local completion under the selected handler contract only; it does not prove replication or receipt by another
 Vault.
 
-A `DELETE` or `RENAME` ordering sentinel waits for its predecessors only. It
-must not wait for itself or events which follow it in the dispatch queue. Batch
-timers make work eligible to run; they do not perform it. The quiet period
-follows the latest eligible content update, while the maximum intentional delay
-is measured from the first uncommitted update, starting when the queue call is
-accepted and before asynchronous filtering or the touched-file check. Waiting
-timers do not occupy a processing slot, and time spent waiting for a slot does
-not restart the maximum delay. Once due, the operation acquires a slot and reads
-current content for processing.
+A `DELETE` or `RENAME` is admitted atomically with an ordering sentinel.
+The sentinel waits for earlier operations to settle. Its removal commits once
+it has been dispatched and all earlier operations have durably acknowledged
+completion.
+
+Ready attempts use a bounded dispatch window. Batch timers, related
+prerequisites, ordered predecessors, coalesced successors, and recovery pauses
+release the dispatch capacity their producers may need. Ready retries and
+resumed attempts share the window.
+
+The quiet period starts at the latest accepted update and includes time spent
+filtering. The maximum intentional delay starts at the first uncommitted
+update. Waiting for dispatch capacity leaves both deadlines unchanged.
+
+An editor-change hint can extend the quiet period of the latest eligible
+waiting operation for its path. The manager uses the live batch settings and
+the operation's existing maximum deadline. Hints change timing only. They
+leave queue membership and persistence untouched. An explicit flush can
+release a captured wait immediately.
+
+## Persistence adapters
+
+Import `IStorageEventIncrementalPersistenceAdapter`,
+`StorageEventSnapshotRecord`, `StorageEventSnapshotDelta`, and
+`isIncrementalPersistenceAdapter` from `@vrtmrz/livesync-commonlib/storage`.
+A host opts into incremental persistence by supplying both
+`loadSnapshotEntries()` and `applySnapshotDelta()`. Existing adapters, and
+adapters with only one of the two methods, use `loadSnapshot()` and
+`saveSnapshot()`. The selected adapter mode remains authoritative after
+read or write failures.
+
+Return entries in durable order with unique, opaque, store-scoped IDs. Preserve
+each entry's ID across retries, and apply the disjoint `upsert` and `remove` sets
+in one atomic commit. Sentinels have their own IDs. Hosts own persistent
+sequence allocation across store lifetimes, store migration, and exclusion
+between managers sharing the same store.
+
+Every adapter must reject failed reads and writes. Reserve `null` for an
+absent snapshot. Resolve writes when their transaction commits. An IndexedDB
+adapter must also abort its transaction if request construction throws.
+
+## Restoration and shutdown
+
+Call `restoreState()` for the selected store before registering watchers.
+Concurrent calls share the initial restoration, and subsequent scans reuse
+the live queue for that store. Loaded intents are already durable. Admissions
+staged during the read keep their own admission write and are ordered after
+the loaded entries. A failed restore leaves the store protected from writes
+until a successful retry. The offline scanner restores the event store even
+when the first Vault scan has never finished. A direct admission also loads
+the selected store before its first write. Call `resetPersistenceState()`
+when replacing the underlying store, then call `restoreState()` for the
+replacement. In-flight
+writes from the previous generation cannot acknowledge pending intent in the
+replacement store.
+
+`beginStopWatching()` installs a synchronous terminal fence. `isStopping()`
+reports that fence throughout retirement. `stopWatching()` disposes batch
+timers, preserves durable and flushable unstarted intent, and signals active
+optional providers to flush. If uncommitted intent was staged before the store
+was acquired, `stopWatching()` rejects without writing so the unread store
+remains intact. It drains active handlers through their acknowledgement commits
+and joins the snapshot writer. Once it settles, the retired manager issues no
+further writes. Hosts coordinate same-store handoff and database closure around
+that boundary.
+
+Watcher startup checks the fence before and after restoration. The offline
+scanner can abort after the initialisation read or replay, including on an
+uninitialised store. An aborted scan propagates through database preparation
+so application readiness stays false. A pending explicit flush can settle
+during retirement without starting another retry.
 
 ## Retrying ordinary file operations
 
@@ -294,12 +364,9 @@ window may produce additional revisions or a preserved conflict under the
 [provenance contract](conflict-resolution.md). An empty pending set is not proof
 of preserved content or ancestry.
 
-Start-up continues to restore the existing saved snapshot before watching.
-Runtime retries reuse its file-reconciliation rules without replacing the
-running manager through `restoreState()`. The saved format, handler return
-contracts, and optional-provider retry policy remain unchanged. Hosts can use
-their existing flush and lifecycle calls; no retry timer or new callback is
-required. See the [reviewed retry decision](https://github.com/vrtmrz/obsidian-livesync/blob/09c17e90dde3b1a2000c8a2e13301245107b915b/docs/adr/2026_11_local_file_operation_retry.md)
+Runtime retries reuse the start-up file-reconciliation rules with the
+manager's current in-memory ownership. Existing flush calls select retries,
+and optional providers continue to own their retry policy. See the [reviewed retry decision](https://github.com/vrtmrz/obsidian-livesync/blob/09c17e90dde3b1a2000c8a2e13301245107b915b/docs/adr/2026_11_local_file_operation_retry.md)
 for the operation matrix and considered alternatives.
 
 ## Optional file handlers
@@ -392,9 +459,11 @@ These tests do not establish the native watcher event sequence reported in
 Issue 1168. Real-runtime verification belongs to the host and must distinguish
 observed events from inferred causes. The watcher guard does not promise
 path-case convergence or full folder-rename support. Focused manager tests cover
-finite completion boundaries, ordered snapshots, retained failures, replay, and
-batch timing. This work adds no second journal, unbounded retry loop, or
-database-schema change.
+finite completion boundaries, detached persistence batches, retained failures,
+batch timing, and unload during restore or processing. The synthetic
+7,453-entry restore measures Commonlib queue and writer costs with in-memory
+adapters. IndexedDB transaction, migration, and renderer measurements belong
+to the adopting host.
 
 The maintained host's real-runtime comparison is recorded in
 [Proven in maintained hosts](proven-in-use.md#obsidian-plug-in), separately

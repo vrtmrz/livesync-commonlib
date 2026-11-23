@@ -25,9 +25,12 @@ export interface IStorageAccessManager {
  * the base fallback while retaining the FileNameLookup method contract.
  */
 export interface StorageAccess extends FileNameLookup {
+    isStopping?(): boolean;
     normalisePath(path: string): string;
 
     restoreState(): Promise<void>;
+    /** Compatibility hook to request store acquisition. Await restoreState() to track completion. */
+    markStoreInitialised?(): void;
 
     /** Includes queued, running, and failed work; absence requires a conservative content check. */
     hasPendingFileEvent?(path: FilePath): boolean;

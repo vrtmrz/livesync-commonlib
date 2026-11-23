@@ -820,34 +820,20 @@ describe("StorageEventManager local completion boundaries", () => {
         }
     });
 
-    it.each([true, false])("stops an active batch wait and preserves its completion result: %s", async (success) => {
+    it("stops an active batch wait without starting its handler and preserves the intent", async () => {
         vi.useFakeTimers();
         const { adapter, manager, processFileEvent } = createHarness({ batchSave: true });
-        const write = deferred<boolean>();
-        processFileEvent.mockImplementation(() => write.promise);
-        let stopped = false;
-        let stopping: Promise<void> | undefined;
         try {
             manager.enqueue(event("accepted.md", "accepted", "CHANGED", { skipBatchWait: false }));
             await waitUntil(() => adapter.status.batched === 1, "the accepted batch wait");
-            stopping = manager.stopWatching().then(() => { stopped = true; });
-            await waitUntil(() => processFileEvent.mock.calls.length === 1, "the released handler");
+            await manager.stopWatching();
             await manager.appendQueue([{ type: "CHANGED", file: file("after-stop.md") }]);
-            await vi.advanceTimersByTimeAsync(6_000);
-            expect(stopped).toBe(false);
             expect(adapter.status.batched).toBe(0);
-            expect(processFileEvent.mock.calls.map(([item]) => item.key)).toEqual(["accepted"]);
+            expect(processFileEvent).not.toHaveBeenCalled();
             expect(keys(adapter.persistence.snapshot)).toEqual(["accepted"]);
             expect(vi.getTimerCount()).toBe(0);
-
-            write.resolve(success);
-            await stopping;
-            expect(stopped).toBe(true);
-            expect(keys(adapter.persistence.snapshot)).toEqual(success ? [] : ["accepted"]);
-            expect(manager.hasPendingFileEvent("accepted.md" as FilePath)).toBe(!success);
+            expect(manager.hasPendingFileEvent("accepted.md" as FilePath)).toBe(true);
         } finally {
-            write.resolve(success);
-            await stopping;
             await manager.waitForIdle().catch(() => {});
             await vi.runOnlyPendingTimersAsync();
             vi.useRealTimers();
@@ -935,36 +921,30 @@ describe("StorageEventManager local completion boundaries", () => {
         }
     });
 
-    it("keeps stopWatching pending until paused work resumes", async () => {
+    it("stops paused work promptly and preserves its pending intent", async () => {
         const { adapter, manager, processFileEvent } = createHarness();
         const dispatch = manager as unknown as {
             pauseDispatch: () => Promise<void>;
             resumeDispatch: () => void;
         };
-        let stopped = false;
-        let stopping: Promise<void> | undefined;
         try {
             await dispatch.pauseDispatch.call(manager);
             manager.enqueue(event("pending.md", "pending"));
             await waitUntil(() => keys(adapter.persistence.snapshot).includes("pending"), "the paused snapshot");
-            stopping = manager.stopWatching().then(() => {
-                stopped = true;
-            });
+            await manager.stopWatching();
             await manager.appendQueue([{ type: "CREATE", file: file("after-stop.md") }]);
             await pumpMicrotasks();
 
-            expect(stopped).toBe(false);
+            expect(manager.isStopping?.()).toBe(true);
             expect(manager.hasPendingFileEvent("after-stop.md" as FilePath)).toBe(false);
             expect(processFileEvent).not.toHaveBeenCalled();
 
             dispatch.resumeDispatch.call(manager);
-            await stopping;
-            expect(stopped).toBe(true);
-            expect(processFileEvent.mock.calls.map(([item]) => item.key)).toEqual(["pending"]);
-            expect(keys(adapter.persistence.snapshot)).toEqual([]);
+            expect(processFileEvent).not.toHaveBeenCalled();
+            expect(keys(adapter.persistence.snapshot)).toEqual(["pending"]);
+            expect(manager.hasPendingFileEvent("pending.md" as FilePath)).toBe(true);
         } finally {
             dispatch.resumeDispatch.call(manager);
-            await stopping;
             await manager.waitForIdle().catch(() => {});
         }
     });

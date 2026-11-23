@@ -73,7 +73,9 @@ describe("exported storage-event boundary decisions", () => {
 
         await admitStorageEvents(f.state, [{ type: "INTERNAL", file }], undefined, f.effects);
         expect(f.effects.isTargetInternal).toHaveBeenCalledExactlyOnceWith(file.path);
-        expect(f.effects.enqueue).toHaveBeenCalledWith(expect.objectContaining({ type: "INTERNAL" }));
+        expect(f.effects.enqueue).toHaveBeenCalledWith(
+            expect.objectContaining({ type: "INTERNAL" })
+        );
         expect(f.effects.isTarget).not.toHaveBeenCalled();
 
         await admitStorageEvents(f.state, [notification()], undefined, f.effects);
@@ -177,6 +179,7 @@ describe("exported storage-event boundary decisions", () => {
         "does not acknowledge stale snapshot ownership: %s",
         async (reason) => {
             const state = createStorageEventState();
+            state.storeAcquired = true;
             const event = intent();
             const entry = retainFileEvent(state, event);
             const attempt = entry.operation!.attempt;
@@ -189,7 +192,7 @@ describe("exported storage-event boundary decisions", () => {
             await persistFileEventSnapshot(
                 state,
                 buffer(),
-                { save, waitingEvents: () => [], updateStatus },
+                { save, waitingEvents: () => [], updateStatus, reportFailure: vi.fn() },
                 { entry, attempt }
             );
             expect(save).not.toHaveBeenCalled();
@@ -201,27 +204,31 @@ describe("exported storage-event boundary decisions", () => {
 
     it("does not commit a completion whose admission failed", async () => {
         const state = createStorageEventState();
+        state.storeAcquired = true;
         const event = intent();
         const entry = retainFileEvent(state, event);
         const attempt = entry.operation!.attempt;
         const error = new Error("admission persistence failed");
         attempt.admissionFailure = { error };
+        const updateStatus = vi.fn();
         const save = vi.fn(async (_events: QueuedFileEvent[]) => {});
         await expect(
             persistFileEventSnapshot(
                 state,
                 buffer(),
-                { save, waitingEvents: () => [], updateStatus: vi.fn() },
+                { save, waitingEvents: () => [], updateStatus, reportFailure: vi.fn() },
                 { entry, attempt }
             )
         ).rejects.toBe(error);
         expect(save).not.toHaveBeenCalled();
+        expect(updateStatus).not.toHaveBeenCalled();
         expect(entry.completed).toBe(false);
         expect(state.pendingSnapshot.has(event)).toBe(true);
     });
 
     it("retains replacement ownership installed while an older completion is being saved", async () => {
         const state = createStorageEventState();
+        state.storeAcquired = true;
         const event = intent();
         const old = retainFileEvent(state, event);
         const save = vi.fn(async (_events: QueuedFileEvent[]) => {
@@ -231,7 +238,7 @@ describe("exported storage-event boundary decisions", () => {
         await persistFileEventSnapshot(
             state,
             buffer(),
-            { save, waitingEvents: () => [], updateStatus: vi.fn() },
+            { save, waitingEvents: () => [], updateStatus: vi.fn(), reportFailure: vi.fn() },
             { entry: old, attempt: old.operation!.attempt }
         );
         expect(state.pendingSnapshot.get(event)).not.toBe(old);

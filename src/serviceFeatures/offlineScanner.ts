@@ -162,30 +162,45 @@ export async function performFullScan(
     if (!canProceedScan(host, errorManager, log, showingNotice, shouldIgnoreSuspending)) {
         return false;
     }
-    log("Opening the key-value database", LOG_LEVEL_VERBOSE);
-    const isInitialized = (await host.services.keyValueDB.kvDB.get("initialized")) || false;
+    const abortForStop = (stage: string) => {
+        if (host.serviceModules.storageAccess.isStopping?.() !== true) return false;
+        log(`Aborting Vault scan because storage event processing is stopping (${stage})`, LOG_LEVEL_VERBOSE);
+        return true;
+    };
+    if (abortForStop("before reading initialisation state")) return false;
+    try {
+        log("Opening the key-value database", LOG_LEVEL_VERBOSE);
+        const isInitialized = (await host.services.keyValueDB.kvDB.get("initialized")) || false;
+        if (abortForStop("after reading initialisation state")) return false;
 
-    if (showingNotice) {
-        log("Initializing", LOG_LEVEL_NOTICE, "syncAll");
-    }
-    if (isInitialized) {
+        if (showingNotice) {
+            log("Initializing", LOG_LEVEL_NOTICE, "syncAll");
+        }
         log("Restoring storage state", LOG_LEVEL_VERBOSE);
         await host.serviceModules.storageAccess.restoreState();
-    }
+        if (abortForStop("after restoring storage state")) return false;
 
-    log("Initialize and checking database files");
-    log("Checking deleted files");
-    await collectDeletedFiles(host, log);
-    const scanResult = await synchroniseAllFilesBetweenDBandStorage(host, log, errorManager, options);
+        log("Initialize and checking database files");
+        log("Checking deleted files");
+        await collectDeletedFiles(host, log, () => host.serviceModules.storageAccess.isStopping?.() === true);
+        if (abortForStop("after checking deleted files")) return false;
+        const scanResult = await synchroniseAllFilesBetweenDBandStorage(host, log, errorManager, options);
+        if (abortForStop("after synchronising files")) return false;
 
-    log("Initialized, NOW TRACKING!");
-    if (!isInitialized) {
-        await host.services.keyValueDB.kvDB.set("initialized", true);
+        log("Initialized, NOW TRACKING!");
+        if (!isInitialized) {
+            if (abortForStop("before recording initialisation")) return false;
+            await host.services.keyValueDB.kvDB.set("initialized", true);
+            if (abortForStop("after recording initialisation")) return false;
+        }
+        if (showingNotice) {
+            log("Initialize done!", LOG_LEVEL_NOTICE, "syncAll");
+        }
+        return scanResult;
+    } catch (error) {
+        if (abortForStop("after stop during scan")) return false;
+        throw error;
     }
-    if (showingNotice) {
-        log("Initialize done!", LOG_LEVEL_NOTICE, "syncAll");
-    }
-    return scanResult;
 }
 
 /**

@@ -18,6 +18,7 @@ import type { IStorageAccessManager, StorageAccess } from "@lib/interfaces/Stora
 import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService";
 import { StorageEventManager } from "@lib/interfaces/StorageEventManager.ts";
+import { EVENT_PLUGIN_UNLOADED } from "@lib/events/coreEvents";
 import { createBlob, fireAndForget, type CustomRegExp } from "@lib/common/utils";
 import type { VaultService } from "@lib/services/base/VaultService";
 import type { SettingService } from "@lib/services/base/SettingService";
@@ -60,6 +61,9 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         });
         services.appLifecycle.onFirstInitialise.addHandler(this._everyOnFirstInitialize.bind(this));
         services.fileProcessing.commitPendingFileEvents.addHandler(this._everyCommitPendingFileEvent.bind(this));
+        services.appLifecycle.context?.events?.onEvent?.(EVENT_PLUGIN_UNLOADED, () => {
+            this.vaultManager.beginStopWatching?.();
+        });
         services.appLifecycle.onBeforeUnload.addHandler(async () => {
             if (this.vaultManager.stopWatching) await this.vaultManager.stopWatching();
             else await this.vaultManager.waitForIdle();
@@ -71,16 +75,28 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         return this.vaultManager.hasPendingFileEvent?.(path) ?? true;
     }
 
+    isStopping(): boolean {
+        return this.vaultManager.isStopping?.() ?? false;
+    }
+
     restoreState() {
         return this.vaultManager.restoreState();
     }
+
+    markStoreInitialised(): void {
+        this.vaultManager.markStoreInitialised?.();
+    }
     async _everyOnFirstInitialize(): Promise<boolean> {
+        if (this.isStopping()) return false;
         await this.vaultManager.beginWatch();
+        if (this.isStopping()) return false;
         return Promise.resolve(true);
     }
 
     async _everyCommitPendingFileEvent(): Promise<boolean> {
+        if (this.isStopping()) return false;
         await this.vaultManager.waitForIdle();
+        if (this.isStopping()) return false;
         return Promise.resolve(true);
     }
 

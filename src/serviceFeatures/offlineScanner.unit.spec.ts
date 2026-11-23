@@ -23,6 +23,7 @@ import {
     performFullScan,
     useOfflineScanner,
 } from "./offlineScanner";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 import { prepareDatabaseForUse } from "./prepareDatabaseForUse";
 import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
@@ -1185,6 +1186,38 @@ describe("syncFileBetweenDBandStorage", () => {
 
         expect(tryRecordUntrackedFileRevision).toHaveBeenCalledExactlyOnceWith(file, "2-current");
         expect(storeFileToDBMock).toHaveBeenCalledExactlyOnceWith(file, false, false, { revalidateStorage: true });
+    });
+
+    it("does not start a content save after stop interrupts equal-time provenance", async () => {
+        let stopping = false;
+        const started = promiseWithResolvers<void>();
+        const provenance = promiseWithResolvers<boolean>();
+        const storeFileToDB = vi.fn(async () => true);
+        const host = {
+            services: {
+                vault: { isFileSizeTooLarge: () => false },
+                path: { compareFileFreshness: () => EVEN, getPath: () => "test.md" },
+            },
+            serviceModules: {
+                storageAccess: { isStopping: () => stopping },
+                fileHandler: {
+                    storeFileToDB,
+                    tryRecordUntrackedFileRevision: () => {
+                        started.resolve();
+                        return provenance.promise;
+                    },
+                },
+            },
+        } as unknown as Parameters<typeof syncFileBetweenDBandStorage>[0];
+        const file = { path: "test.md", stat: { size: 100 } } as UXFileInfoStub;
+        const doc = { _id: "test", _rev: "2-current", path: "test.md", size: 100 } as MetaEntry;
+
+        const sync = syncFileBetweenDBandStorage(host, logger, file, doc);
+        await started.promise;
+        stopping = true;
+        provenance.resolve(false);
+        await expect(sync).resolves.toBe(FilePairProcessResults.FAILED);
+        expect(storeFileToDB).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -2792,6 +2825,127 @@ describe("performFullScan", () => {
 
     beforeAll(() => {
         logger = createLogger("TestLogger");
+    });
+
+    it.each([false, true])("aborts a stopped scan before enumeration (initialised: %s)", async (initialised) => {
+        let stopping = false;
+        const initialisationRead = promiseWithResolvers<boolean>();
+        const replayStarted = promiseWithResolvers<void>();
+        const replay = promiseWithResolvers<void>();
+        const kvDB = { get: vi.fn(() => initialisationRead.promise), set: vi.fn() };
+        const localDatabase = { findAllDocs: vi.fn(), findAllNormalDocs: vi.fn() };
+        const storageAccess = {
+            isStopping: () => stopping,
+            restoreState: vi.fn(() => {
+                replayStarted.resolve();
+                return replay.promise;
+            }),
+            getFiles: vi.fn(),
+        };
+        const host = {
+            services: {
+                setting: {
+                    currentSettings: () => ({ isConfigured: true, automaticallyDeleteMetadataOfDeletedFiles: 1 }),
+                },
+                keyValueDB: { kvDB },
+                database: { localDatabase },
+            },
+            serviceModules: { storageAccess },
+        } as unknown as Parameters<typeof performFullScan>[0];
+        const errors = { showError: vi.fn(), clearError: vi.fn() } as unknown as Parameters<typeof performFullScan>[2];
+
+        const scan = performFullScan(host, vi.fn(), errors);
+        expect(kvDB.get).toHaveBeenCalledExactlyOnceWith("initialized");
+        if (initialised) {
+            initialisationRead.resolve(true);
+            await replayStarted.promise;
+            stopping = true;
+            replay.resolve();
+        } else {
+            stopping = true;
+            initialisationRead.resolve(false);
+        }
+
+        await expect(scan).resolves.toBe(false);
+        expect(storageAccess.restoreState).toHaveBeenCalledTimes(initialised ? 1 : 0);
+        expect(localDatabase.findAllDocs).not.toHaveBeenCalled();
+        expect(localDatabase.findAllNormalDocs).not.toHaveBeenCalled();
+        expect(storageAccess.getFiles).not.toHaveBeenCalled();
+        expect(kvDB.set).not.toHaveBeenCalled();
+    });
+
+    it("does not start Metadata enumeration when stop interrupts the storage listing", async () => {
+        let stopped = false;
+        const listing = promiseWithResolvers<never[]>();
+        const started = promiseWithResolvers<void>();
+        const getFiles = vi.fn(() => {
+            started.resolve();
+            return listing.promise;
+        });
+        const findAllNormalDocs = vi.fn(() => []);
+        const kvDB = { get: vi.fn(async () => true), set: vi.fn() };
+        const host = {
+            services: {
+                setting: { currentSettings: () => ({ isConfigured: true, automaticallyDeleteMetadataOfDeletedFiles: 0 }) },
+                keyValueDB: { kvDB },
+                database: { localDatabase: { findAllNormalDocs } },
+            },
+            serviceModules: { storageAccess: { getFiles, isStopping: () => stopped, restoreState: async () => {} } },
+        } as unknown as Parameters<typeof performFullScan>[0];
+        const errors = { showError: vi.fn(), clearError: vi.fn() } as unknown as Parameters<typeof performFullScan>[2];
+
+        const scan = performFullScan(host, vi.fn(), errors);
+        await started.promise;
+        stopped = true;
+        listing.resolve([]);
+        await expect(scan).resolves.toBe(false);
+        expect(findAllNormalDocs).not.toHaveBeenCalled();
+        expect(kvDB.set).not.toHaveBeenCalled();
+    });
+
+    it("stops dispatching file pairs and aborts an initialised scan when unloading begins", async () => {
+        let stopping = false;
+        const files = Array.from({ length: 24 }, (_, index) => ({
+            path: `pending-${index}.md`,
+            stat: { size: 1, mtime: 100 },
+        }));
+        const storeFileToDB = vi.fn(async () => {
+            stopping = true;
+            return true;
+        });
+        const restoreState = vi.fn(async () => {});
+        const write = vi.fn(async () => {});
+        const host = {
+            services: {
+                context: createServiceContext(),
+                setting: { currentSettings: () => ({ isConfigured: true, handleFilenameCaseSensitive: true, automaticallyDeleteMetadataOfDeletedFiles: 0 }) },
+                keyValueDB: { kvDB: { get: async (key: string) => key === "initialized" ? true : {}, set: write } },
+                vault: {
+                    isTargetFile: async () => true,
+                    isValidPath: () => true,
+                    isFileSizeTooLarge: () => false,
+                },
+                database: { localDatabase: { isReady: true, findAllNormalDocs: (): never[] => [] } },
+                path: { path2id: async (path: string) => path },
+            },
+            serviceModules: {
+                storageAccess: { restoreState, isStopping: () => stopping, getFiles: async () => files },
+                fileHandler: { storeFileToDB },
+            },
+        } as unknown as Parameters<typeof performFullScan>[0];
+        const errors = { showError: vi.fn(), clearError: vi.fn() } as unknown as Parameters<typeof performFullScan>[2];
+
+        vi.useFakeTimers();
+        try {
+            await expect(performFullScan(host, vi.fn(), errors, { continueOnFileFailure: true })).resolves.toBe(false);
+            expect(restoreState).toHaveBeenCalledOnce();
+            expect(storeFileToDB).toHaveBeenCalledOnce();
+            expect(write).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(1_250);
+            expect(write).not.toHaveBeenCalledWith("fileStatusMap", expect.anything());
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("should return false if canProceedScan fails", async () => {

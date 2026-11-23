@@ -37,19 +37,28 @@ export async function prepareDatabaseForUse(
 ): Promise<VaultScanResult> {
     const appLifecycle = host.services.appLifecycle;
     appLifecycle.resetIsReady();
+    const abortIfUnloading = () => {
+        if (appLifecycle.isUnloading?.() !== true) {
+            return false;
+        }
+        log("Database preparation stopped because the application is unloading.", LOG_LEVEL_VERBOSE);
+        return true;
+    };
 
+    if (abortIfUnloading()) return false;
     try {
-        if (
-            reopenDatabase &&
-            !(await host.services.database.openDatabase({
+        if (reopenDatabase) {
+            const opened = await host.services.database.openDatabase({
                 databaseEvents: host.services.databaseEvents,
                 replicator: host.services.replicator,
-            }))
-        ) {
-            return reportPreparationFailure(
-                log,
-                "Database preparation stopped because the local database could not be opened."
-            );
+            });
+            if (abortIfUnloading()) return false;
+            if (!opened) {
+                return reportPreparationFailure(
+                    log,
+                    "Database preparation stopped because the local database could not be opened."
+                );
+            }
         }
         if (!host.services.database.isDatabaseReady()) {
             return reportPreparationFailure(
@@ -58,6 +67,7 @@ export async function prepareDatabaseForUse(
             );
         }
         const scanResult = await host.services.vault.scanVault(showingNotice, ignoreSuspending, continueOnFileFailure, scanOptions);
+        if (abortIfUnloading()) return false;
         if (scanResult === VaultScanResults.FAILED) {
             return reportPreparationFailure(log, "Database preparation stopped because the Vault scan failed.");
         }
@@ -67,19 +77,24 @@ export async function prepareDatabaseForUse(
                 "Database preparation stopped because the Vault scan could not process every file."
             );
         }
-        if (!(await host.services.databaseEvents.onDatabaseInitialised(showingNotice))) {
+        const databaseInitialised = await host.services.databaseEvents.onDatabaseInitialised(showingNotice);
+        if (abortIfUnloading()) return false;
+        if (!databaseInitialised) {
             return reportPreparationFailure(
                 log,
                 "Database preparation stopped because an initialisation handler failed."
             );
         }
         // Run queued event once.
-        if (!(await host.services.fileProcessing.commitPendingFileEvents())) {
+        const pendingCommitted = await host.services.fileProcessing.commitPendingFileEvents();
+        if (abortIfUnloading()) return false;
+        if (!pendingCommitted) {
             return reportPreparationFailure(
                 log,
                 "Database preparation stopped because pending file events could not be committed."
             );
         }
+        if (abortIfUnloading()) return false;
         appLifecycle.markIsReady();
         return scanResult;
     } catch (error) {

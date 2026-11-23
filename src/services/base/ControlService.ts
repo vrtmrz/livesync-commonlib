@@ -83,6 +83,7 @@ export class ControlService<T extends ServiceContext = ServiceContext>
     }
 
     private async _onLiveSyncUnload(): Promise<void> {
+        this.services.appLifecycleService.markIsUnloading?.();
         this.context.events.emitEvent(EVENT_PLUGIN_UNLOADED);
         const prepared = await this.services.appLifecycleService.onBeforeUnload();
         if (!prepared) this._log("Unload preparation failed; pending storage work may require recovery", LOG_LEVEL_URGENT);

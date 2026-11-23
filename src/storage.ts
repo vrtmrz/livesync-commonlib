@@ -24,3 +24,9 @@ export {
     getDocumentPathComparisonKey,
 } from "./platform/pathComparison.ts";
 export { createStoragePathResolver, AmbiguousNormalisedPathError } from "./platform/storagePathResolution.ts";
+export {
+    isIncrementalPersistenceAdapter,
+    type IStorageEventIncrementalPersistenceAdapter,
+    type StorageEventSnapshotDelta,
+    type StorageEventSnapshotRecord,
+} from "./managers/adapters/IStorageEventPersistenceAdapter.ts";

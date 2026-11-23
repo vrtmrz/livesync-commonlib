@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Improved
+
+- Calling `stopWatching()` during unload preserves pending file intents for
+  replay and lets active handlers finish and acknowledge their work before the
+  host closes storage. Editor change hints only adjust the batch deadline.
+- The storage-event manager uses bounded dispatch and coalesces persistence
+  writes when replaying or admitting local file events.
+- Hosts can implement the optional `IStorageEventIncrementalPersistenceAdapter`
+  from `@vrtmrz/livesync-commonlib/storage` to store event upserts and removals in
+  atomic commits. The full-snapshot contract uses `loadSnapshot()` and
+  `saveSnapshot()`.
+
 ## 0.7.0
 
 20th November, 2026

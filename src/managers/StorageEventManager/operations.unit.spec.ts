@@ -10,7 +10,7 @@ import {
     type PendingFileEvent,
 } from "./operations";
 import { planFileEventSnapshot } from "./snapshot";
-import { TYPE_SENTINEL_FLUSH, type PendingSnapshotEntry } from "./state";
+import { TYPE_SENTINEL_FLUSH, createStorageEventState, retainFileEvent } from "./state";
 
 /** Build a retained failure for pure planning tests without scheduling a handler. */
 function failedOperation(key: string, sequence: number): PendingFileEvent {
@@ -31,6 +31,7 @@ function failedOperation(key: string, sequence: number): PendingFileEvent {
     attempt.completion.resolve(attempt.result);
     return {
         event,
+        indexedPaths: [event.args.file.path],
         sequence,
         acceptedAt: sequence,
         failureBoundary: sequence,
@@ -86,14 +87,14 @@ describe("StorageEventManager pure plans", () => {
     it("selects acknowledged entries and sentinel completion without changing snapshot state", () => {
         const first = failedOperation("first", 1);
         const newer = failedOperation("newer", 3);
-        const completed: PendingSnapshotEntry = { event: first.event, sequence: 1, completed: true, operation: first };
-        const sentinel: PendingSnapshotEntry = {
-            event: { type: TYPE_SENTINEL_FLUSH },
-            sequence: 2,
-            completed: false,
-            dispatched: true,
-        };
-        const pending: PendingSnapshotEntry = { event: newer.event, sequence: 3, completed: false, operation: newer };
+        const state = createStorageEventState();
+        const completed = retainFileEvent(state, first.event);
+        completed.operation = first;
+        completed.completed = true;
+        const sentinel = retainFileEvent(state, { type: TYPE_SENTINEL_FLUSH });
+        sentinel.dispatched = true;
+        const pending = retainFileEvent(state, newer.event);
+        pending.operation = newer;
         const plan = planFileEventSnapshot([completed, sentinel, pending]);
         expect(plan.completed).toEqual([completed, sentinel]);
         expect(plan.snapshot).toEqual([newer.event]);

@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
+import { performFullScan } from "./offlineScanner";
 import { prepareDatabaseForUse, usePrepareDatabaseForUse } from "./prepareDatabaseForUse";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { LOG_LEVEL_VERBOSE } from "@lib/common/types";
@@ -99,6 +101,104 @@ describe("prepareDatabaseForUse readiness", () => {
         };
         return { errorManager, host, isReady: () => ready, timeline };
     }
+
+    it.each([true, false])("does not start preparation while unloading (reopen: %s)", async (reopen) => {
+        const { host, errorManager, isReady } = createPreparation();
+        host.services.appLifecycle.isUnloading = () => true;
+        const errors = errorManager as unknown as Parameters<typeof prepareDatabaseForUse>[2];
+        await expect(prepareDatabaseForUse(host, vi.fn(), errors, false, reopen)).resolves.toBe(false);
+        expect(host.services.database.openDatabase).not.toHaveBeenCalled();
+        expect(host.services.vault.scanVault).not.toHaveBeenCalled();
+        expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+        expect(isReady()).toBe(false);
+    });
+
+    it("propagates unload during an uninitialised-store scan without making the database ready", async () => {
+        const { errorManager, host, isReady } = createPreparation();
+        const read = promiseWithResolvers<boolean>();
+        const reading = promiseWithResolvers<void>();
+        let unloading = false;
+        const findAllDocs = vi.fn();
+        const enumerate = vi.fn();
+        const set = vi.fn();
+        host.services.appLifecycle.isUnloading = () => unloading;
+        Object.assign(host.services, {
+            setting: {
+                currentSettings: () => ({ isConfigured: true, automaticallyDeleteMetadataOfDeletedFiles: 1 }),
+            },
+            keyValueDB: {
+                kvDB: {
+                    get: () => {
+                        reading.resolve();
+                        return read.promise;
+                    },
+                    set,
+                },
+            },
+        });
+        host.services.database.localDatabase.findAllDocs = findAllDocs;
+        host.serviceModules.storageAccess = { isStopping: () => unloading, getFiles: enumerate };
+        host.services.vault.scanVault.mockImplementation(() => performFullScan(host, vi.fn(), errorManager as any));
+
+        const preparing = prepareDatabaseForUse(host, vi.fn(), errorManager as any);
+        await reading.promise;
+        unloading = true;
+        read.resolve(false);
+        await expect(preparing).resolves.toBe(false);
+        expect(findAllDocs).not.toHaveBeenCalled();
+        expect(enumerate).not.toHaveBeenCalled();
+        expect(set).not.toHaveBeenCalled();
+        expect(host.services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
+        expect(host.services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
+        expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+        expect(isReady()).toBe(false);
+    });
+
+    it.each([
+        { stage: "openDatabase", successful: true, completed: ["reset-ready"] },
+        { stage: "onDatabaseInitialised", successful: true, completed: ["reset-ready", "open-database", "scan-vault"] },
+        {
+            stage: "commitPendingFileEvents",
+            successful: true,
+            completed: ["reset-ready", "open-database", "scan-vault", "database-initialised"],
+        },
+        {
+            stage: "commitPendingFileEvents",
+            successful: false,
+            completed: ["reset-ready", "open-database", "scan-vault", "database-initialised"],
+        },
+    ] as const)("stops preparation when unload starts during $stage (success: $successful)", async ({ stage, successful, completed }) => {
+        const { errorManager, host, isReady, timeline } = createPreparation();
+        const { appLifecycle, database, databaseEvents, fileProcessing } = host.services;
+        const hooks = {
+            openDatabase: database.openDatabase,
+            onDatabaseInitialised: databaseEvents.onDatabaseInitialised,
+            commitPendingFileEvents: fileProcessing.commitPendingFileEvents,
+        };
+        const entered = promiseWithResolvers<void>();
+        const result = promiseWithResolvers<boolean>();
+        const log = vi.fn();
+        let unloading = false;
+        appLifecycle.isUnloading = () => unloading;
+        hooks[stage].mockImplementationOnce(() => {
+            entered.resolve();
+            return result.promise;
+        });
+
+        const preparing = prepareDatabaseForUse(host, log, errorManager as any);
+        await entered.promise;
+        unloading = true;
+        result.resolve(successful);
+
+        await expect(preparing).resolves.toBe(false);
+        expect(appLifecycle.markIsReady).not.toHaveBeenCalled();
+        expect(isReady()).toBe(false);
+        expect(timeline).toEqual(completed);
+        expect(log).toHaveBeenCalledExactlyOnceWith(
+            "Database preparation stopped because the application is unloading.",
+            LOG_LEVEL_VERBOSE
+        );
+    });
 
     it("forwards an explicit startup content-check policy without relaxing event completion", async () => {
         const { errorManager, host, timeline } = createPreparation();

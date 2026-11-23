@@ -106,23 +106,13 @@ export function hasEditorChangePath(info: unknown): info is { path: unknown } {
     return typeof info === "object" && info !== null && "path" in info;
 }
 
-/**
- * Extract a usable editor change without admitting it or changing batch gates.
- * Recognised platform files supply their own path; other host editor payloads
- * retain the envelope-path fallback. Optional cached text is accepted only as text.
- *
- * @param info - The editor envelope after its path property has been established.
- * @param isFile - Platform recognition used to choose the authoritative path.
- * @returns The selected file, path, and optional text, or null when the path is unusable.
- */
-export function readEditorFileChange(
-    info: { path: unknown; file?: unknown; data?: unknown },
+/** Read the path used for a batch timing hint without inspecting editor content. */
+export function readEditorChangePath(
+    info: { path: unknown; file?: unknown },
     isFile: (file: unknown) => boolean
 ) {
-    if (!("file" in info) || !info.file) return null;
     const file = info.file;
+    if (!file) return null;
     const path = isFile(file) ? (hasStorageEventPath(file) ? file.path : undefined) : info.path;
-    if (!isStorageEventPath(path) || !path) return null;
-    const data = "data" in info && typeof info.data === "string" ? info.data : undefined;
-    return { file, path, data };
+    return isStorageEventPath(path) && path ? path : null;
 }

@@ -36,7 +36,7 @@ The tables below cover only paths which remain after identity validation, the ho
 
 1. confirm that settings permit the scan;
 2. read the scanner's `initialized` marker;
-3. when the marker is present, load and complete the stored storage-event operations from the previous runtime;
+3. load and complete any stored storage-event operations from the previous runtime (including when an earlier first scan was interrupted before recording the marker);
 4. process expired logical deletion history;
 5. collect and process the selected storage and database entries;
 6. after the first permitted invocation reaches its aggregate-result boundary, record `initialized = true`; and
@@ -50,7 +50,7 @@ The hint is considered only when the normal freshness comparison reaches `EVEN`,
 
 A local edit which preserves the tracked modification time and byte size may be missed by a scan using explicit `false`. Existing same-stat edit checks exercise the omitted-option strict path.
 
-The `initialized` marker records that a full-scan invocation has reached its aggregate-result boundary and that later invocations may restore stored storage-event operations. It is not a successful-scan marker: the first invocation records it after an aggregate `false` result, `true`, or an accepted partial result. An exception before the aggregate result is produced does not reach that write.
+The `initialized` marker records that a full-scan invocation has reached its aggregate-result boundary. It is not a successful-scan marker: the first invocation records it after an aggregate `false` result, `true`, or an accepted partial result, and an exception or stop cancellation before the aggregate result is produced does not reach that write. Stored storage-event operations are still restored before the scan even when the marker has not yet been written, so durable work admitted during an interrupted first scan is replayed rather than overwritten.
 
 Storage-event restoration is a bounded start-up recovery step. Restored events bypass their former batch delay, but `restoreState()` waits for their actual handler outcomes and snapshot ordering before the file collections are compared. Saved events run first because a deletion or rename can carry operation intent which is no longer visible in the current storage listing. An individual restored operation failure remains in the pending snapshot and is logged; it does not prevent the scan from examining current state or independent paths. The following full scan then makes the final reconciliation decision.
 

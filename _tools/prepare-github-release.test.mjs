@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
 
 import { extractReleaseNotes, prepareGitHubRelease } from "./prepare-github-release.mjs";
@@ -26,6 +27,19 @@ function validRelease(overrides = {}) {
 describe("GitHub Release preparation", () => {
     it("extracts only the selected release body", () => {
         assert.equal(prepareGitHubRelease(validRelease()), "### Added\n\n- One.");
+    });
+
+    it("keeps the storage-event lifecycle and adapter guidance together in the changelog", async () => {
+        const updates = await readFile(new URL("../updates.md", import.meta.url), "utf8");
+        const release = updates
+            .split(/^## /mu)
+            .find((section) => section.includes("IStorageEventIncrementalPersistenceAdapter"));
+        assert.ok(release, "The incremental adapter should have a consumer-facing changelog entry.");
+        assert.match(release, /@vrtmrz\/livesync-commonlib\/storage/u);
+        assert.match(release, /stopWatching/u);
+        assert.match(release, /editor change hints/iu);
+        assert.match(release, /bounded dispatch/u);
+        assert.match(release, /coalesces persistence/u);
     });
 
     it("accepts CRLF update files", () => {

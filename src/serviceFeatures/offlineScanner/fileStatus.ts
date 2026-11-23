@@ -30,20 +30,26 @@ export function fileStatus(host: NecessaryServices<"keyValueDB", never>): FileSt
  * @returns After the map has been loaded under the persistence lock.
  * @throws If a required backing-store read or preceding write fails.
  */
-export async function loadFileStatus(host: NecessaryServices<"keyValueDB", never>) {
+export async function loadFileStatus(
+    host: NecessaryServices<"keyValueDB", never>,
+    isStopping: () => boolean
+) {
     // A preceding explicit scan may have returned with a scheduled write. Drain
     // that observation before replacing the map from durable state.
-    if (fileStatus(host).timeout !== null) await flushFileStatus(host);
+    if (fileStatus(host).timeout !== null) await flushFileStatus(host, isStopping);
     await withLock(FILE_STATUS_MAP_LOCK, async () => {
+        if (isStopping()) return;
         const state = fileStatus(host);
         const kvDB = host.services.keyValueDB.kvDB;
         const items = kvDB?.get ? await kvDB.get<Record<string, number>>(FILE_STATUS_MAP_KEY) : undefined;
+        if (isStopping()) return;
         state.map = new Map(Object.entries(items ?? {}));
         state.loaded = true;
     });
 }
-async function _saveFileStatus(host: NecessaryServices<"keyValueDB", never>) {
+async function _saveFileStatus(host: NecessaryServices<"keyValueDB", never>, isStopping: () => boolean) {
     await withLock(FILE_STATUS_MAP_LOCK, async () => {
+        if (isStopping()) return;
         const kvDB = host.services.keyValueDB.kvDB;
         if (kvDB?.set) await kvDB.set(FILE_STATUS_MAP_KEY, Object.fromEntries(fileStatus(host).map));
     });
@@ -54,11 +60,18 @@ async function _saveFileStatus(host: NecessaryServices<"keyValueDB", never>) {
  * @returns After the store write settles successfully.
  * @throws If persistence fails; physical file effects are not rolled back.
  */
-export async function flushFileStatus(host: NecessaryServices<"keyValueDB", never>) {
+export async function flushFileStatus(
+    host: NecessaryServices<"keyValueDB", never>,
+    isStopping: () => boolean
+) {
+    cancelFileStatusSave(host);
+    await _saveFileStatus(host, isStopping);
+}
+
+export function cancelFileStatusSave(host: NecessaryServices<"keyValueDB", never>): void {
     const state = fileStatus(host);
     if (state.timeout !== null) compatGlobal.clearTimeout(state.timeout);
     state.timeout = null;
-    await _saveFileStatus(host);
 }
 
 /**
@@ -76,8 +89,7 @@ export async function clearOfflineScannerLastSeen(
 ): Promise<void> {
     const key = convertCase(host.services.setting.currentSettings(), path);
     const state = fileStatus(host);
-    if (state.timeout !== null) compatGlobal.clearTimeout(state.timeout);
-    state.timeout = null;
+    cancelFileStatusSave(host);
     await withLock(FILE_STATUS_MAP_LOCK, async () => {
         const kvDB = host.services.keyValueDB.kvDB;
         if (!state.loaded) {
@@ -97,17 +109,19 @@ export async function clearOfflineScannerLastSeen(
  * @remarks Ordinary updates keep the first pending deadline; this is not a
  * debounce. Use flushFileStatus when completion depends on the ordered write.
  */
-export function saveFileStatus(host: NecessaryServices<"keyValueDB", never>, immediate = false) {
+export function saveFileStatus(
+    host: NecessaryServices<"keyValueDB", never>,
+    isStopping: () => boolean,
+    immediate = false
+) {
+    if (isStopping()) return;
     const state = fileStatus(host);
-    if (immediate && state.timeout !== null) {
-        compatGlobal.clearTimeout(state.timeout);
-        state.timeout = null;
-    }
+    if (immediate) cancelFileStatusSave(host);
     if (state.timeout === null) {
         state.timeout = compatGlobal.setTimeout(
             () => {
                 state.timeout = null;
-                void _saveFileStatus(host);
+                if (!isStopping()) void _saveFileStatus(host, isStopping);
             },
             immediate ? 0 : 1000
         );
@@ -119,9 +133,15 @@ export function saveFileStatus(host: NecessaryServices<"keyValueDB", never>, imm
  * @param key - Already-normalised comparison key.
  * @param mtime - Observed storage timestamp, which does not prove unchanged bytes.
  */
-export function updateFileMTimeInMap(host: NecessaryServices<"keyValueDB", never>, key: string, mtime: number) {
+export function updateFileMTimeInMap(
+    host: NecessaryServices<"keyValueDB", never>,
+    key: string,
+    mtime: number,
+    isStopping: () => boolean
+) {
+    if (isStopping()) return;
     fileStatus(host).map.set(key, mtime);
-    saveFileStatus(host);
+    saveFileStatus(host, isStopping);
 }
 /**
  * Read the current in-memory last-seen observation without storage access.

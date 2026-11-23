@@ -29,6 +29,11 @@ export abstract class StorageEventManager {
     /** Resume file-handler dispatch after a supported pause. */
     resumeDispatch?(): void;
     abstract restoreState(): Promise<void>;
+    /** Compatibility hook to request store acquisition. Await restoreState() to track completion. */
+    markStoreInitialised?(): void;
+    resetPersistenceState?(): void;
+    beginStopWatching?(): void;
+    isStopping?(): boolean;
 
     /**
      * Complete accepted work before its storage closes. Custom hosts must stop

@@ -17,10 +17,11 @@ import { planFileEventPredecessors, type PendingFileEvent } from "./operations";
 export type WaitInfo = {
     since: number;
     type: FileEventType;
-    canProceed: PromiseWithResolvers<boolean>;
+    canProceed: PromiseWithResolvers<BatchGateOutcome>;
     deadline: DeferredAction;
     event: FileEventItem;
 };
+export type BatchGateOutcome = boolean | "stopped";
 /**
  * Inject waiting state, live delay settings, logging, snapshots, and gate control into batching.
  * @remarks The facade provides dynamic setting accessors so each new gate observes current host settings.
@@ -33,6 +34,7 @@ export interface StorageEventBatching {
     enabled(): boolean;
     log: LogFunction;
     requestSnapshot(): void;
+    updateStatus(): void;
     proceed(path: string): void;
     cancel(path: string): void;
     add(path: string, event: FileEventItem, since?: number): WaitInfo;
@@ -55,15 +57,21 @@ const scheduleStorageTimeout: TimeoutScheduler = (callback, delayMs) => {
  * @param proceed - Whether the waiting event may proceed or has been cancelled.
  * @returns Nothing; snapshotting is requested even when the path has no current gate, and processing is not awaited.
  */
-export function finishBatchWaiting(batching: StorageEventBatching, path: string, proceed: boolean): void {
+export function finishBatchWaiting(
+    batching: StorageEventBatching,
+    path: string,
+    proceed: BatchGateOutcome,
+    requestSnapshot = true
+): void {
     const waiting = batching.waiting();
     const waitInfo = waiting.get(path);
     if (waitInfo) {
         waitInfo.canProceed.resolve(proceed);
         waitInfo.deadline.dispose();
         waiting.delete(path);
+        batching.updateStatus();
     }
-    batching.requestSnapshot();
+    if (requestSnapshot) batching.requestSnapshot();
 }
 
 /**
@@ -134,11 +142,12 @@ export function addBatchWaiting(
         since,
         type: event.type,
         event,
-        canProceed: promiseWithResolvers<boolean>(),
+        canProceed: promiseWithResolvers<BatchGateOutcome>(),
         deadline,
     };
     deadline.schedule(plan.delay);
     waiting.set(path, waitInfo);
+    batching.updateStatus();
     batching.requestSnapshot();
     return waitInfo;
 }
@@ -194,7 +203,7 @@ function applyPredecessorPlan(
 export function initialiseFileEventBatch(
     batching: StorageEventBatching,
     operation: PendingFileEvent
-): Promise<boolean> {
+): Promise<BatchGateOutcome> {
     operation.initialised = true;
     const event = operation.event;
     const path = event.args.file.path;

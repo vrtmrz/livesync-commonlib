@@ -21,7 +21,7 @@ function fixture() {
         log: vi.fn(),
         takeSnapshot: vi.fn(async () => {}),
         loadSnapshot: vi.fn(async () => []),
-        processFileEvent: vi.fn(async () => {}),
+        dispatchQueuedEvent: vi.fn(async () => {}),
         runQueuedEvents: vi.fn(async () => {}),
         capture: vi.fn((ops: readonly PendingFileEvent[]) => new Map(ops.map((op) => [op, op.attempt]))),
         release: vi.fn(),

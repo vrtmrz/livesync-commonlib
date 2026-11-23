@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FilePath } from "@lib/common/types";
 import type { IStorageEventTypeGuardAdapter } from "../adapters";
-import { isStorageEventPath, isWatchedFile, readEditorFileChange } from "./watching";
+import { isStorageEventPath, isWatchedFile, readEditorChangePath } from "./watching";
 
 type HostFile = { kind: "file"; path: unknown };
 const guard: IStorageEventTypeGuardAdapter<HostFile, { kind: "folder" }> = {
@@ -37,26 +37,18 @@ describe("StorageEventManager watcher payloads", () => {
 
     it("uses a recognised file's path ahead of the editor envelope", () => {
         const file = { kind: "file", path: "current.md" };
-        expect(readEditorFileChange({ path: "stale.md", file, data: "current text" }, guard.isFile)).toEqual({
-            file,
-            path: "current.md",
-            data: "current text",
-        });
+        expect(readEditorChangePath({ path: "stale.md", file }, guard.isFile)).toBe("current.md");
     });
 
     it("retains the envelope-path fallback for other host editor payloads", () => {
         const file = { hostMetadata: true };
-        expect(readEditorFileChange({ path: "current.md", file }, guard.isFile)).toEqual({
-            file,
-            path: "current.md",
-            data: undefined,
-        });
+        expect(readEditorChangePath({ path: "current.md", file }, guard.isFile)).toBe("current.md");
     });
 
-    it("rejects an unusable editor path and ignores non-text cached data", () => {
+    it("rejects unusable editor payloads and paths", () => {
         const file = { kind: "file", path: 42 };
-        expect(readEditorFileChange({ path: "fallback.md", file }, guard.isFile)).toBeNull();
-        expect(readEditorFileChange({ path: 42, file: {} }, guard.isFile)).toBeNull();
-        expect(readEditorFileChange({ path: "current.md", file: {}, data: 42 }, guard.isFile)?.data).toBeUndefined();
+        expect(readEditorChangePath({ path: "fallback.md", file }, guard.isFile)).toBeNull();
+        expect(readEditorChangePath({ path: 42, file: {} }, guard.isFile)).toBeNull();
+        expect(readEditorChangePath({ path: "current.md" }, guard.isFile)).toBeNull();
     });
 });

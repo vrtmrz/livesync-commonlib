@@ -30,6 +30,7 @@ import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { InjectableDatabaseEventService } from "@lib/services/implements/injectable/InjectableDatabaseEventService";
 import { InjectableVaultServiceCompat } from "@lib/services/implements/injectable/InjectableVaultService";
 import { handlers } from "@lib/services/lib/HandlerUtils";
+import { sanitiseEventForPersistence } from "./StorageEventManager/snapshot";
 
 // Mock file types
 interface MockFile {
@@ -1086,10 +1087,9 @@ describe("StorageEventManagerBase", () => {
 
             manager["enqueue"](item);
 
-            const buffered = manager["bufferedQueuedItems"];
-            expect(buffered.length).toBeGreaterThan(0);
-            // Should have sentinel before DELETE
-            expect(buffered.some((item) => item.type === "SENTINEL_FLUSH")).toBe(true);
+            const retained = [...manager["eventState"].pendingSnapshot.values()];
+            expect(retained.some((entry) => entry.event.type === "SENTINEL_FLUSH")).toBe(true);
+            expect(manager.hasPendingFileEvent("test.md" as FilePath)).toBe(true);
         });
 
         it("should enqueue items and add sentinel for RENAME", () => {
@@ -1105,8 +1105,8 @@ describe("StorageEventManagerBase", () => {
 
             manager["enqueue"](item);
 
-            const buffered = manager["bufferedQueuedItems"];
-            expect(buffered.some((item) => item.type === "SENTINEL_FLUSH")).toBe(true);
+            const retained = [...manager["eventState"].pendingSnapshot.values()];
+            expect(retained.some((entry) => entry.event.type === "SENTINEL_FLUSH")).toBe(true);
         });
 
         it("should not add sentinel for non-destructive events", () => {
@@ -1119,12 +1119,10 @@ describe("StorageEventManagerBase", () => {
                 key: "test-key",
             };
 
-            const initialLength = manager["bufferedQueuedItems"].length;
+            const initialLength = manager["eventState"].pendingSnapshot.size;
             manager["enqueue"](item);
 
-            const buffered = manager["bufferedQueuedItems"];
-            // Should not have added sentinel
-            expect(buffered.length).toBe(initialLength + 1);
+            expect(manager["eventState"].pendingSnapshot.size).toBe(initialLength + 1);
         });
     });
 
@@ -1458,15 +1456,15 @@ describe("StorageEventManagerBase", () => {
     });
 
     describe("Snapshot Management", () => {
-        it("should trigger snapshot taking", async () => {
-            const saveSpy = vi.spyOn(adapter.persistence, "saveSnapshot");
+        it("checks the store when a scheduled snapshot fires without pending work", async () => {
+            const load = vi.spyOn(adapter.persistence, "loadSnapshot");
+            const save = vi.spyOn(adapter.persistence, "saveSnapshot");
 
             manager["triggerTakeSnapshot"]();
 
-            // Wait for throttled execution
-            await new Promise((resolve) => setTimeout(resolve, 150));
-
-            expect(saveSpy).toHaveBeenCalled();
+            await vi.waitFor(() => expect(load).toHaveBeenCalledOnce());
+            await manager.snapShotRestored;
+            expect(save).not.toHaveBeenCalled();
         });
     });
 
@@ -1838,7 +1836,7 @@ describe("StorageEventManagerBase", () => {
 
             // The cancelled attempt remains recoverable; a later flush makes a new attempt.
             expect(manager["_waitingMap"].has(file.path)).toBe(false);
-            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(sanitiseEventForPersistence(item));
             await expect(manager.waitForIdle()).resolves.toBeUndefined();
             expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
         }, 10000);
@@ -2036,7 +2034,7 @@ describe("StorageEventManagerBase", () => {
                 await manager.appendQueue([{ type: "CHANGED", file, skipBatchWait: true }]);
                 expect(stopped).toBe(false);
                 expect(process).toHaveBeenCalledOnce();
-                expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+                expect(adapter.persistence.getStoredSnapshot()).toContainEqual(sanitiseEventForPersistence(item));
             } finally {
                 release(true);
                 await stopping;
@@ -2048,8 +2046,9 @@ describe("StorageEventManagerBase", () => {
             vi.mocked(dependencies.fileProcessing.processFileEvent).mockResolvedValue(false);
             const item = event("failed-at-stop.md");
             manager.enqueue(item);
+            await expect(manager.waitForIdle()).rejects.toThrow("Storage operation failed");
             await expect(manager.stopWatching()).resolves.toBeUndefined();
-            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(sanitiseEventForPersistence(item));
         });
 
         it("retains an event in the snapshot throughout its database write", async () => {
@@ -2064,7 +2063,7 @@ describe("StorageEventManagerBase", () => {
             try {
                 await vi.waitFor(() => expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled());
                 await manager._takeSnapshot();
-                expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+                expect(adapter.persistence.getStoredSnapshot()).toContainEqual(sanitiseEventForPersistence(item));
             } finally {
                 release(true);
                 await vi.waitFor(() => expect(adapter.status.processing).toBe(0));
@@ -2101,7 +2100,7 @@ describe("StorageEventManagerBase", () => {
             manager.enqueue(item);
             await vi.waitFor(() => expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled());
             await expect(manager.waitForIdle()).rejects.toThrow();
-            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(sanitiseEventForPersistence(item));
         });
     });
 
@@ -2204,8 +2203,8 @@ describe("StorageEventManagerBase", () => {
                 "note.md",
                 temporaryPath,
             ]);
-            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(temporary);
-            expect(adapter.persistence.getStoredSnapshot()).not.toContainEqual(finalFile);
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(sanitiseEventForPersistence(temporary));
+            expect(adapter.persistence.getStoredSnapshot()).not.toContainEqual(sanitiseEventForPersistence(finalFile));
             expect(manager.hasPendingFileEvent(temporaryPath as FilePath)).toBe(true);
         });
 
@@ -2267,7 +2266,7 @@ describe("StorageEventManagerBase", () => {
             const flushing = Promise.all([manager.waitForIdle(), manager.waitForIdle()]);
             void flushing.catch(() => {});
             await vi.waitFor(() => expect(process).toHaveBeenCalledTimes(2));
-            expect(adapter.persistence.getStoredSnapshot()).toContain(first);
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(sanitiseEventForPersistence(first));
             expect(Object.getOwnPropertySymbols(first)).toEqual([]);
             const later = fileEvent("CHANGED", "overlap.md");
             later.key = "later-overlap";
@@ -2276,8 +2275,8 @@ describe("StorageEventManagerBase", () => {
                 releaseRetry(true);
                 await flushing;
                 await vi.waitFor(() => expect(process).toHaveBeenCalledTimes(3));
-                expect(adapter.persistence.getStoredSnapshot()).toContainEqual(later);
-                expect(adapter.persistence.getStoredSnapshot()).not.toContainEqual(first);
+                expect(adapter.persistence.getStoredSnapshot()).toContainEqual(sanitiseEventForPersistence(later));
+                expect(adapter.persistence.getStoredSnapshot()).not.toContainEqual(sanitiseEventForPersistence(first));
                 await expect(original).rejects.toThrow("Storage operation failed");
             } finally {
                 releaseLater?.(true);
@@ -2303,14 +2302,19 @@ describe("StorageEventManagerBase", () => {
             const save = adapter.persistence.saveSnapshot.bind(adapter.persistence);
             let rejectCompletion = true;
             vi.spyOn(adapter.persistence, "saveSnapshot").mockImplementation(async (snapshot) => {
-                if (rejectCompletion && !snapshot.includes(first)) throw new Error("completion snapshot unavailable");
+                if (
+                    rejectCompletion &&
+                    !snapshot.some((event) => event.type !== "SENTINEL_FLUSH" && event.key === first.key)
+                ) {
+                    throw new Error("completion snapshot unavailable");
+                }
                 await save(snapshot);
             });
             await expect(manager.processFileEvent(first)).rejects.toThrow("completion snapshot unavailable");
-            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(first);
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(sanitiseEventForPersistence(first));
             await expect(manager.waitForIdle()).rejects.toThrow("completion snapshot unavailable");
             expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledTimes(2);
-            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(first);
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(sanitiseEventForPersistence(first));
 
             rejectCompletion = false;
             const restarted = new TestStorageEventManager(adapter, dependencies);
@@ -2327,7 +2331,7 @@ describe("StorageEventManagerBase", () => {
             await expect(manager.processFileEvent(item)).rejects.toThrow("optional provider unavailable");
             await expect(manager.waitForIdle()).rejects.toThrow("optional provider unavailable");
             expect(optional).toHaveBeenCalledOnce();
-            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(sanitiseEventForPersistence(item));
         });
 
         it.each(["DELETE", "RENAME"] as const)(
@@ -2409,95 +2413,57 @@ describe("StorageEventManagerBase", () => {
             await expect(older).rejects.toThrow("Storage operation failed");
         });
 
-        it("rolls back a failed completion before the next queued snapshot captures pending work", async () => {
+        it("retains a durable intent after completion persistence fails", async () => {
             const item = fileEvent("CHANGED", "snapshot-race.md");
             const save = adapter.persistence.saveSnapshot.bind(adapter.persistence);
-            let rejectCompletion!: (error: Error) => void;
-            let releaseFollowing!: () => void;
             let failed = false;
-            let following: (FileEventItem | FileEventItemSentinel)[] | undefined;
             vi.spyOn(adapter.persistence, "saveSnapshot").mockImplementation(async (snapshot) => {
                 if (!failed && snapshot.length === 0) {
-                    await new Promise<void>((_resolve, reject) => {
-                        rejectCompletion = reject;
-                    });
-                } else if (failed && !following) {
-                    following = snapshot;
-                    await new Promise<void>((resolve) => {
-                        releaseFollowing = resolve;
-                    });
+                    failed = true;
+                    throw new Error("completion failed");
                 }
                 await save(snapshot);
             });
-            const attempted = expect(manager.processFileEvent(item)).rejects.toThrow("completion failed");
-            await vi.waitFor(() => expect(rejectCompletion).toBeTypeOf("function"));
-            const nextSnapshot = manager._takeSnapshot();
-            failed = true;
-            rejectCompletion(new Error("completion failed"));
-            try {
-                await attempted;
-                await vi.waitFor(() => expect(following).toBeDefined());
-                expect(following).toContainEqual(item);
-            } finally {
-                releaseFollowing?.();
-                await nextSnapshot;
-            }
-            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            await expect(manager.processFileEvent(item)).rejects.toThrow("completion failed");
+            await manager._takeSnapshot();
+            expect(manager.hasPendingFileEvent(item.args.file.path as FilePath)).toBe(true);
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(sanitiseEventForPersistence(item));
             await expect(manager.waitForIdle()).resolves.toBeUndefined();
             expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
         });
 
-        it("does not settle a started attempt while its admission snapshot failure is still being drained", async () => {
+        it("does not start the handler before admission persistence succeeds", async () => {
+            await manager.restoreState();
             const item = fileEvent("CHANGED", "admission-race.md");
             const save = adapter.persistence.saveSnapshot.bind(adapter.persistence);
             let rejectAdmission!: (error: Error) => void;
-            let releaseProcessing!: () => void;
             let calls = 0;
             vi.spyOn(adapter.persistence, "saveSnapshot").mockImplementation(async (snapshot) => {
                 if (++calls === 1) {
                     await new Promise<void>((_resolve, reject) => {
                         rejectAdmission = reject;
                     });
-                } else if (calls === 2) {
-                    await new Promise<void>((resolve) => {
-                        releaseProcessing = resolve;
-                    });
                 }
                 await save(snapshot);
             });
             manager.enqueue(item);
-            let settled = false;
-            const firstFlush = manager.waitForIdle().then(
-                (): undefined => {
-                    settled = true;
-                    return undefined;
-                },
-                (error: unknown) => {
-                    settled = true;
-                    return error;
-                }
-            );
+            const firstFlush = manager.waitForIdle();
+            void firstFlush.catch(() => {});
             await vi.waitFor(() => expect(manager["operations"].get(item)?.attempt.started).toBe(true));
-            rejectAdmission(new Error("admission failed"));
-            try {
-                await vi.waitFor(() => expect(releaseProcessing).toBeTypeOf("function"));
-                expect(settled).toBe(false);
-            } finally {
-                releaseProcessing?.();
-                expect(await firstFlush).toEqual(new Error("admission failed"));
-                await vi.waitFor(() => expect(adapter.status.processing).toBe(0));
-            }
+            await vi.waitFor(() => expect(rejectAdmission).toBeTypeOf("function"));
             expect(dependencies.fileProcessing.processFileEvent).not.toHaveBeenCalled();
-            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            rejectAdmission(new Error("admission failed"));
+            await expect(firstFlush).rejects.toThrow("admission failed");
+            expect(dependencies.fileProcessing.processFileEvent).not.toHaveBeenCalled();
+            expect(manager.hasPendingFileEvent(item.args.file.path as FilePath)).toBe(true);
             await expect(manager.waitForIdle()).resolves.toBeUndefined();
             expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledOnce();
             expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
         });
 
-        it("drains an active handler before reporting a delayed admission-snapshot failure", async () => {
+        it("keeps a delayed admission snapshot failure ahead of handler execution", async () => {
             const item = fileEvent("CHANGED", "active-admission-failure.md");
             let rejectAdmission!: (error: Error) => void;
-            let releaseHandler!: (result: boolean) => void;
             const snapshot = manager._takeSnapshot.bind(manager);
             vi.spyOn(manager, "_takeSnapshot")
                 .mockImplementationOnce(
@@ -2508,38 +2474,19 @@ describe("StorageEventManagerBase", () => {
                 )
                 .mockImplementation(snapshot);
             const process = vi.mocked(dependencies.fileProcessing.processFileEvent).mockImplementationOnce(
-                async () =>
-                    await new Promise<boolean>((resolve) => {
-                        releaseHandler = resolve;
-                    })
+                async () => true
             );
             manager.enqueue(item);
-            let settled = false;
-            const firstFlush = manager.waitForIdle().then(
-                (): undefined => {
-                    settled = true;
-                    return undefined;
-                },
-                (error: unknown) => {
-                    settled = true;
-                    return error;
-                }
-            );
-            await vi.waitFor(() => expect(process).toHaveBeenCalledOnce());
+            const firstFlush = manager.waitForIdle();
+            void firstFlush.catch(() => {});
+            await vi.waitFor(() => expect(rejectAdmission).toBeTypeOf("function"));
+            expect(process).not.toHaveBeenCalled();
             rejectAdmission(new Error("delayed admission failure"));
-            await vi.waitFor(() => expect(manager["operations"].get(item)?.attempt.admissionFailure).toBeDefined());
-            const overlap = manager.waitForIdle().catch((error: unknown) => error);
-            try {
-                expect(settled).toBe(false);
-                expect(process).toHaveBeenCalledOnce();
-            } finally {
-                releaseHandler(true);
-                expect(await firstFlush).toEqual(new Error("delayed admission failure"));
-                expect(await overlap).toEqual(new Error("delayed admission failure"));
-            }
-            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            await expect(firstFlush).rejects.toThrow("delayed admission failure");
+            expect(process).not.toHaveBeenCalled();
+            expect(manager.hasPendingFileEvent(item.args.file.path as FilePath)).toBe(true);
             await expect(manager.waitForIdle()).resolves.toBeUndefined();
-            expect(process).toHaveBeenCalledTimes(2);
+            expect(process).toHaveBeenCalledOnce();
             expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
         });
 
@@ -2643,6 +2590,7 @@ describe("StorageEventManagerBase", () => {
             manager.enqueue(deletion);
             await vi.waitFor(() => expect(manager["operations"].get(deletion)?.attempt.result?.ok).toBe(false));
             expect(calls).toEqual([]);
+            expect(manager.isWaiting(predecessor.args.file.path as FilePath)).toBe(true);
             const rename = fileEvent("RENAME", "renamed-target.md");
             rename.key = "related-rename";
             rename.args.oldPath = predecessor.args.file.path;
