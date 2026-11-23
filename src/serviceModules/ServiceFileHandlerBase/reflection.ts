@@ -10,7 +10,10 @@ import {
 import { withFileEventPaths, queueConflictCheckFor } from "./locking";
 import { infoToStub, isFolderInfo, getParentPath } from "./storage";
 import {
+    captureRenameProvenance,
+    commitRenamedProvenance,
     deleteProvenance,
+    getProvenancePath,
     contentEvidence,
     currentStorageSnapshotMatches,
     sameProvenance,
@@ -406,6 +409,19 @@ async function applyIncomingDeletion(
     incomingRetry: number,
     operation?: ReflectionOperationContext
 ): Promise<FileReflectionResult> {
+    if (existDoc.path !== path) {
+        const [existingDocumentId, targetDocumentId] = await Promise.all([
+            ctx.path.path2id(existDoc.path),
+            ctx.path.path2id(path),
+        ]);
+        if (existingDocumentId !== targetDocumentId) {
+            ctx.host.log(
+                `Refusing to delete ${existDoc.path} while applying deletion for the distinct path ${path}`,
+                LOG_LEVEL_NOTICE
+            );
+            throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
+        }
+    }
     let safeDeletionSnapshot: StorageSnapshot | undefined;
     if (!force && !settings.writeDocumentsIfConflicted) {
         let protection = await preserveUnsyncedStorageAsConflict(ctx, path, existDoc, docEntry, undefined);
@@ -468,11 +484,50 @@ async function applyIncomingDeletion(
             throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
         }
     }
+    const observedPath = safeDeletionSnapshot?.file.path ?? existDoc.path;
+    if (observedPath !== path) {
+        if (safeDeletionSnapshot) {
+            if (!sameProvenance(await readProvenanceSnapshot(ctx, observedPath), safeDeletionSnapshot.revision)) {
+                throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
+            }
+            const resolvedForRead = await ctx.host.storage().getStub(path);
+            if (!resolvedForRead || isFolderInfo(resolvedForRead) || resolvedForRead.path !== observedPath) {
+                throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
+            }
+            const readResolved = await ctx.host.readFileFromStub(resolvedForRead);
+            if (
+                readResolved.path !== observedPath ||
+                readResolved.stat.mtime !== safeDeletionSnapshot.file.stat.mtime ||
+                readResolved.stat.size !== safeDeletionSnapshot.file.stat.size ||
+                !(await isDocContentSame(readResolved.body, safeDeletionSnapshot.file.body))
+            ) {
+                throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
+            }
+        }
+        // Keep the final path/type/stat observation adjacent to the destructive boundary.
+        const resolvedTarget = await ctx.host.storage().getStub(path);
+        if (
+            !resolvedTarget ||
+            isFolderInfo(resolvedTarget) ||
+            resolvedTarget.path !== observedPath ||
+            (safeDeletionSnapshot &&
+                (resolvedTarget.stat.mtime !== safeDeletionSnapshot.file.stat.mtime ||
+                    resolvedTarget.stat.size !== safeDeletionSnapshot.file.stat.size))
+        ) {
+            throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
+        }
+    }
     if (operation?.checkpoint?.() === false) {
         return FILE_REFLECTION_CANCELLED;
     }
     await ctx.host.storage().deleteVaultItem(path);
-    await deleteProvenance(ctx, path);
+    const clearedKeys = new Set<FilePathWithPrefix>();
+    for (const candidate of [observedPath, existDoc.path, path]) {
+        const key = getProvenancePath(ctx, candidate);
+        if (clearedKeys.has(key)) continue;
+        clearedKeys.add(key);
+        await deleteProvenance(ctx, candidate);
+    }
     return FILE_REFLECTION_COMPLETED;
 }
 
@@ -482,8 +537,8 @@ async function applyIncomingDeletion(
  * @param existDoc - The current file using another path spelling.
  * @param path - The incoming target spelling.
  * @param settings - The original reflection settings snapshot.
- * @returns The original or renamed file, or false after a path safety refusal.
- * @remarks The caller holds the document lock. Renaming and clearing the old provenance retain their existing order.
+ * @returns The original or renamed file, or false after a path safety or provenance transfer refusal.
+ * @remarks The caller holds the document lock. Pre-rename provenance is captured before touching storage and transferred to the renamed spelling only after the rename succeeds.
  */
 async function reconcileStoragePath(
     ctx: FileHandlerContext,
@@ -521,12 +576,26 @@ async function reconcileStoragePath(
             );
             return false;
         }
-        const renamedFile = await ctx.host.storage().renameFile(existDoc, path);
-        if (!renamedFile) {
-            ctx.host.log(`Could not apply the stored filename case: ${existDoc.path} -> ${path}`, LOG_LEVEL_NOTICE);
+        const oldPath = existDoc.path;
+        const renameProvenance = await captureRenameProvenance(ctx, oldPath, path);
+        if (renameProvenance === false) {
             return false;
         }
-        await deleteProvenance(ctx, existDoc.path);
+        const renamedFile = await ctx.host.storage().renameFile(existDoc, path);
+        if (!renamedFile) {
+            ctx.host.log(`Could not apply the stored filename case: ${oldPath} -> ${path}`, LOG_LEVEL_NOTICE);
+            return false;
+        }
+        if (getProvenancePath(ctx, renamedFile.path) !== getProvenancePath(ctx, path)) {
+            ctx.host.log(
+                `Could not align renamed filename identity: ${oldPath} -> ${renamedFile.path} (expected ${path})`,
+                LOG_LEVEL_NOTICE
+            );
+            return false;
+        }
+        if (renameProvenance && !(await commitRenamedProvenance(ctx, renameProvenance, renamedFile.path))) {
+            return false;
+        }
         existDoc = renamedFile;
     }
     return existDoc;

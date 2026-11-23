@@ -69,6 +69,7 @@ export class StoredFileReflectionProvenance implements FileReflectionProvenance 
     }
 
     async move(from: FilePathWithPrefix, to: FilePathWithPrefix): Promise<void> {
+        if (from === to) return;
         const record = await this.get(from);
         if (record) {
             await this.set(to, record);

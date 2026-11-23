@@ -1,6 +1,7 @@
 import { ContentReadError } from "@lib/common/LSError.ts";
 import type { StorageContentClassification } from "./provenance";
 import {
+    getProvenancePath,
     readProvenanceSnapshot,
     currentStorageSnapshotMatches,
     classifyStorageContent,
@@ -37,10 +38,14 @@ export async function preserveUnsyncedStorageAsConflict(
 ): Promise<PreservationResult> {
     // Capture bytes and branch identity before classifying against database
     // revisions. A later storage change requires a fresh snapshot.
-    const observedProvenance = await readProvenanceSnapshot(ctx, path);
+    const observedPath = existDoc.path;
+    const observedProvenance = await readProvenanceSnapshot(ctx, observedPath);
     const readFile = await ctx.host.readFileFromStub(existDoc);
+    if (readFile.path !== observedPath) {
+        return { preserved: false };
+    }
     const snapshot = { file: readFile, revision: observedProvenance };
-    if (incomingContent && (await isDocContentSame(incomingContent, readFile.body))) {
+    if (incomingContent !== undefined && (await isDocContentSame(incomingContent, readFile.body))) {
         return (await currentStorageSnapshotMatches(ctx, readFile, observedProvenance))
             ? { preserved: false, snapshot }
             : { preserved: false };
@@ -57,7 +62,7 @@ export async function preserveUnsyncedStorageAsConflict(
             incomingEntry,
             undefined,
             observedProvenance,
-            incomingContent ? { _rev: incomingEntry._rev, data: incomingContent } : undefined,
+            incomingContent !== undefined ? { _rev: incomingEntry._rev, data: incomingContent } : undefined,
             false
         );
     } catch (error) {
@@ -77,7 +82,7 @@ export async function preserveUnsyncedStorageAsConflict(
         return { preserved: false, snapshot };
     }
     if (classification.kind === "matching-leaf") {
-        await rememberMatchingLeaf(ctx, path, classification.revision, readFile.stat.mtime, readFile.body);
+        await rememberMatchingLeaf(ctx, observedPath, classification.revision, readFile.stat.mtime, readFile.body);
         await queueConflictCheckFor(ctx, path);
         return { preserved: true };
     }
@@ -122,6 +127,18 @@ export async function recheckIncomingStorage(
 ): Promise<PreservationResult> {
     const current = await ctx.host.storage().getStub(path);
     if (!current || isFolderInfo(current)) return { preserved: false };
+    if (current.path !== path) {
+        const [currentDocumentId, targetDocumentId] = await Promise.all([
+            ctx.path.path2id(current.path),
+            ctx.path.path2id(path),
+        ]);
+        if (currentDocumentId !== targetDocumentId) {
+            return { preserved: false };
+        }
+        if (incomingContent !== undefined && getProvenancePath(ctx, current.path) !== getProvenancePath(ctx, path)) {
+            return { preserved: false };
+        }
+    }
     const protection = await preserveUnsyncedStorageAsConflict(ctx, path, current, incomingEntry, incomingContent);
     if (protection.preserved || !protection.snapshot) return protection;
     if (
