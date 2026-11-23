@@ -1,13 +1,10 @@
 import { RpcError } from "@vrtmrz/rpc";
-import { connectWorkerRpc, readWorkerStream, type WorkerRpcClient, type WorkerRpcWorker } from "@vrtmrz/rpc/worker";
+import { connectWorkerRpc, type WorkerRpcClient, type WorkerRpcWorker } from "@vrtmrz/rpc/worker";
 import { describe, expect, it, vi } from "vitest";
 import { splitPiecesRabinKarp } from "../string_and_binary/chunks.ts";
-import {
-    backgroundWorkerContract,
-    splitChunkCapacity,
-    type WorkerSplitRequest,
-} from "./backgroundWorkerRpcContract.ts";
+import { backgroundWorkerContract, splitStreamItems, type WorkerSplitRequest } from "./backgroundWorkerRpcContract.ts";
 import { serveBackgroundWorker } from "./serveBackgroundWorker.ts";
+import { readWorkerPushStream } from "./workerPushStream.ts";
 
 async function withWorkerClient<T>(
     run: (client: WorkerRpcClient<typeof backgroundWorkerContract>) => Promise<T>
@@ -34,9 +31,8 @@ async function collectSplit(
 ): Promise<string[]> {
     const port = await client.call.split([request]);
     const chunks: string[] = [];
-    for await (const chunk of readWorkerStream({ port, maxChunkBytes: splitChunkCapacity(request.dataSrc) })) {
-        expect(typeof chunk).toBe("string");
-        chunks.push(chunk as string);
+    for await (const batch of readWorkerPushStream({ port, ...splitStreamItems(request.dataSrc) })) {
+        chunks.push(...batch);
     }
     return chunks;
 }
@@ -101,7 +97,7 @@ describe("Rabin–Karp background Worker stream", () => {
         try {
             await withWorkerClient(async (client) => {
                 const port = await client.call.split([request]);
-                const stream = readWorkerStream({ port, maxChunkBytes: splitChunkCapacity(dataSrc) });
+                const stream = readWorkerPushStream({ port, ...splitStreamItems(dataSrc) });
                 let pending = stream.next();
                 let observedChunks = 0;
 
@@ -152,7 +148,7 @@ describe("Rabin–Karp background Worker stream", () => {
         try {
             await withWorkerClient(async (client) => {
                 const port = await client.call.split([request]);
-                const stream = readWorkerStream({ port, maxChunkBytes: splitChunkCapacity(dataSrc) });
+                const stream = readWorkerPushStream({ port, ...splitStreamItems(dataSrc) });
                 let result: unknown;
                 while (true) {
                     try {

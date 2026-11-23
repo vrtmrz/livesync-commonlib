@@ -261,7 +261,7 @@ import {
     createFileSystemAccessStorage,
     type CreateFileSystemAccessStorageOptions,
 } from "${packageName}/browser";
-import { cancelSplitTask, removeTask, splitPieces2Worker, startWorker, tasks } from "${packageName}/compat/worker/bgWorker";
+import { cancelSplitTask, removeTask, splitPieces2Worker, splitPieces2WorkerV2, splitPieces2WorkerRabinKarp, startWorker, tasks } from "${packageName}/compat/worker/bgWorker";
 import { HashManager, computeFileContentHash, type HashManagerCoreOptions } from "${packageName}/hashing";
 import {
     analyseDatabaseUsage, type DatabaseUsageSource,
@@ -347,14 +347,17 @@ const options: ServiceContextOptions = { translate: (key) => \`translated:\${key
 const context = createServiceContext(options);
 const contextContract: ServiceContextContract = context;
 const untranslated: string = passthroughMessageTranslator("moduleLocalDatabase.logWaitingForReady");
-const split = splitPieces2Worker(new Blob(["content"], { type: "text/plain" }), 4, false, 1);
-const directIterator: AsyncGenerator<string, void, unknown> = split();
+for (const split of [splitPieces2Worker, splitPieces2WorkerV2, splitPieces2WorkerRabinKarp]) {
+    const splitFactory = split(new Blob(["content"], { type: "text/plain" }), 4, false, 1);
+    const directIterator: AsyncGenerator<string, void, unknown> = splitFactory();
+    void directIterator;
+}
 const directTask = startWorker({ type: "encrypt", input: "example", passphrase: "example", autoCalculateIterations: false });
 const directResult: Promise<string> = directTask.task.promise;
 const currentTask: typeof directTask | undefined = tasks.get(directTask.key)?.type === "encrypt" ? directTask : undefined;
 removeTask(directTask.key);
 cancelSplitTask(directTask.key);
-void [directIterator, directResult, currentTask];
+void [directResult, currentTask];
 const directOptions = {} as DirectFileManipulatorOptions;
 const directRuntimeOptions: DirectFileManipulatorRuntimeOptions = { fetch: globalThis.fetch };
 const directType: typeof DirectFileManipulator = DirectFileManipulator;
@@ -491,7 +494,6 @@ void fileHash;
 void context;
 void contextContract;
 void untranslated;
-void split;
 void directOptions;
 void directRuntimeOptions;
 void directType;
@@ -694,14 +696,6 @@ for (const split of [workerApi.splitPieces2Worker, workerApi.splitPieces2WorkerV
     for await (const piece of piecesFactory()) pieces.push(piece);
     assert.equal(pieces.join(""), "abcdef");
 }
-const windowedInput = new Blob(["abcdef".repeat(1024)], { type: "text/plain" });
-const windowed = workerApi.splitPieces2WorkerRabinKarpWindowed(windowedInput, 1024, true, 1, 256);
-const windowedChunks = [];
-for await (const chunks of windowed()) windowedChunks.push(...chunks);
-const single = workerApi.splitPieces2WorkerRabinKarp(windowedInput, 1024, true, 1);
-const singleChunks = [];
-for await (const chunk of single()) singleChunks.push(chunk);
-assert.deepEqual(windowedChunks, singleChunks);
 const stub = workerApi.startWorker({ type: "encrypt", input: "fixture", passphrase: "fixture", autoCalculateIterations: false });
 assert.equal(await stub.task.promise, "");
 stub.finalize();
@@ -766,7 +760,7 @@ await writeConsumerFile(
 );
 await writeConsumerFile(
     "browser-worker.ts",
-    `export { initialiseWorkerModule, splitPieces2Worker, splitPieces2WorkerRabinKarpWindowed } from "${packageName}/compat/worker/bgWorker";
+    `export { initialiseWorkerModule, splitPieces2Worker, splitPieces2WorkerV2, splitPieces2WorkerRabinKarp } from "${packageName}/compat/worker/bgWorker";
 export { encryptHKDF } from "./node_modules/${packageName}/dist/encryption/encryptHKDF.js";
 `
 );

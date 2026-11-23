@@ -1,13 +1,10 @@
 import { RpcError } from "@vrtmrz/rpc";
-import { connectWorkerRpc, readWorkerStream, type WorkerRpcClient, type WorkerRpcWorker } from "@vrtmrz/rpc/worker";
+import { connectWorkerRpc, type WorkerRpcClient, type WorkerRpcWorker } from "@vrtmrz/rpc/worker";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-    backgroundWorkerContract,
-    splitChunkCapacity,
-    type WorkerSplitRequest,
-} from "./backgroundWorkerRpcContract.ts";
+import { backgroundWorkerContract, splitStreamItems, type WorkerSplitRequest } from "./backgroundWorkerRpcContract.ts";
 import { splitBackgroundRequest } from "./bg.worker.splitting.ts";
 import { serveBackgroundWorker } from "./serveBackgroundWorker.ts";
+import { readWorkerPushStream } from "./workerPushStream.ts";
 
 const mockedSplitters = vi.hoisted(() => ({
     splitPieces2: vi.fn(),
@@ -44,9 +41,8 @@ async function collectSplit(
 ): Promise<string[]> {
     const port = await client.call.split([request]);
     const chunks: string[] = [];
-    for await (const chunk of readWorkerStream({ port, maxChunkBytes: splitChunkCapacity(request.dataSrc) })) {
-        expect(typeof chunk).toBe("string");
-        chunks.push(chunk as string);
+    for await (const batch of readWorkerPushStream({ port, ...splitStreamItems(request.dataSrc) })) {
+        chunks.push(...batch);
     }
     return chunks;
 }
@@ -114,8 +110,8 @@ describe("background Worker split RPC", () => {
 
         await withWorkerClient(async (client) => {
             const port = await client.call.split([request]);
-            const stream = readWorkerStream({ port, maxChunkBytes: splitChunkCapacity(request.dataSrc) });
-            await expect(stream.next()).resolves.toEqual({ done: false, value: "" });
+            const stream = readWorkerPushStream({ port, ...splitStreamItems(request.dataSrc) });
+            await expect(stream.next()).resolves.toEqual({ done: false, value: [""] });
             await expect(stream.next()).resolves.toEqual({ done: true, value: undefined });
             await expect(stream.next()).resolves.toEqual({ done: true, value: undefined });
         });
@@ -205,7 +201,7 @@ describe("background Worker split RPC", () => {
             return async function* chunks() {
                 try {
                     yield "first";
-                    yield "after cancellation";
+                    await new Promise<void>((resolve) => nativeSignal?.addEventListener("abort", () => resolve()));
                 } finally {
                     innerGeneratorReturned = true;
                 }
@@ -222,8 +218,8 @@ describe("background Worker split RPC", () => {
 
         await withWorkerClient(async (client) => {
             const port = await client.call.split([request]);
-            const stream = readWorkerStream({ port, maxChunkBytes: splitChunkCapacity(request.dataSrc) });
-            await expect(stream.next()).resolves.toEqual({ done: false, value: "first" });
+            const stream = readWorkerPushStream({ port, ...splitStreamItems(request.dataSrc) });
+            await expect(stream.next()).resolves.toEqual({ done: false, value: ["first"] });
             if (!nativeSignal) {
                 throw new Error("Rabin–Karp did not receive a native AbortSignal.");
             }
@@ -256,7 +252,7 @@ describe("background Worker split RPC", () => {
 
         await withWorkerClient(async (client) => {
             const port = await client.call.split([request]);
-            const stream = readWorkerStream({ port, maxChunkBytes: splitChunkCapacity(request.dataSrc) });
+            const stream = readWorkerPushStream({ port, ...splitStreamItems(request.dataSrc) });
             const result = await stream.next().catch((caught: unknown) => caught);
             expect(result).toBeInstanceOf(RpcError);
             expect(result).toMatchObject({

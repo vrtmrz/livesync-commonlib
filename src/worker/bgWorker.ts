@@ -7,14 +7,9 @@ import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import type { LiveSyncEventHub } from "@lib/hub/hub.ts";
 // @ts-expect-error The browser package build supplies the inline Worker factory.
 import createInlineWorker from "./bg.worker.ts?worker&inline";
-import {
-    backgroundWorkerContract,
-    splitChunkCapacity,
-    type WorkerSplitRequest,
-} from "./backgroundWorkerRpcContract.ts";
+import { backgroundWorkerContract, type WorkerSplitRequest } from "./backgroundWorkerRpcContract.ts";
 import { toBackgroundWorkerError } from "./bgWorker.errors.ts";
-import { createSplitOperation, type SplitDelivery } from "./bgWorker.splitting.ts";
-import { decodeSplitWindow, splitWindowFrameCapacity } from "./splitWindows.ts";
+import { createSplitOperation } from "./bgWorker.splitting.ts";
 import type {
     EncryptArguments,
     EncryptHKDFArguments,
@@ -32,16 +27,149 @@ export type WorkerInstance = {
     cancelledSplitKeys: Set<number>;
 };
 
+function createSplitGate(capacity: number) {
+    const waiters = new Set<ReturnType<typeof promiseWithResolvers<void>>>();
+    let active = 0;
+    let closed: RpcError | undefined;
+
+    function release(): void {
+        const next = waiters.values().next().value;
+        if (next === undefined) {
+            active--;
+            return;
+        }
+        waiters.delete(next);
+        next.resolve();
+    }
+
+    async function acquire(signal: AbortSignal): Promise<() => void> {
+        if (closed !== undefined) {
+            throw closed;
+        }
+        if (signal.aborted) {
+            throw signal.reason;
+        }
+        if (active < capacity) {
+            active++;
+            return release;
+        }
+
+        const waiter = promiseWithResolvers<void>();
+        const onAbort = () => {
+            if (waiters.delete(waiter)) {
+                waiter.reject(signal.reason);
+            }
+        };
+        waiters.add(waiter);
+        signal.addEventListener("abort", onAbort, { once: true });
+        try {
+            await waiter.promise;
+            return release;
+        } finally {
+            signal.removeEventListener("abort", onAbort);
+        }
+    }
+
+    function close(error: RpcError): void {
+        closed = error;
+        for (const waiter of waiters) {
+            waiter.reject(error);
+        }
+        waiters.clear();
+    }
+
+    return { acquire, close };
+}
+
 function createBackgroundWorkerPool() {
     const size = Math.max(1, Math.floor((compatGlobal.navigator.hardwareConcurrency || 8) / 2));
-    return createWorkerPool({
+    const splitGate = createSplitGate(size);
+    type PoolConnection = ReturnType<typeof connectWorkerRpc<typeof backgroundWorkerContract>>;
+    type PoolClient = Awaited<PoolConnection["ready"]>;
+    const readySlots = new Map<PoolConnection, PoolClient>();
+    const activeSplitCounts = new Map<PoolConnection, number>();
+    let closed = false;
+
+    const workerPool = createWorkerPool({
         size,
-        createConnection: () =>
-            connectWorkerRpc({
+        createConnection: () => {
+            const connection = connectWorkerRpc({
                 contract: backgroundWorkerContract,
                 createWorker: () => createInlineWorker() as Worker,
-            }),
+            });
+            const removeSlot = () => {
+                readySlots.delete(connection);
+                activeSplitCounts.delete(connection);
+            };
+            connection.signal.addEventListener("abort", removeSlot, { once: true });
+            void connection.ready.then(
+                (client) => {
+                    if (!closed && !connection.signal.aborted) {
+                        readySlots.set(connection, client);
+                    }
+                },
+                (): void => undefined
+            );
+            return connection;
+        },
     });
+
+    function reserveSplitConnection(
+        connection: PoolConnection,
+        client: PoolClient,
+        releaseCandidate?: () => void
+    ) {
+        activeSplitCounts.set(connection, (activeSplitCounts.get(connection) ?? 0) + 1);
+        let released = false;
+        return {
+            connection,
+            client,
+            release() {
+                if (released) {
+                    return;
+                }
+                released = true;
+                const remaining = (activeSplitCounts.get(connection) ?? 0) - 1;
+                if (remaining > 0) {
+                    activeSplitCounts.set(connection, remaining);
+                } else {
+                    activeSplitCounts.delete(connection);
+                }
+                releaseCandidate?.();
+            },
+        };
+    }
+
+    async function acquireForSplit() {
+        const candidate = await workerPool.acquire();
+        if ((activeSplitCounts.get(candidate.connection) ?? 0) === 0) {
+            return reserveSplitConnection(candidate.connection, candidate.client, candidate.release);
+        }
+
+        // Another ready Worker has no active split even if encryption leases make it look busier.
+        for (const [connection, client] of readySlots) {
+            if (!connection.signal.aborted && (activeSplitCounts.get(connection) ?? 0) === 0) {
+                candidate.release();
+                return reserveSplitConnection(connection, client);
+            }
+        }
+
+        // Fallback when another slot is restarting and no unreserved ready Worker exists yet.
+        return reserveSplitConnection(candidate.connection, candidate.client, candidate.release);
+    }
+
+    return {
+        ...workerPool,
+        acquireSplitSlot: splitGate.acquire,
+        acquireForSplit,
+        close(reason: RpcError) {
+            closed = true;
+            splitGate.close(reason);
+            readySlots.clear();
+            activeSplitCounts.clear();
+            workerPool.close(reason);
+        },
+    };
 }
 
 type BackgroundWorkerPool = ReturnType<typeof createBackgroundWorkerPool>;
@@ -72,6 +200,7 @@ export function terminateWorker(): void {
     offPlatformUnloaded?.();
     offPlatformUnloaded = undefined;
     current?.close(new RpcError("disconnected", "The background Worker pool has shut down."));
+    cancelSplits.clear();
     tasks.clear();
 }
 
@@ -90,13 +219,7 @@ export function cancelSplitTask(key: number): void {
     cancelSplits.get(key)?.(new RpcError("aborted", "Background split was cancelled."));
 }
 
-const singleChunkDelivery: SplitDelivery<string> = {
-    frameCapacity: splitChunkCapacity,
-    connect: (client, request) => client.call.split([request]),
-    decode: (chunk) => chunk,
-};
-
-function createTrackedSplit<Result>(request: WorkerSplitRequest, delivery: SplitDelivery<Result>) {
+function createTrackedSplit(request: WorkerSplitRequest) {
     const process: SplitProcessItem = { key: nextKey++, type: "split", finalize() {} };
     const operation = createSplitOperation(
         () => {
@@ -110,8 +233,7 @@ function createTrackedSplit<Result>(request: WorkerSplitRequest, delivery: Split
             process.workerFinished = workerFinished;
             cancelSplits.delete(process.key);
             removeTask(process.key);
-        },
-        delivery
+        }
     );
     return { process, iterator: operation.iterator };
 }
@@ -142,7 +264,7 @@ export function startWorker(data: EncryptionRequest | Omit<SplitArguments, "key"
     const current = getPool();
     if (data.type === "split") {
         const { type: _type, ...request } = data;
-        const { process, iterator } = createTrackedSplit(request, singleChunkDelivery);
+        const { process, iterator } = createTrackedSplit(request);
         void consumeSplit(iterator).catch((error: unknown) => Logger(error, LOG_LEVEL_VERBOSE));
         return process;
     }
@@ -180,10 +302,8 @@ function prepareSplit(
     useSegmenter = false
 ) {
     return () =>
-        createTrackedSplit(
-            { dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter, splitVersion },
-            singleChunkDelivery
-        ).iterator;
+        createTrackedSplit({ dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter, splitVersion })
+            .iterator;
 }
 
 export function splitPieces2Worker(
@@ -217,33 +337,6 @@ export function splitPieces2WorkerRabinKarp(
     useSegmenter?: boolean
 ) {
     return prepareSplit(3, dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
-}
-
-/**
- * Returns ordered windows of original chunks from the existing Worker pool.
- * Await the current window's writes before requesting another window.
- *
- * @experimental
- */
-export function splitPieces2WorkerRabinKarpWindowed(
-    dataSrc: Blob,
-    pieceSize: number,
-    plainSplit: boolean,
-    minimumChunkSize: number,
-    windowBytes: number,
-    filename?: string,
-    useSegmenter = false
-): () => AsyncGenerator<readonly string[], void, unknown> {
-    const delivery: SplitDelivery<readonly string[]> = {
-        frameCapacity: (input) => splitWindowFrameCapacity(splitChunkCapacity(input), windowBytes),
-        connect: (client, request) => client.call.splitWindowed([request, windowBytes]),
-        decode: decodeSplitWindow,
-    };
-    return () =>
-        createTrackedSplit(
-            { dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter, splitVersion: 3 },
-            delivery
-        ).iterator;
 }
 
 export function encryptWorker(input: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {

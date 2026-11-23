@@ -14,7 +14,6 @@ import type {
 } from "./universalTypes.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import type { LiveSyncEventHub } from "@lib/hub/hub.ts";
-import { groupSplitChunks } from "./splitWindows.ts";
 
 export function terminateWorker() {
     return;
@@ -79,27 +78,6 @@ export function splitPieces2WorkerRabinKarp(
         );
         yield* splitter();
     };
-}
-
-/** @experimental */
-export function splitPieces2WorkerRabinKarpWindowed(
-    dataSrc: Blob,
-    pieceSize: number,
-    plainSplit: boolean,
-    minimumChunkSize: number,
-    windowBytes: number,
-    filename?: string,
-    useSegmenter = false
-): () => AsyncGenerator<readonly string[], void, unknown> {
-    const create = splitPieces2WorkerRabinKarp(
-        dataSrc,
-        pieceSize,
-        plainSplit,
-        minimumChunkSize,
-        filename,
-        useSegmenter
-    );
-    return () => groupSplitChunks(create(), windowBytes);
 }
 
 export function encryptWorker(input: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {

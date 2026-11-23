@@ -51,6 +51,8 @@ import type { WriteResult } from "@lib/managers/LayeredChunkManager/types";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
 import { EntryManager } from "./EntryManager";
 import { ConflictManager } from "@lib/managers/ConflictManager";
+import { stopGeneratorOnReturn } from "@lib/worker/workerPushStream.ts";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 
 // Set up PouchDB with memory adapter
 PouchDB.plugin(MemoryAdapter);
@@ -506,6 +508,224 @@ describe("EntryManagerImpls", () => {
 
             // Empty data should still succeed but may have 0 or minimal chunks
             expect(chunks).not.toBe(false);
+        });
+    });
+
+    describe("Worker chunk write pipeline", () => {
+        const firstPiece = "A".repeat(2 * 1024 * 1024);
+        const secondPiece = "B".repeat(2 * 1024 * 1024);
+        const successfulWrite: WriteResult = {
+            result: true,
+            processed: { cached: 0, hotPack: 0, written: 1, duplicated: 0 },
+        };
+        const failedWrite: WriteResult = { ...successfulWrite, result: false };
+
+        function putEntry(entry: SavingEntry, onlyChunks = false, log?: ReturnType<typeof vi.fn>) {
+            return putDBEntry(
+                createHost(mockSettingService, mockPathService),
+                { localDatabase: db, chunkManager, hashManager, splitter, ...(log ? { log } : {}) },
+                entry,
+                onlyChunks
+            );
+        }
+
+        it("reads ahead while a write is pending and writes one batch at a time in order", async () => {
+            const firstWrite = promiseWithResolvers<WriteResult>();
+            const writeStarted = promiseWithResolvers<void>();
+            const pieces = stopGeneratorOnReturn(
+                (async function* () {
+                    yield firstPiece;
+                    yield secondPiece;
+                })(),
+                () => {}
+            );
+            const next = vi.spyOn(pieces, "next");
+            vi.spyOn(splitter, "splitContent").mockResolvedValue(pieces);
+            const write = vi
+                .spyOn(chunkManager, "write")
+                .mockImplementationOnce(() => {
+                    writeStarted.resolve();
+                    return firstWrite.promise;
+                })
+                .mockResolvedValue(successfulWrite);
+            const entry = createSavingEntry("pipeline-overlap.md", firstPiece + secondPiece);
+            const saving = putEntry(entry, true);
+            try {
+                await writeStarted.promise;
+                await vi.waitFor(() => expect(next).toHaveBeenCalledTimes(2));
+                expect(write).toHaveBeenCalledTimes(1);
+                expect(write.mock.calls[0][0].map((chunk) => chunk.data)).toEqual([firstPiece]);
+            } finally {
+                firstWrite.resolve(successfulWrite);
+                await saving;
+            }
+            expect(await saving).toMatchObject({ ok: true });
+            expect(write).toHaveBeenCalledTimes(2);
+            expect(write.mock.calls[1][0].map((chunk) => chunk.data)).toEqual([secondPiece]);
+        });
+
+        it.each([
+            { failure: "false", onlyChunks: false },
+            { failure: "false", onlyChunks: true },
+            { failure: "rejection", onlyChunks: false },
+        ])("closes a blocked read on write $failure (onlyChunks=$onlyChunks)", async ({ failure, onlyChunks }) => {
+            const firstWrite = promiseWithResolvers<WriteResult>();
+            const unblockRead = promiseWithResolvers<void>();
+            const readBlocked = vi.fn();
+            const pieces = stopGeneratorOnReturn(
+                (async function* () {
+                    yield firstPiece;
+                    yield "unwritten tail";
+                    readBlocked();
+                    await unblockRead.promise;
+                })(),
+                unblockRead.resolve
+            );
+            const close = vi.spyOn(pieces, "return");
+            vi.spyOn(splitter, "splitContent").mockResolvedValue(pieces);
+            const write = vi.spyOn(chunkManager, "write").mockReturnValue(firstWrite.promise);
+            const entry = createSavingEntry("pipeline-write-failed.md", firstPiece + "unwritten tail");
+            const publish = vi.spyOn(db, "put");
+            const log = vi.fn();
+            const writeRejection = new Error("Write rejected");
+            const saving = putEntry(entry, onlyChunks, log);
+            try {
+                await vi.waitFor(() => expect(readBlocked).toHaveBeenCalledOnce());
+                if (failure === "rejection") {
+                    firstWrite.reject(writeRejection);
+                } else {
+                    firstWrite.resolve(failedWrite);
+                }
+                await expect(saving).resolves.toBe(false);
+                expect(close).toHaveBeenCalledOnce();
+                expect(write).toHaveBeenCalledOnce();
+                expect(publish).not.toHaveBeenCalled();
+                if (failure === "rejection") {
+                    expect(log).toHaveBeenCalledWith(expect.stringContaining("pipeline-write-failed.md"));
+                    expect(log).toHaveBeenCalledWith(writeRejection, expect.anything());
+                }
+            } finally {
+                unblockRead.resolve();
+                firstWrite.resolve(failedWrite);
+                await saving;
+            }
+        });
+
+        it("keeps the transaction open until a pending write settles after a split error", async () => {
+            const firstWrite = promiseWithResolvers<WriteResult>();
+            const close = vi.fn();
+            const pieces = stopGeneratorOnReturn(
+                (async function* () {
+                    yield firstPiece;
+                    yield "unwritten tail";
+                    throw new Error("Split failed");
+                })(),
+                close
+            );
+            vi.spyOn(splitter, "splitContent").mockResolvedValue(pieces);
+            const write = vi.spyOn(chunkManager, "write").mockReturnValue(firstWrite.promise);
+            const stabilise = vi.spyOn(chunkManager, "_stabilise");
+            const publish = vi.spyOn(db, "put");
+            const entry = createSavingEntry("pipeline-split-failed.md", firstPiece + "unwritten tail");
+            const saving = putEntry(entry);
+            try {
+                await vi.waitFor(() => expect(close).toHaveBeenCalled());
+                expect(write).toHaveBeenCalledOnce();
+                expect(stabilise).not.toHaveBeenCalled();
+                expect(publish).not.toHaveBeenCalled();
+            } finally {
+                firstWrite.resolve(successfulWrite);
+                await saving;
+            }
+            expect(await saving).toBe(false);
+            expect(write).toHaveBeenCalledOnce();
+            expect(stabilise).toHaveBeenCalledOnce();
+            expect(publish).not.toHaveBeenCalled();
+        });
+
+        it("reports tail write failure before publication and allows a clean retry", async () => {
+            const tail = "tail";
+            const entry = createSavingEntry("pipeline-tail-retry.md", firstPiece + tail);
+            vi.spyOn(splitter, "splitContent").mockImplementation(async () =>
+                stopGeneratorOnReturn(
+                    (async function* () {
+                        yield firstPiece;
+                        yield tail;
+                    })(),
+                    () => {}
+                )
+            );
+            const realWrite = chunkManager.write.bind(chunkManager);
+            const write = vi
+                .spyOn(chunkManager, "write")
+                .mockImplementationOnce(realWrite)
+                .mockRejectedValueOnce(new Error("Tail rejected"));
+            const publish = vi.spyOn(db, "put");
+
+            await expect(putEntry(entry)).resolves.toBe(false);
+            expect(write).toHaveBeenCalledTimes(2);
+            expect(publish).not.toHaveBeenCalled();
+            expect(await putEntry(entry)).toMatchObject({ ok: true });
+
+            const loaded = await getDBEntryByPath(
+                createHost(mockSettingService, mockPathService),
+                { localDatabase: db, chunkManager, hashManager, splitter },
+                entry.path
+            );
+            assert(loaded !== false);
+            expect(await isDocContentSame(entry.data, loaded.data)).toBe(true);
+        });
+
+        it("publishes ordered duplicate child IDs across batches and skips empty pieces", async () => {
+            const pieces = stopGeneratorOnReturn(
+                (async function* () {
+                    yield firstPiece;
+                    yield "";
+                    yield secondPiece;
+                    yield firstPiece;
+                })(),
+                () => {}
+            );
+            vi.spyOn(splitter, "splitContent").mockResolvedValue(pieces);
+            const write = vi.spyOn(chunkManager, "write");
+            const entry = createSavingEntry("pipeline-duplicates.md", firstPiece + secondPiece + firstPiece);
+            expect(await putEntry(entry)).toMatchObject({ ok: true });
+            expect(write).toHaveBeenCalledTimes(3);
+            const [firstId, secondId, duplicateId] = write.mock.calls.map(([batch]) => {
+                expect(batch).toHaveLength(1);
+                return batch[0]._id;
+            });
+            expect(firstId).not.toBe(secondId);
+            expect(duplicateId).toBe(firstId);
+            expect(await db.get(entry._id)).toMatchObject({ children: [firstId, secondId, firstId] });
+        });
+
+        it("keeps an unmarked splitter on the serial flush path", async () => {
+            const firstWrite = promiseWithResolvers<WriteResult>();
+            const writeStarted = promiseWithResolvers<void>();
+            const pieces = (async function* () {
+                yield firstPiece;
+                yield secondPiece;
+            })();
+            const next = vi.spyOn(pieces, "next");
+            vi.spyOn(splitter, "splitContent").mockResolvedValue(pieces);
+            vi.spyOn(chunkManager, "write")
+                .mockImplementationOnce(() => {
+                    writeStarted.resolve();
+                    return firstWrite.promise;
+                })
+                .mockResolvedValue(successfulWrite);
+            const saving = putEntry(createSavingEntry("pipeline-unmarked.md", firstPiece + secondPiece), true);
+            try {
+                await writeStarted.promise;
+                await new Promise<void>((resolve) => setImmediate(resolve));
+                expect(next).toHaveBeenCalledTimes(1);
+            } finally {
+                firstWrite.resolve(successfulWrite);
+                await saving;
+            }
+            expect(await saving).toMatchObject({ ok: true });
+            expect(next).toHaveBeenCalledTimes(3);
         });
     });
 

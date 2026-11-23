@@ -1,50 +1,66 @@
-import { readWorkerStream, type WorkerPool, type WorkerRpcConnection, type WorkerStreamPort } from "@vrtmrz/rpc/worker";
+import type { WorkerPool, WorkerRpcConnection } from "@vrtmrz/rpc/worker";
 import { RpcError } from "@vrtmrz/rpc";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
-import type { backgroundWorkerContract, WorkerSplitRequest } from "./backgroundWorkerRpcContract.ts";
+import {
+    splitStreamItems,
+    type backgroundWorkerContract,
+    type WorkerSplitRequest,
+} from "./backgroundWorkerRpcContract.ts";
 import { toBackgroundWorkerError } from "./bgWorker.errors.ts";
+import { cancelWorkerPushStream, readWorkerPushStream, stopGeneratorOnReturn } from "./workerPushStream.ts";
 
 type Connection = WorkerRpcConnection<typeof backgroundWorkerContract>;
-type SplitPool = Pick<WorkerPool<Connection, Awaited<Connection["ready"]>>, "acquire">;
+type SplitPool = Pick<WorkerPool<Connection, Awaited<Connection["ready"]>>, "acquire"> & {
+    acquireSplitSlot(signal: AbortSignal): Promise<() => void>;
+    acquireForSplit?: () => ReturnType<WorkerPool<Connection, Awaited<Connection["ready"]>>["acquire"]>;
+};
 type SplitEnd = "complete" | "return" | { error: unknown };
 
-export interface SplitDelivery<Result> {
-    readonly frameCapacity: (input: Blob) => number;
-    readonly connect: (client: Awaited<Connection["ready"]>, request: WorkerSplitRequest) => Promise<WorkerStreamPort>;
-    readonly decode: (frame: string) => Result;
-}
-
-export function createSplitOperation<Result>(
+export function createSplitOperation(
     getPool: () => SplitPool,
     request: WorkerSplitRequest,
-    onFinish: (workerFinished: boolean) => void,
-    delivery: SplitDelivery<Result>
+    onFinish: (workerFinished: boolean) => void
 ) {
     const stopped = promiseWithResolvers<void>();
-    const maxChunkBytes = delivery.frameCapacity(request.dataSrc);
+    const slotWait = new AbortController();
     let end: SplitEnd | undefined;
-    let reader: ReturnType<typeof readWorkerStream> | undefined;
+    let reader: AsyncGenerator<readonly string[], void, unknown> | undefined;
     let releaseLease: (() => void) | undefined;
+    let releaseSplitSlot: (() => void) | undefined;
     let removeDisconnectListener: (() => void) | undefined;
+
+    function releaseTransport(): void {
+        removeDisconnectListener?.();
+        removeDisconnectListener = undefined;
+        releaseLease?.();
+        releaseLease = undefined;
+        releaseSplitSlot?.();
+        releaseSplitSlot = undefined;
+    }
 
     function finish(outcome: SplitEnd): void {
         if (end !== undefined) {
             return;
         }
         end = outcome;
+        slotWait.abort();
         stopped.resolve();
-        removeDisconnectListener?.();
-        removeDisconnectListener = undefined;
-        void reader?.return?.();
+        void reader?.return();
         reader = undefined;
-        releaseLease?.();
-        releaseLease = undefined;
+        releaseTransport();
         onFinish(outcome !== "return");
     }
 
     async function open(): Promise<void> {
-        const lease = await getPool().acquire();
+        const pool = getPool();
+        releaseSplitSlot = await pool.acquireSplitSlot(slotWait.signal);
+        let portAdopted = false;
         try {
+            if (end !== undefined) {
+                return;
+            }
+            const lease = await (pool.acquireForSplit ? pool.acquireForSplit() : pool.acquire());
+            releaseLease = lease.release;
             if (end !== undefined) {
                 return;
             }
@@ -58,34 +74,50 @@ export function createSplitOperation<Result>(
                 onDisconnect();
                 return;
             }
-            const port = await delivery.connect(lease.client, request);
-            const stream = readWorkerStream({ port, maxChunkBytes, signal });
+
+            const port = await lease.client.call.split([request]);
             if (end !== undefined) {
-                // A port transferred during cancellation must still be claimed and closed.
-                await stream.return?.();
+                cancelWorkerPushStream(port);
                 return;
             }
-            reader = stream;
-            releaseLease = lease.release;
+            try {
+                const stream = readWorkerPushStream({
+                    port,
+                    ...splitStreamItems(request.dataSrc),
+                    onRemoteEnd: releaseTransport,
+                    onError: (error) => finish({ error }),
+                });
+                portAdopted = true;
+                if (end === undefined) {
+                    reader = stream;
+                }
+            } catch (error) {
+                cancelWorkerPushStream(port);
+                throw error;
+            }
         } finally {
-            if (releaseLease === undefined) {
-                lease.release();
+            if (!portAdopted) {
+                releaseTransport();
             }
         }
     }
 
-    async function* read(): AsyncGenerator<Result, void, unknown> {
+    async function* read(): AsyncGenerator<string, void, unknown> {
         try {
-            await Promise.race([open(), stopped.promise]);
+            const opening = open().catch((error: unknown) => {
+                if (end === undefined) {
+                    throw error;
+                }
+            });
+            await Promise.race([opening, stopped.promise]);
             if (reader !== undefined) {
-                for await (const chunk of reader) {
-                    if (end !== undefined) {
-                        break;
+                batches: for await (const batch of reader) {
+                    for (const chunk of batch) {
+                        if (end !== undefined) {
+                            break batches;
+                        }
+                        yield chunk;
                     }
-                    if (typeof chunk !== "string") {
-                        throw new TypeError("A split result must be a string.");
-                    }
-                    yield delivery.decode(chunk);
                 }
             }
             if (typeof end === "object") {
@@ -98,18 +130,8 @@ export function createSplitOperation<Result>(
         }
     }
 
-    const iterator = read();
-    const originalReturn = iterator.return.bind(iterator);
-    const originalThrow = iterator.throw.bind(iterator);
-    // Async generators queue return and throw behind a pending next. Close the reader first.
-    iterator.return = (value) => {
-        finish("return");
-        return originalReturn(value);
+    return {
+        iterator: stopGeneratorOnReturn(read(), () => finish("return")),
+        cancel: (error: unknown) => finish({ error }),
     };
-    iterator.throw = (error) => {
-        finish("return");
-        return originalThrow(error);
-    };
-
-    return { iterator, cancel: (error: unknown) => finish({ error }) };
 }

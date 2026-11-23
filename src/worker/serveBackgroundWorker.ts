@@ -2,10 +2,10 @@
 
 import { decrypt, encrypt } from "octagonal-wheels/encryption";
 import { decrypt as decryptHKDF, encrypt as encryptHKDF } from "octagonal-wheels/encryption/hkdf";
-import { serveWorkerRpc, serveWorkerStream, type ServeWorkerRpcOptions } from "@vrtmrz/rpc/worker";
-import { backgroundWorkerContract, splitChunkCapacity } from "./backgroundWorkerRpcContract.ts";
+import { serveWorkerRpc, type ServeWorkerRpcOptions } from "@vrtmrz/rpc/worker";
+import { backgroundWorkerContract, splitStreamItems } from "./backgroundWorkerRpcContract.ts";
 import { splitBackgroundRequest } from "./bg.worker.splitting.ts";
-import { encodeSplitWindow, groupSplitChunks, splitWindowFrameCapacity } from "./splitWindows.ts";
+import { serveWorkerPushStream } from "./workerPushStream.ts";
 
 export function serveBackgroundWorker(port: ServeWorkerRpcOptions<typeof backgroundWorkerContract>["port"]) {
     return serveWorkerRpc({
@@ -21,26 +21,10 @@ export function serveBackgroundWorker(port: ServeWorkerRpcOptions<typeof backgro
             endpoint.handle("encryptHKDF", (_context, input, passphrase, salt) => encryptHKDF(input, passphrase, salt));
             endpoint.handle("decryptHKDF", (_context, input, passphrase, salt) => decryptHKDF(input, passphrase, salt));
             endpoint.handle("split", (_context, request) =>
-                serveWorkerStream({
-                    createChannel: () => new MessageChannel(),
-                    maxChunkBytes: splitChunkCapacity(request.dataSrc),
+                serveWorkerPushStream({
+                    ...splitStreamItems(request.dataSrc),
                     signal: lifetime,
                     createSource: (signal) => splitBackgroundRequest(request, signal),
-                })
-            );
-            endpoint.handle("splitWindowed", (_context, request, windowBytes) =>
-                serveWorkerStream({
-                    createChannel: () => new MessageChannel(),
-                    maxChunkBytes: splitWindowFrameCapacity(splitChunkCapacity(request.dataSrc), windowBytes),
-                    signal: lifetime,
-                    async *createSource(signal) {
-                        for await (const chunks of groupSplitChunks(
-                            splitBackgroundRequest(request, signal),
-                            windowBytes
-                        )) {
-                            yield encodeSplitWindow(chunks);
-                        }
-                    },
                 })
             );
         },
