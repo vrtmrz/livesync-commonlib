@@ -2014,4 +2014,49 @@ describe("Astra Pass 3 regressions", () => {
             expect(storage.contents()).toEqual([]);
         }
     );
+
+    it.each(modes)(
+        "restores valid %s queues and rejects sparse snapshots without Object.hasOwn (iOS 15.0-15.3 compatibility)",
+        async (mode) => {
+            const withoutHasOwn = async <T>(work: () => Promise<T>): Promise<T> => {
+                const originalHasOwn = Object.hasOwn;
+                Object.defineProperty(Object, "hasOwn", { value: undefined, configurable: true, writable: true });
+                try {
+                    return await work();
+                } finally {
+                    Object.defineProperty(Object, "hasOwn", {
+                        value: originalHasOwn,
+                        configurable: true,
+                        writable: true,
+                    });
+                }
+            };
+
+            const valid = event("ios15-valid");
+            const storage = store(mode, [valid]);
+            const { manager, process } = runtime(storage.adapter);
+            await withoutHasOwn(() => manager.restoreState());
+            expect(keys(process.mock.calls.map(([item]) => item))).toEqual(["ios15-valid"]);
+            expect(storage.contents()).toEqual([]);
+            await manager.stopWatching();
+
+            const sparseStorage = store(mode);
+            if (mode === "incremental") {
+                const sparseRecords: StorageEventSnapshotRecord[] = [
+                    { id: "000000000001", event: event("first") },
+                    { id: "000000000002", event: event("second") },
+                ];
+                Reflect.deleteProperty(sparseRecords, 0);
+                sparseStorage.loadSnapshotEntries.mockResolvedValueOnce(sparseRecords);
+            } else {
+                const sparseEvents: QueuedFileEvent[] = [event("first"), event("second")];
+                Reflect.deleteProperty(sparseEvents, 0);
+                sparseStorage.loadSnapshot.mockResolvedValueOnce(sparseEvents);
+            }
+            const corrupt = runtime(sparseStorage.adapter);
+            await expect(withoutHasOwn(() => corrupt.manager.restoreState())).rejects.toThrow("Invalid storage event");
+            expect(corrupt.state.storeAcquired).toBe(false);
+            await corrupt.manager.stopWatching();
+        }
+    );
 });

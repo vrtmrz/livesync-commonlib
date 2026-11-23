@@ -413,7 +413,8 @@ function stageIncrementalRecords(
     const staged: RestoredEvent[] = [];
     for (let index = 0; index < records.length; index++) {
         const record = records[index];
-        if (!Object.hasOwn(records, index) || !isRecord(record)) throw new Error("Invalid storage event record");
+        if (!Object.prototype.hasOwnProperty.call(records, index) || !isRecord(record))
+            throw new Error("Invalid storage event record");
         const id = record.id;
         if (typeof id !== "string" || !id) throw new Error("Invalid storage event record id");
         if (ids.has(id)) throw new Error(`Duplicate storage event record id: ${id}`);
@@ -436,7 +437,8 @@ async function loadRestoredEvents(effects: StorageEventQueueEffects, state: Stor
     if (!Array.isArray(snapshot)) throw new Error("Invalid storage event snapshot");
     const staged: RestoredEvent[] = [];
     for (let index = 0; index < snapshot.length; index++) {
-        if (!Object.hasOwn(snapshot, index)) throw new Error("Invalid storage event snapshot: sparse array");
+        if (!Object.prototype.hasOwnProperty.call(snapshot, index))
+            throw new Error("Invalid storage event snapshot: sparse array");
         staged.push(stageRestoredEvent(snapshot[index]));
     }
     return staged;
