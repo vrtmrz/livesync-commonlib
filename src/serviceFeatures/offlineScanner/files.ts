@@ -236,6 +236,7 @@ export async function collectFilesOnStorage(
  * @param settings - Comparison-key normalisation settings.
  * @param log - Collection diagnostics.
  * @param showingNotice - Whether progress is reported as a visible notice.
+ * @param isStopping - Optional stop predicate checked between database records and target lookups.
  * @returns Metadata lookups and comparison keys which ordinary scans must quarantine.
  * @remarks Conflicts are retained for later policy checks. This collection does
  * not repair identities, write revisions, or fetch file bodies.
@@ -316,6 +317,7 @@ export async function collectDatabaseFiles(
     };
 }
 
+/** Persist a storage file to the local database unless size limits or the stop fence abort the write. */
 export async function updateToDatabase(
     host: NecessaryServices<"vault", "fileHandler">,
     log: LogFunction,
@@ -339,6 +341,7 @@ export async function updateToDatabase(
     }
 }
 
+/** Reflect a local database entry to storage unless deleted, oversized, or aborted by the stop fence. */
 export async function updateToStorage(
     host: NecessaryServices<"vault" | "path", "fileHandler">,
     log: LogFunction,

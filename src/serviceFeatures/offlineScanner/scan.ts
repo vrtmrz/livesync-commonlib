@@ -1,6 +1,7 @@
 import { unique } from "octagonal-wheels/collection";
-import { withConcurrency } from "octagonal-wheels/iterable/map";
 import { withLock } from "octagonal-wheels/concurrency/lock.scoped";
+import { forEachInScope } from "octagonal-wheels/concurrency/scoped.iteration";
+import { withScope } from "octagonal-wheels/resource/scope";
 import {
     LOG_LEVEL_INFO,
     LOG_LEVEL_NOTICE,
@@ -465,36 +466,7 @@ async function synchroniseFilePairs(
         if (result.status === "failed") return FilePairProcessResults.FAILED;
         return result.status === "deferred" ? FilePairProcessResults.SKIPPED : FilePairProcessResults.COMPLETED;
     };
-    function* dispatchablePairs(phase: Iterable<FilePair>) {
-        for (const pair of phase) {
-            if (isStopping()) return;
-            yield pair;
-        }
-    }
-    // Both phases reuse the existing ten scanner slots; the handler owns the shared three-file cap.
-    async function* processPhases() {
-        for (const phase of phases) {
-            yield* withConcurrency(
-                dispatchablePairs(phase),
-                async (e) => {
-                    // The concurrency runner can prefetch a pair while waiting for a slot.
-                    if (isStopping()) return undefined;
-                    const path = e.file?.path ?? getPathFromEntry(host, e.doc!);
-                    try {
-                        return { path, result: await processPair(e) };
-                    } catch (error) {
-                        log(`Error while synchronising files`, LOG_LEVEL_NOTICE);
-                        log(error, LOG_LEVEL_VERBOSE);
-                        return { path, result: FilePairProcessResults.FAILED };
-                    }
-                },
-                10
-            );
-        }
-    }
-    for await (const outcome of processPhases()) {
-        if (!outcome) continue;
-        const { path, result } = outcome;
+    const recordPairOutcome = (path: string, result: FilePairProcessResult): void => {
         processedCount++;
         counts[result]++;
         if (result === FilePairProcessResults.FAILED) {
@@ -510,7 +482,29 @@ async function synchroniseFilePairs(
                 "syncAll"
             );
         }
-    }
+    };
+    // Both phases reuse the existing ten scanner slots; the handler owns the shared three-file cap.
+    // `forEachInScope` observes `isCancelled` before admitting each item and drains started work cleanly.
+    await withScope(undefined, async (parent) => {
+        const iterationScope = Object.assign(parent, { isCancelled: isStopping });
+        for (const phase of phases) {
+            if (isStopping()) break;
+            await forEachInScope(iterationScope, phase, { concurrency: 10 }, async (e) => {
+                if (isStopping()) return;
+                const path = e.file?.path ?? getPathFromEntry(host, e.doc!);
+                let result: FilePairProcessResult;
+                try {
+                    result = await processPair(e);
+                } catch (error) {
+                    log(`Error while synchronising files`, LOG_LEVEL_NOTICE);
+                    log(error, LOG_LEVEL_VERBOSE);
+                    result = FilePairProcessResults.FAILED;
+                }
+                if (isStopping()) return;
+                recordPairOutcome(path, result);
+            });
+        }
+    });
     if (isStopping()) return VaultScanResults.FAILED;
     const { completed: completedCount, skipped: skippedCount, failed: failedCount } = counts;
     log(

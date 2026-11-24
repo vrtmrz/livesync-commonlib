@@ -200,6 +200,32 @@ describe("prepareDatabaseForUse readiness", () => {
         );
     });
 
+    it("returns false when an awaited preparation hook rejects after unload begins, while rethrowing ordinary failures", async () => {
+        const unloadingCase = createPreparation();
+        let unloading = false;
+        unloadingCase.host.services.appLifecycle.isUnloading = () => unloading;
+        const entered = promiseWithResolvers<void>();
+        const opened = promiseWithResolvers<boolean>();
+        unloadingCase.host.services.database.openDatabase.mockImplementationOnce(() => {
+            entered.resolve();
+            return opened.promise;
+        });
+
+        const preparing = prepareDatabaseForUse(unloadingCase.host, vi.fn(), unloadingCase.errorManager as any);
+        await entered.promise;
+        unloading = true;
+        opened.reject(new Error("Database closed during unload"));
+        await expect(preparing).resolves.toBe(false);
+        expect(unloadingCase.host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+
+        const ordinaryCase = createPreparation();
+        const failure = new Error("Database open failed");
+        ordinaryCase.host.services.database.openDatabase.mockRejectedValueOnce(failure);
+        await expect(
+            prepareDatabaseForUse(ordinaryCase.host, vi.fn(), ordinaryCase.errorManager as any)
+        ).rejects.toBe(failure);
+    });
+
     it("forwards an explicit startup content-check policy without relaxing event completion", async () => {
         const { errorManager, host, timeline } = createPreparation();
         await prepareDatabaseForUse(host, vi.fn(), errorManager as any, false, true, false, true,

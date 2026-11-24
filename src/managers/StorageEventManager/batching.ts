@@ -21,6 +21,7 @@ export type WaitInfo = {
     deadline: DeferredAction;
     event: FileEventItem;
 };
+/** Gate resolution: `true` runs the handler, `false` follows a coalesced successor, `"stopped"` aborts before start. */
 export type BatchGateOutcome = boolean | "stopped";
 /**
  * Inject waiting state, live delay settings, logging, snapshots, and gate control into batching.
@@ -40,12 +41,12 @@ export interface StorageEventBatching {
     add(path: string, event: FileEventItem, since?: number): WaitInfo;
 }
 /**
- * Schedule a batch deadline through the host-compatible global timer API.
- * @param callback - The action which releases the gate when its deadline expires.
+ * Schedule a timeout through the host-compatible global timer API (`compatGlobal`).
+ * @param callback - The action to run when the delay expires.
  * @param delayMs - The delay in milliseconds.
  * @returns A function which cancels the scheduled timer.
  */
-const scheduleStorageTimeout: TimeoutScheduler = (callback, delayMs) => {
+export const scheduleStorageTimeout: TimeoutScheduler = (callback, delayMs) => {
     const handle = compatGlobal.setTimeout(callback, delayMs);
     return () => compatGlobal.clearTimeout(handle);
 };
@@ -72,6 +73,15 @@ export function finishBatchWaiting(
         batching.updateStatus();
     }
     if (requestSnapshot) batching.requestSnapshot();
+}
+
+/** Dispose every active batch deadline and settle its gate with the terminal `"stopped"` outcome. */
+export function disposeAllBatchGates(waiting: Map<string, WaitInfo>): void {
+    for (const waitInfo of waiting.values()) {
+        waitInfo.deadline.dispose();
+        waitInfo.canProceed.resolve("stopped");
+    }
+    waiting.clear();
 }
 
 /**

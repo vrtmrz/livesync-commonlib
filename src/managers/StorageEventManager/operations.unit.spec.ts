@@ -3,14 +3,24 @@ import type { FileEventItem, FilePath } from "@lib/common/types";
 import {
     assertFileEventAdmission,
     assertSuccessfulFileEvents,
-    type OperationResult,
     createFileEventAttempt,
+    getFileEventPaths,
+    isFailedResult,
+    isStoppedResult,
     planFileEventAttempts,
     planFileEventPredecessors,
+    type OperationResult,
     type PendingFileEvent,
 } from "./operations";
 import { planFileEventSnapshot } from "./snapshot";
-import { TYPE_SENTINEL_FLUSH, createStorageEventState, retainFileEvent } from "./state";
+import {
+    TYPE_SENTINEL_FLUSH,
+    completeFileEventAttempt,
+    createStorageEventState,
+    hasPendingStorageEvent,
+    removePendingEntry,
+    retainFileEvent,
+} from "./state";
 
 /** Build a retained failure for pure planning tests without scheduling a handler. */
 function failedOperation(key: string, sequence: number): PendingFileEvent {
@@ -147,6 +157,64 @@ describe("file-event assertions", () => {
             results.forEach((result, index) => expect(result).toBe(before[index]));
         }
     );
+
+    it("distinguishes succeeded, failed, and stopped operation results", () => {
+        const succeeded: OperationResult = { ok: true };
+        const failed: OperationResult = { ok: false, error: new Error("boom") };
+        const stopped: OperationResult = { ok: false, stopped: true };
+        expect(isFailedResult(succeeded)).toBe(false);
+        expect(isStoppedResult(succeeded)).toBe(false);
+        expect(isFailedResult(failed)).toBe(true);
+        expect(isStoppedResult(failed)).toBe(false);
+        expect(isFailedResult(stopped)).toBe(false);
+        expect(isStoppedResult(stopped)).toBe(true);
+    });
+
+    it("deduplicates event paths and keeps path indexes balanced across post-retention mutation", () => {
+        const selfRename: FileEventItem = {
+            type: "RENAME",
+            key: "self-rename",
+            args: {
+                file: {
+                    path: "same.md" as FilePath,
+                    name: "same.md",
+                    stat: { type: "file", ctime: 1, mtime: 1, size: 1 },
+                },
+                oldPath: "same.md",
+            },
+        };
+        expect(getFileEventPaths(selfRename)).toEqual(["same.md"]);
+
+        const rename: FileEventItem = {
+            type: "RENAME",
+            key: "rename",
+            args: {
+                file: {
+                    path: "dst.md" as FilePath,
+                    name: "dst.md",
+                    stat: { type: "file", ctime: 1, mtime: 1, size: 1 },
+                },
+                oldPath: "src.md",
+            },
+        };
+        const state = createStorageEventState();
+        const entry = retainFileEvent(state, rename);
+        const operation = entry.operation!;
+        expect(operation.indexedPaths).toEqual(["dst.md", "src.md"]);
+        expect(state.latestByPath.get("dst.md")).toBe(operation);
+        expect(state.latestByPath.get("src.md")).toBe(operation);
+        expect(hasPendingStorageEvent(state, "dst.md" as FilePath)).toBe(true);
+        expect(hasPendingStorageEvent(state, "src.md" as FilePath)).toBe(true);
+
+        // Mutating the live event after retention must not leak old path index keys on completion/removal.
+        rename.args.file.path = "mutated.md" as FilePath;
+        rename.args.oldPath = "mutated-old.md";
+        completeFileEventAttempt(state, operation, operation.attempt);
+        removePendingEntry(state, entry);
+        expect(state.latestByPath.size).toBe(0);
+        expect(state.pendingPathCounts.size).toBe(0);
+        expect(state.pendingOperationCount).toBe(0);
+    });
 });
 
 /** Observe arbitrary rejection values, including undefined, without normalising them to Error. */

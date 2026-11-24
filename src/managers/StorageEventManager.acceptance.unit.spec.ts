@@ -19,7 +19,13 @@ import type {
 import { createFileEventAttempt, stopFileEventAttempt } from "./StorageEventManager/operations";
 import { processStorageEventAttempt } from "./StorageEventManager/processing";
 import { sanitiseEventForPersistence } from "./StorageEventManager/snapshot";
-import { TYPE_SENTINEL_FLUSH, type QueuedFileEvent } from "./StorageEventManager/state";
+import {
+    TYPE_SENTINEL_FLUSH,
+    isManagerStopped,
+    isStoreAcquired,
+    isStoreRestoring,
+    type QueuedFileEvent,
+} from "./StorageEventManager/state";
 
 const modes = ["full snapshot", "incremental"] as const;
 type Mode = (typeof modes)[number];
@@ -208,10 +214,10 @@ describe("Astra review regressions", () => {
         await expect(manager.restoreState()).rejects.toThrow("Duplicate storage event record id");
         expect(state.pendingSnapshot.size).toBe(0);
         expect(state.pendingPathCounts.size).toBe(0);
-        expect(state.activeRecordIds.size).toBe(0);
-        expect(state.committedEntryIds.size).toBe(0);
+        expect(state.persistence.activeRecordIds.size).toBe(0);
+        expect(state.persistence.committedEntryIds.size).toBe(0);
         expect(state.latestByPath.size).toBe(0);
-        expect(state.dirtyUpserts.size).toBe(0);
+        expect(state.persistence.dirtyUpserts.size).toBe(0);
         expect(manager["buffer"].read()).toEqual([]);
         await manager.restoreState();
         await manager.stopWatching();
@@ -353,7 +359,7 @@ describe("Astra review regressions", () => {
             manager._takeSnapshot(entry.mutationVersion),
             manager["persistSnapshot"]({ entry, attempt: entry.operation!.attempt }),
         ]);
-        await state.snapshotTail;
+        await state.persistence.tail;
         const unsettled = Symbol("unsettled");
         expect(await Promise.race([pending, new Promise((resolve) => setImmediate(() => resolve(unsettled)))])).toEqual(
             [
@@ -362,7 +368,7 @@ describe("Astra review regressions", () => {
             ]
         );
         expect(storage.commit).not.toHaveBeenCalled();
-        expect(state.snapshotWriterRunning).toBe(false);
+        expect(state.persistence.writerRunning).toBe(false);
         expect(state.pendingSnapshot.get(item)).toBe(entry);
         Object.defineProperty(entry, "event", { value: item });
         await expect(manager.processFileEvent(item)).resolves.toBeUndefined();
@@ -476,7 +482,7 @@ describe("Astra review regressions", () => {
         const { manager } = runtime(storage.adapter);
         await manager.pauseDispatch();
         const restore = manager.restoreState();
-        await vi.waitFor(() => expect(manager["eventState"].restorePending).toBe(false));
+        await vi.waitFor(() => expect(isStoreRestoring(manager["eventState"])).toBe(false));
         manager.enqueue(event("live"));
         await vi.waitFor(() => expect(storage.orderedRecords()).toHaveLength(1));
         expect(storage.orderedRecords()[0].id).toBe("000000000002");
@@ -548,8 +554,8 @@ describe("Step 1 review regressions", () => {
         });
         const restore = manager.restoreState();
         await started.promise;
-        expect(state.activeDispatchSlots).toBe(window);
-        expect(state.inFlightOperations.size).toBe(window);
+        expect(state.dispatch.activeSlots).toBe(window);
+        expect(state.dispatch.inFlightOperations.size).toBe(window);
         expect(process).toHaveBeenCalledTimes(window);
         expect(storage.commit).not.toHaveBeenCalled();
         const ack = blockCommit(storage);
@@ -578,18 +584,18 @@ describe("Step 1 review regressions", () => {
         });
         const work = phase === "retry" ? manager.waitForIdle() : manager.processFileEvent(intent);
         await started.promise;
-        expect(state.inFlightOperations.size).toBe(1);
+        expect(state.dispatch.inFlightOperations.size).toBe(1);
         const ack = blockCommit(storage);
         handler.resolve(true);
         await ack.entered;
-        expect(state.inFlightOperations.size).toBe(1);
+        expect(state.dispatch.inFlightOperations.size).toBe(1);
         const stopped = vi.fn();
         const retiring = manager.stopWatching().then(stopped);
         expect(keys(storage.contents())).toEqual(["ack"]);
         expect(stopped).not.toHaveBeenCalled();
         ack.resolve();
         await Promise.all([work, retiring]);
-        expect(state.inFlightOperations.size).toBe(0);
+        expect(state.dispatch.inFlightOperations.size).toBe(0);
         expect(storage.contents()).toEqual([]);
         const writes = storage.commit.mock.calls.length;
         const replacement = runtime(storage.adapter);
@@ -701,7 +707,7 @@ describe("Step 1 review regressions", () => {
         const live = { ...event("live"), type: "DELETE" } as const;
         manager.enqueue(live);
         read.resolve([event("restored"), sentinel(), { ...event("restored-delete"), type: "DELETE" }]);
-        await vi.waitFor(() => expect(state.restorePending).toBe(false));
+        await vi.waitFor(() => expect(isStoreRestoring(state)).toBe(false));
         const entries = [...state.pendingSnapshot.values()];
         expect(keys(entries.map((entry) => entry.event))).toEqual([
             "restored",
@@ -826,11 +832,11 @@ describe.each(modes)("detached writes with a %s adapter", (mode) => {
         const failure = new Error("late rejection");
         attempt.admissionFailure = { error: failure };
         expect(attempt.result).toBeUndefined();
-        expect(state.inFlightOperations.size).toBe(1);
+        expect(state.dispatch.inFlightOperations.size).toBe(1);
         expect(storage.contents()).toEqual([sanitiseEventForPersistence(item)]);
         handler.resolve(true);
         expect(await result).toEqual([{ status: "rejected", reason: failure }]);
-        expect(state.inFlightOperations.size).toBe(0);
+        expect(state.dispatch.inFlightOperations.size).toBe(0);
         expect(storage.contents()).toEqual([sanitiseEventForPersistence(item)]);
         await manager.waitForIdle();
         expect(process).toHaveBeenCalledTimes(2);
@@ -1221,12 +1227,12 @@ describe("preserve-and-stop and Commonlib handoff", () => {
         await started.promise;
         manager.enqueue(second);
         await vi.waitFor(() => expect(semaphore.waiting).toBe(1));
-        expect(state.activeDispatchSlots).toBe(2);
+        expect(state.dispatch.activeSlots).toBe(2);
 
         const paused = manager.pauseDispatch();
         handler.resolve(true);
         await paused;
-        await vi.waitFor(() => expect(state.activeDispatchSlots).toBe(0));
+        await vi.waitFor(() => expect(state.dispatch.activeSlots).toBe(0));
         expect(process).toHaveBeenCalledExactlyOnceWith(first);
         expect(storage.contents()).toEqual([sanitiseEventForPersistence(second)]);
         const permit = await semaphore.tryAcquire(1, 0);
@@ -1246,7 +1252,7 @@ describe("preserve-and-stop and Commonlib handoff", () => {
             expect(process).toHaveBeenCalledExactlyOnceWith(first);
             expect(storage.contents()).toEqual([sanitiseEventForPersistence(second)]);
         }
-        expect(state.activeDispatchSlots).toBe(0);
+        expect(state.dispatch.activeSlots).toBe(0);
         expect(semaphore.waiting).toBe(0);
     });
 
@@ -1528,7 +1534,7 @@ describe.each(["incremental", "suppressed full snapshot I/O"] as const)("7,453-e
                 lookups.mockRestore();
             }
             processed.push(item.key);
-            peakSlots = Math.max(peakSlots, state.activeDispatchSlots);
+            peakSlots = Math.max(peakSlots, state.dispatch.activeSlots);
             active++;
             peakHandlers = Math.max(peakHandlers, active);
             // Hold the first five distinct ready operations until the window fills.
@@ -1744,10 +1750,10 @@ describe("Astra Pass 2 regressions", () => {
         const { manager, state, process } = runtime(storage.adapter);
 
         await expect(manager.restoreState()).rejects.toThrow("Invalid storage event snapshot");
-        expect(state.storeAcquired).toBe(false);
+        expect(isStoreAcquired(state)).toBe(false);
         expect(state.pendingSnapshot.size).toBe(0);
         expect(state.pendingOperationCount).toBe(0);
-        expect(state.activeRecordIds.size).toBe(0);
+        expect(state.persistence.activeRecordIds.size).toBe(0);
         expect(manager["buffer"].read()).toEqual([]);
 
         const late = event("late");
@@ -1840,7 +1846,7 @@ describe("Astra Pass 3 regressions", () => {
             const { manager, process, optional, state } = runtime(storage.adapter);
 
             await expect(manager.restoreState()).rejects.toThrow("Invalid persisted storage event");
-            expect(state.storeAcquired).toBe(false);
+            expect(isStoreAcquired(state)).toBe(false);
             expect(state.pendingSnapshot.size).toBe(0);
             expect(process).not.toHaveBeenCalled();
             expect(optional).not.toHaveBeenCalled();
@@ -1898,13 +1904,13 @@ describe("Astra Pass 3 regressions", () => {
 
             await manager.stopWatching();
             await expect(scan).resolves.toBe(false);
-            expect(state.storeAcquired).toBe(false);
+            expect(isStoreAcquired(state)).toBe(false);
             expect(storage.commit).not.toHaveBeenCalled();
 
             // Late database-closed rejection from the abandoned read must not overwrite or surface unhandled.
             read.reject(new Error("Database closed during unload"));
             await new Promise<void>((resolve) => setImmediate(resolve));
-            expect(state.storeAcquired).toBe(false);
+            expect(isStoreAcquired(state)).toBe(false);
             expect(storage.commit).not.toHaveBeenCalled();
             expect(process).not.toHaveBeenCalled();
             expect(keys(storage.contents())).toEqual(["unread-during-stop"]);
@@ -1999,11 +2005,11 @@ describe("Astra Pass 3 regressions", () => {
                 },
             ]);
             expect(manager.hasPendingFileEvent("old.md" as FilePath)).toBe(true);
-            expect(state.storeAcquired).toBe(false);
+            expect(isStoreAcquired(state)).toBe(false);
 
             await expect(manager.stopWatching()).rejects.toThrow("Storage event store was not acquired before stopping");
             await expect(restoring).resolves.toBeUndefined();
-            expect(state.stopped).toBe(true);
+            expect(isManagerStopped(state)).toBe(true);
             expect(storage.commit).not.toHaveBeenCalled();
             expect(process).not.toHaveBeenCalled();
             expect(keys(storage.contents())).toEqual(["preexisting"]);
@@ -2055,8 +2061,116 @@ describe("Astra Pass 3 regressions", () => {
             }
             const corrupt = runtime(sparseStorage.adapter);
             await expect(withoutHasOwn(() => corrupt.manager.restoreState())).rejects.toThrow("Invalid storage event");
-            expect(corrupt.state.storeAcquired).toBe(false);
+            expect(isStoreAcquired(corrupt.state)).toBe(false);
             await corrupt.manager.stopWatching();
         }
     );
+
+    it("does not clobber an overlapping retry or re-read on synchronous re-entrant restoreState()", async () => {
+        const storage = store("incremental", [event("once")]);
+        const failure = new Error("transient load failure");
+        const secondRead = promiseWithResolvers<StorageEventSnapshotRecord[]>();
+        let reentrant: Promise<void> | undefined;
+        let watching: Promise<void> | undefined;
+        let manager!: ReturnType<typeof runtime>["manager"];
+        storage.loadSnapshotEntries
+            .mockRejectedValueOnce(failure)
+            .mockImplementationOnce(() => {
+                // Call beginWatch() before re-entrant restoreState() so it exercises reading the active
+                // restore promise before snapShotRestored is refreshed.
+                watching = manager.beginWatch();
+                reentrant = manager.restoreState();
+                return secondRead.promise;
+            });
+        const built = runtime(storage.adapter);
+        manager = built.manager;
+
+        const first = manager.restoreState();
+        const firstSettled = expect(first).rejects.toBe(failure);
+        const retry = first.catch(() => manager.restoreState());
+        await firstSettled;
+        const third = manager.restoreState();
+        expect(reentrant).toBeDefined();
+        expect(third).toBe(reentrant);
+        await Promise.resolve();
+        expect(built.watcher).not.toHaveBeenCalled();
+
+        secondRead.resolve([{ id: "000000000001", event: event("once") }]);
+        await Promise.all([retry, third, reentrant, watching]);
+        expect(storage.loadSnapshotEntries).toHaveBeenCalledTimes(2);
+        expect(built.process).toHaveBeenCalledTimes(1);
+        expect(built.watcher).toHaveBeenCalledTimes(1);
+        expect(storage.contents()).toEqual([]);
+        await manager.stopWatching();
+    });
+
+    it("waits for a replacement store restore started while beginWatch() was awaiting an older replay retry", async () => {
+        const storage = store("incremental", [event("initial")]);
+        const { manager, watcher, process } = runtime(storage.adapter);
+        const replayFailure = new Error("replay dispatch failed");
+        const runSpy = vi
+            .spyOn(manager as unknown as { runQueuedEvents: (opts?: unknown) => Promise<void> }, "runQueuedEvents")
+            .mockRejectedValueOnce(replayFailure);
+        await expect(manager.restoreState()).rejects.toBe(replayFailure);
+        runSpy.mockRestore();
+
+        const firstStarted = promiseWithResolvers<void>();
+        const finishFirst = promiseWithResolvers<boolean>();
+        process.mockImplementationOnce(async () => {
+            firstStarted.resolve();
+            return await finishFirst.promise;
+        });
+
+        const retrying = manager.restoreState();
+        const watching = manager.beginWatch();
+        await firstStarted.promise;
+
+        const replacementRead = promiseWithResolvers<StorageEventSnapshotRecord[]>();
+        storage.loadSnapshotEntries.mockReturnValueOnce(replacementRead.promise);
+        manager.resetPersistenceState();
+        const replacementRestore = manager.restoreState();
+
+        finishFirst.resolve(true);
+        await retrying;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(watcher).not.toHaveBeenCalled();
+
+        replacementRead.resolve([]);
+        await Promise.all([replacementRestore, watching]);
+        expect(watcher).toHaveBeenCalledTimes(1);
+        await manager.stopWatching();
+    });
+
+    it("does not register the host watcher when beginStopWatching() is called in the same turn as beginWatch()", async () => {
+        const storage = store("incremental");
+        const { manager, watcher } = runtime(storage.adapter);
+
+        const watching = manager.beginWatch();
+        manager.beginStopWatching();
+        await watching;
+        expect(watcher).not.toHaveBeenCalled();
+        await manager.stopWatching();
+    });
+
+    it("aligns retry restoreState() and beginWatch() after a post-acquisition replay failure without re-reading storage", async () => {
+        const storage = store("incremental", [event("acquired")]);
+        const { manager, watcher, process, state } = runtime(storage.adapter);
+        const replayFailure = new Error("replay dispatch failed");
+        const runSpy = vi
+            .spyOn(manager as unknown as { runQueuedEvents: (opts?: unknown) => Promise<void> }, "runQueuedEvents")
+            .mockRejectedValueOnce(replayFailure);
+
+        await expect(manager.restoreState()).rejects.toBe(replayFailure);
+        expect(isStoreAcquired(state)).toBe(true);
+        await expect(manager.beginWatch()).rejects.toBe(replayFailure);
+        expect(watcher).not.toHaveBeenCalled();
+
+        runSpy.mockRestore();
+        await expect(manager.restoreState()).resolves.toBeUndefined();
+        await expect(manager.beginWatch()).resolves.toBeUndefined();
+        expect(storage.loadSnapshotEntries).toHaveBeenCalledTimes(1);
+        expect(process).toHaveBeenCalledTimes(1);
+        expect(watcher).toHaveBeenCalledTimes(1);
+        await manager.stopWatching();
+    });
 });

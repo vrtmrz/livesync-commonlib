@@ -506,8 +506,16 @@ export interface IAppLifecycleService {
 
     isReady(): boolean;
 
+    /**
+     * Report whether the application has entered terminal unload (`markIsUnloading()`).
+     * Distinct from reversible suspension (`isSuspended()`); absence on compatibility hosts means not unloading.
+     */
     isUnloading?(): boolean;
 
+    /**
+     * Mark the application as terminally unloading, preventing future `markIsReady()` transitions
+     * and signalling startup/preparation routines to abort cleanly.
+     */
     markIsUnloading?(): void;
 
     markIsReady(): void;

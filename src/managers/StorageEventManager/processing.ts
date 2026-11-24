@@ -5,9 +5,11 @@
 import type { FileEventItem, FilePath } from "@lib/common/types";
 import { createReconcileEvent } from "@lib/common/models/fileaccess.definition";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService";
-import { withLock } from "octagonal-wheels/concurrency/lock";
+import { withLock } from "octagonal-wheels/concurrency/lock.scoped";
 import { withSemaphore, type SemaphoreObject } from "octagonal-wheels/concurrency/semaphore";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
+import { withScope } from "octagonal-wheels/resource/scope";
+import type { BatchGateOutcome } from "./batching";
 import {
     canRetryFileEvent,
     assertFileEventAdmission,
@@ -20,11 +22,18 @@ import {
 } from "./operations";
 import {
     completeFileEventAttempt,
+    isStoreAcquired,
     pendingFileOperations,
     type SnapshotCompletion,
     type StorageEventNotifications,
     type StorageEventState,
 } from "./state";
+
+/** Terminal result of an attempt's execution step before completion persistence. */
+type AttemptExecutionOutcome = "completed" | "stopped";
+
+/** Result of one semaphore-guarded handler dispatch attempt; `"paused"` yields back to the pause barrier. */
+type HandlerDispatchOutcome = AttemptExecutionOutcome | "paused";
 
 /** Host callbacks which connect attempt ownership to batching, snapshots, and file processing. */
 export interface StorageEventAttemptEffects extends StorageEventNotifications {
@@ -35,7 +44,7 @@ export interface StorageEventAttemptEffects extends StorageEventNotifications {
     /** Wait for captured attempts and return their terminal outcomes. */
     wait(attempts: Map<PendingFileEvent, FileEventAttempt>): Promise<OperationResult[]>;
     /** Initialise dependency links and report whether this operation still owns processing. */
-    initialise(operation: PendingFileEvent): Promise<boolean | "stopped">;
+    initialise(operation: PendingFileEvent): Promise<BatchGateOutcome>;
     /** Persist current intent before handler execution. */
     takeSnapshot(requiredMutationVersion?: number): Promise<void>;
     /** Persist the completion acknowledgement for this exact snapshot entry and attempt. */
@@ -48,12 +57,27 @@ export interface StorageEventAttemptEffects extends StorageEventNotifications {
     cancelWaiting(event: FileEventItem): void;
     /** Settle an operation attempt as failed. */
     fail(operation: PendingFileEvent, error: unknown, attempt: FileEventAttempt): void;
+    /** Whether this event currently owns an active batch wait gate. */
     isWaiting?(event: FileEventItem): boolean;
+    /** Whether the owning manager has entered orderly shutdown. */
     isStopping?(): boolean;
+    /** Wait until a reversible dispatch pause is lifted or shutdown begins. */
     waitUntilDispatchResumed?(): Promise<void>;
+    /** Whether new file-handler dispatch is currently paused. */
     isDispatchPaused?(): boolean;
+    /** Re-acquire dispatch window capacity before competing for the handler semaphore. */
     acquireDispatchSlot?(): Promise<boolean>;
+    /** Record that execution has crossed the host-handler start boundary. */
     onHandlerStarted?(): void;
+}
+
+/**
+ * Release the attempt's dispatch slot before blocking on another producer or pause signal,
+ * ensuring waiting attempts never hold dispatch capacity needed by their predecessors or retries.
+ */
+async function whileReleasingDispatchSlot<T>(releaseDispatchSlot: () => void, wait: () => Promise<T>): Promise<T> {
+    releaseDispatchSlot();
+    return await wait();
 }
 
 /**
@@ -73,7 +97,7 @@ function prepareAttempt(
     operation: PendingFileEvent,
     attempt: FileEventAttempt,
     effects: StorageEventAttemptEffects
-): Promise<boolean | "stopped"> {
+): Promise<BatchGateOutcome> {
     attempt.orderedPredecessors ??=
         operation.barrierBefore === undefined
             ? new Map()
@@ -88,73 +112,110 @@ function prepareAttempt(
     return gate;
 }
 
+/** Follow a coalesced successor's completion instead of running a duplicate handler for this operation. */
+async function waitForCoalescedSuccessor(
+    operation: PendingFileEvent,
+    attempt: FileEventAttempt,
+    releaseDispatchSlot: () => void
+): Promise<AttemptExecutionOutcome> {
+    if (!attempt.successor) {
+        throw new Error(`Storage operation cancelled without a successor: ${operation.event.args.file.path}`);
+    }
+    const result = await whileReleasingDispatchSlot(releaseDispatchSlot, () => attempt.successor!.completion.promise);
+    if (isStoppedResult(result)) return "stopped";
+    assertSuccessfulFileEvents([result]);
+    return "completed";
+}
+
 /**
- * Wait for captured dependencies and invoke the host processor when the batch gate permits it.
- * @param state - The manager state used to associate a transient reconciliation event with its durable operation.
- * @param operation - The durable operation being attempted.
- * @param attempt - The current attempt and its captured dependency boundaries.
- * @param canProceed - Whether initialisation granted this operation the batch gate.
- * @param effects - Host callbacks for dependency waits, semaphore access, and processing.
- * @param releaseDispatchSlot - Release dispatch capacity while waiting for another producer.
- * @param storeGeneration - The store generation in which the attempt began.
- * @returns The outcome after dependency handling and any host processing request.
- * @remarks Ordered predecessors require settlement only; related prerequisites require success. A cancelled gate
- * instead waits for its coalesced successor to succeed. Processing errors and dependency failures propagate to the
- * attempt owner; this function does not persist completion.
+ * Wait for captured ordering and prerequisite dependencies without holding a dispatch slot.
+ * Ordered predecessors require settlement only; related prerequisites additionally require success.
+ */
+async function waitForCapturedDependencies(
+    attempt: FileEventAttempt,
+    effects: StorageEventAttemptEffects,
+    releaseDispatchSlot: () => void
+): Promise<AttemptExecutionOutcome> {
+    if (attempt.orderedPredecessors?.size) {
+        const results = await whileReleasingDispatchSlot(releaseDispatchSlot, () =>
+            effects.wait(attempt.orderedPredecessors!)
+        );
+        if (effects.isStopping?.() || results.some(isStoppedResult)) return "stopped";
+    }
+    if (attempt.prerequisites?.size) {
+        const results = await whileReleasingDispatchSlot(releaseDispatchSlot, () =>
+            effects.wait(attempt.prerequisites!)
+        );
+        if (effects.isStopping?.() || results.some(isStoppedResult)) return "stopped";
+        assertSuccessfulFileEvents(results);
+    }
+    return "completed";
+}
+
+/** Yield the dispatch slot until any active reversible dispatch pause is lifted or shutdown starts. */
+async function waitWhileDispatchPaused(
+    effects: StorageEventAttemptEffects,
+    releaseDispatchSlot: () => void
+): Promise<void> {
+    while (effects.isDispatchPaused?.() && !effects.isStopping?.()) {
+        await whileReleasingDispatchSlot(releaseDispatchSlot, async () => {
+            await effects.waitUntilDispatchResumed?.();
+        });
+    }
+}
+
+/** Acquire the host concurrency semaphore, verify preconditions, and invoke the file-event handler. */
+function invokeFileEventHandler(
+    state: StorageEventState,
+    operation: PendingFileEvent,
+    attempt: FileEventAttempt,
+    effects: StorageEventAttemptEffects,
+    storeGeneration: number
+): Promise<HandlerDispatchOutcome> {
+    return withSemaphore(effects.semaphore(), async () => {
+        if (effects.isStopping?.()) return "stopped";
+        if (effects.isDispatchPaused?.()) return "paused";
+        assertFileEventAdmission(attempt);
+        if (state.persistence.storeGeneration !== storeGeneration) {
+            throw new Error("Storage event store changed during processing");
+        }
+        const event = attempt.reconcile ? createReconcileEvent(operation.event) : operation.event;
+        state.operations.set(event, operation);
+        attempt.handlerStarted = true;
+        effects.onHandlerStarted?.();
+        await effects.requestProcessQueue(event);
+        return "completed";
+    });
+}
+
+/**
+ * Advance a gate-cleared attempt through dependency waits, pause/slot acquisition, and handler execution.
+ * Each blocking step releases the dispatch slot while waiting and re-acquires capacity before entering
+ * the host semaphore.
  */
 async function executeAttempt(
     state: StorageEventState,
     operation: PendingFileEvent,
     attempt: FileEventAttempt,
-    canProceed: boolean | "stopped",
+    canProceed: BatchGateOutcome,
     effects: StorageEventAttemptEffects,
     releaseDispatchSlot: () => void,
     storeGeneration: number
-): Promise<"completed" | "stopped"> {
+): Promise<AttemptExecutionOutcome> {
     if (canProceed === "stopped") return "stopped";
     if (!canProceed) {
-        if (!attempt.successor)
-            throw new Error(`Storage operation cancelled without a successor: ${operation.event.args.file.path}`);
-        releaseDispatchSlot();
-        const result = await attempt.successor.completion.promise;
-        if (isStoppedResult(result)) return "stopped";
-        assertSuccessfulFileEvents([result]);
-        return "completed";
+        return await waitForCoalescedSuccessor(operation, attempt, releaseDispatchSlot);
     }
-    // Ordering waits for settlement; related dependencies additionally require success.
-    if (attempt.orderedPredecessors?.size) {
-        releaseDispatchSlot();
-        const results = await effects.wait(attempt.orderedPredecessors);
-        if (effects.isStopping?.() || results.some(isStoppedResult)) return "stopped";
-    }
-    if (attempt.prerequisites?.size) {
-        releaseDispatchSlot();
-        const results = await effects.wait(attempt.prerequisites);
-        if (effects.isStopping?.() || results.some(isStoppedResult)) return "stopped";
-        assertSuccessfulFileEvents(results);
-    }
+    const dependencyOutcome = await waitForCapturedDependencies(attempt, effects, releaseDispatchSlot);
+    if (dependencyOutcome === "stopped") return "stopped";
+
     while (true) {
-        while (effects.isDispatchPaused?.() && !effects.isStopping?.()) {
-            releaseDispatchSlot();
-            await effects.waitUntilDispatchResumed?.();
-        }
+        await waitWhileDispatchPaused(effects, releaseDispatchSlot);
         if (effects.isStopping?.()) return "stopped";
         if (effects.acquireDispatchSlot && !(await effects.acquireDispatchSlot())) continue;
         if (effects.isStopping?.()) return "stopped";
         if (effects.isDispatchPaused?.()) continue;
-        const outcome = await withSemaphore(effects.semaphore(), async () => {
-            if (effects.isStopping?.()) return "stopped";
-            if (effects.isDispatchPaused?.()) return "paused";
-            assertFileEventAdmission(attempt);
-            if (state.storeGeneration !== storeGeneration)
-                throw new Error("Storage event store changed during processing");
-            const event = attempt.reconcile ? createReconcileEvent(operation.event) : operation.event;
-            state.operations.set(event, operation);
-            attempt.handlerStarted = true;
-            effects.onHandlerStarted?.();
-            await effects.requestProcessQueue(event);
-            return "completed";
-        });
+        const outcome = await invokeFileEventHandler(state, operation, attempt, effects, storeGeneration);
         if (outcome !== "paused") return outcome;
     }
 }
@@ -169,7 +230,7 @@ async function executeAttempt(
  * a joined attempt settles successfully; rejects with the attempt failure otherwise.
  * @remarks A new attempt is marked started before its initial intent snapshot. Admission is checked around awaited
  * gates and before completion; completion is settled only after completeSnapshot returns. On failure, its batch wait
- * is cancelled, the attempt is failed, and the error is rethrown. Status is refreshed in either case.
+ * is cancelled, the attempt is failed, and the error is rethrown. Slot release and status refresh run via scope cleanup.
  */
 export async function processStorageEventAttempt(
     state: StorageEventState,
@@ -183,57 +244,61 @@ export async function processStorageEventAttempt(
         return;
     }
     attempt.started = true;
-    const generation = state.storeGeneration;
+    const generation = state.persistence.storeGeneration;
     const entry = state.pendingSnapshot.get(operation.event)!;
-    try {
-        if (effects.isStopping?.()) {
-            stopFileEventAttempt(attempt);
-            return;
+    await withScope(attempt, async (scope) => {
+        // Registered in reverse-execution order: release slot first, then refresh status.
+        scope.defer(() => effects.updateStatus());
+        scope.defer(() => releaseDispatchSlot());
+        try {
+            if (effects.isStopping?.()) {
+                stopFileEventAttempt(attempt);
+                return;
+            }
+            const gate = prepareAttempt(state, operation, attempt, effects);
+            if (effects.isWaiting?.(operation.event)) releaseDispatchSlot();
+            if (!entry.persisted || !isStoreAcquired(state)) {
+                await effects.takeSnapshot(entry.mutationVersion);
+            } else if (attempt.admissionPersistenceStoreGeneration === generation) {
+                await attempt.admissionPersistence;
+            }
+            assertFileEventAdmission(attempt);
+            const canProceed = await gate;
+            if (canProceed === "stopped" || effects.isStopping?.()) {
+                stopFileEventAttempt(attempt);
+                return;
+            }
+            if (attempt.result) return;
+            assertFileEventAdmission(attempt);
+            const outcome = await executeAttempt(
+                state,
+                operation,
+                attempt,
+                canProceed,
+                effects,
+                releaseDispatchSlot,
+                generation
+            );
+            if (outcome === "stopped") {
+                stopFileEventAttempt(attempt);
+                return;
+            }
+            assertFileEventAdmission(attempt);
+            if (state.persistence.storeGeneration !== generation) {
+                throw new Error("Storage event store changed during processing");
+            }
+            await effects.completeSnapshot({ entry, attempt });
+            completeFileEventAttempt(state, operation, attempt);
+        } catch (error) {
+            if (!attempt.handlerStarted && effects.isStopping?.()) {
+                stopFileEventAttempt(attempt);
+                return;
+            }
+            effects.cancelWaiting(operation.event);
+            effects.fail(operation, error, attempt);
+            throw error;
         }
-        const gate = prepareAttempt(state, operation, attempt, effects);
-        if (effects.isWaiting?.(operation.event)) releaseDispatchSlot();
-        if (!entry.persisted || !state.storeAcquired) {
-            await effects.takeSnapshot(entry.mutationVersion);
-        } else if (attempt.admissionPersistenceStoreGeneration === generation) {
-            await attempt.admissionPersistence;
-        }
-        assertFileEventAdmission(attempt);
-        const canProceed = await gate;
-        if (canProceed === "stopped" || effects.isStopping?.()) {
-            stopFileEventAttempt(attempt);
-            return;
-        }
-        if (attempt.result) return;
-        assertFileEventAdmission(attempt);
-        const outcome = await executeAttempt(
-            state,
-            operation,
-            attempt,
-            canProceed,
-            effects,
-            releaseDispatchSlot,
-            generation
-        );
-        if (outcome === "stopped") {
-            stopFileEventAttempt(attempt);
-            return;
-        }
-        assertFileEventAdmission(attempt);
-        if (state.storeGeneration !== generation) throw new Error("Storage event store changed during processing");
-        await effects.completeSnapshot({ entry, attempt });
-        completeFileEventAttempt(state, operation, attempt);
-    } catch (error) {
-        if (!attempt.handlerStarted && effects.isStopping?.()) {
-            stopFileEventAttempt(attempt);
-            return;
-        }
-        effects.cancelWaiting(operation.event);
-        effects.fail(operation, error, attempt);
-        throw error;
-    } finally {
-        releaseDispatchSlot();
-        effects.updateStatus();
-    }
+    });
 }
 
 /** Live host service lookups used by the final file-event handler. */

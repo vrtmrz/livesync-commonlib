@@ -133,7 +133,7 @@ export function normaliseFullScanOptions(
  * @param errorManager Error manager
  * @param showingNoticeOrOptions Full-scan options, or the legacy notice flag
  * @param ignoreSuspending Legacy suspension flag used with the notice flag
- * @returns The scan outcome, including accepted individual file failures
+ * @returns The scan outcome, including accepted individual file failures, or `false` if aborted when storage event processing is stopping
  */
 export async function performFullScan(
     host: NecessaryServices<"setting" | "vault" | "path" | "database" | "keyValueDB", "storageAccess" | "fileHandler">,

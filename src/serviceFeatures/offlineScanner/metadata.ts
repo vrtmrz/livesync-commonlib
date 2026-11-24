@@ -432,7 +432,7 @@ export async function repairMetadataDocumentIdentity(
  * Collect deleted files that have expired according to retention policy.
  * @param host Services container
  * @param log Logging function
- * @returns Array of expired deletion history
+ * @param isStopping Optional stop predicate checked between scanned documents
  */
 export async function collectDeletedFiles(
     host: NecessaryServices<"setting" | "database" | "path", never>,

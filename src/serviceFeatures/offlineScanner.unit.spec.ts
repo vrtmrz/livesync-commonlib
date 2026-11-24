@@ -24,6 +24,8 @@ import {
     useOfflineScanner,
 } from "./offlineScanner";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
+import { compatGlobal } from "@lib/common/coreEnvFunctions";
+import { cancelFileStatusSave, saveFileStatus } from "./offlineScanner/fileStatus";
 import { prepareDatabaseForUse } from "./prepareDatabaseForUse";
 import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
@@ -3467,5 +3469,62 @@ describe("offline scanner content-read outcome", () => {
         expect(onReflectionFailed).toHaveBeenCalledExactlyOnceWith({ documentId: failure.documentId, revision: failure.revision }, failure);
         expect(reported).toBe(true);
         expect(events.emitEvent).not.toHaveBeenCalled();
+    });
+
+    it("clears pending state when saveFileStatus timer registration throws so a later ordinary save succeeds", async () => {
+        const persisted = promiseWithResolvers<void>();
+        const set = vi.fn(async () => {
+            persisted.resolve();
+        });
+        const host = { services: { keyValueDB: { kvDB: { set } } } } as any;
+        const timerError = new Error("timer registration failed");
+        const setTimeoutSpy = vi.spyOn(compatGlobal, "setTimeout").mockImplementationOnce(() => {
+            throw timerError;
+        });
+        try {
+            expect(() => saveFileStatus(host, () => false)).toThrow(timerError);
+            let scheduledCallback: (() => void) | undefined;
+            setTimeoutSpy.mockImplementationOnce(((callback: () => void) => {
+                scheduledCallback = callback;
+                return 1 as unknown as ReturnType<typeof setTimeout>;
+            }) as typeof setTimeout);
+            saveFileStatus(host, () => false);
+            expect(scheduledCallback).toBeDefined();
+            scheduledCallback!();
+            await persisted.promise;
+            expect(set).toHaveBeenCalledOnce();
+        } finally {
+            setTimeoutSpy.mockRestore();
+        }
+    });
+
+    it("clears pending state when cancelFileStatusSave timer cancellation throws so a later ordinary save succeeds", async () => {
+        const persisted = promiseWithResolvers<void>();
+        const set = vi.fn(async () => {
+            persisted.resolve();
+        });
+        const host = { services: { keyValueDB: { kvDB: { set } } } } as any;
+        const clearError = new Error("clearTimeout failed");
+        let scheduledCallback: (() => void) | undefined;
+        const setTimeoutSpy = vi.spyOn(compatGlobal, "setTimeout").mockImplementation(((callback: () => void) => {
+            scheduledCallback = callback;
+            return 1 as unknown as ReturnType<typeof setTimeout>;
+        }) as typeof setTimeout);
+        const clearTimeoutSpy = vi.spyOn(compatGlobal, "clearTimeout").mockImplementationOnce(() => {
+            throw clearError;
+        });
+        try {
+            saveFileStatus(host, () => false);
+            expect(() => cancelFileStatusSave(host)).toThrow(clearError);
+            scheduledCallback = undefined;
+            saveFileStatus(host, () => false);
+            expect(scheduledCallback).toBeDefined();
+            scheduledCallback!();
+            await persisted.promise;
+            expect(set).toHaveBeenCalledOnce();
+        } finally {
+            clearTimeoutSpy.mockRestore();
+            setTimeoutSpy.mockRestore();
+        }
     });
 });

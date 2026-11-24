@@ -31,8 +31,20 @@ export abstract class StorageEventManager {
     abstract restoreState(): Promise<void>;
     /** Compatibility hook to request store acquisition. Await restoreState() to track completion. */
     markStoreInitialised?(): void;
+    /**
+     * Invalidate store-scoped persistence state when the backing snapshot store is replaced.
+     * Retained in-memory intents remain queued and must be persisted to the replacement store.
+     */
     resetPersistenceState?(): void;
+    /**
+     * Synchronously install the terminal stop fence before asynchronous unload hooks run.
+     * Stops admitting new events, disposes batch timers, and wakes paused or unstarted waits.
+     */
     beginStopWatching?(): void;
+    /**
+     * Report whether this manager has entered or completed orderly shutdown (`stopping` or `stopped`).
+     * Optional for compatibility hosts; absence is treated as not stopping.
+     */
     isStopping?(): boolean;
 
     /**

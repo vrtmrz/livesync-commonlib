@@ -14,7 +14,7 @@ import { delay, isRemediationModeActive } from "@lib/common/utils";
 import type { FileEvent } from "@lib/interfaces/StorageEventManager";
 import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess";
 import type { LogFunction } from "@lib/services/lib/logUtils";
-import type { EventAdmission, StorageEventState } from "./state";
+import { isAcceptingEvents, type EventAdmission, type StorageEventState } from "./state";
 import type { PendingFileEvent } from "./operations";
 
 /**
@@ -254,9 +254,9 @@ async function appendStorageEvents(
     if (!settings.isConfigured || settings.suspendFileWatching || isRemediationModeActive(settings)) return;
     effects.onStorageFileEvent();
     for (const param of params) {
-        if (!state.acceptingEvents || state.stopping || state.stopped) return;
+        if (!isAcceptingEvents(state)) return;
         const item = await prepareEvent(param, settings, ctx, effects);
-        if (!state.acceptingEvents || state.stopping || state.stopped) return;
+        if (!isAcceptingEvents(state)) return;
         if (item) registerAdmission(state, admission, item, effects);
     }
 }
@@ -276,7 +276,7 @@ export function admitStorageEvents(
     ctx: unknown,
     effects: StorageEventAdmissionEffects
 ): Promise<void> {
-    if (!state.acceptingEvents) return Promise.resolve();
+    if (!isAcceptingEvents(state)) return Promise.resolve();
     const admission: EventAdmission = {
         acceptedAt: Date.now(),
         completion: Promise.resolve(),

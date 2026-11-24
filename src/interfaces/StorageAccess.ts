@@ -25,6 +25,13 @@ export interface IStorageAccessManager {
  * the base fallback while retaining the FileNameLookup method contract.
  */
 export interface StorageAccess extends FileNameLookup {
+    /**
+     * Report whether storage-event watching and local queue processing have entered orderly shutdown.
+     *
+     * Callers such as offline scans, database preparation, and watcher startup use this fence
+     * to avoid starting new work while teardown is retiring active operations. Optional for
+     * compatibility hosts; absence is treated as not stopping.
+     */
     isStopping?(): boolean;
     normalisePath(path: string): string;
 

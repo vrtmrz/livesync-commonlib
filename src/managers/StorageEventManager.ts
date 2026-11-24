@@ -13,8 +13,11 @@ import {
     type UXInternalFileInfoStub,
 } from "@lib/common/types";
 import { fireAndForget, isRemediationModeActive } from "@lib/common/utils";
+import { createCoalescingNotifier } from "octagonal-wheels/concurrency/coalescingNotifier";
+import { createNotifier } from "octagonal-wheels/concurrency/notifier";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
-import { promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
+import { withScope } from "octagonal-wheels/resource/scope";
 import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess";
 import { StorageEventManager, type FileEvent } from "@lib/interfaces/StorageEventManager";
 import type { IAPIService, IVaultService } from "@lib/services/base/IService";
@@ -28,12 +31,7 @@ import {
     type StorageEventSnapshotDelta,
     type StorageEventSnapshotRecord,
 } from "./adapters/IStorageEventPersistenceAdapter";
-import {
-    stopFileEventAttempt,
-    type FileEventAttempt,
-    type OperationResult,
-    type PendingFileEvent,
-} from "./StorageEventManager/operations";
+import type { FileEventAttempt, OperationResult, PendingFileEvent } from "./StorageEventManager/operations";
 import { admitStorageEvents, type StorageEventAdmissionEffects } from "./StorageEventManager/admission";
 import {
     forwardVaultEvent,
@@ -43,10 +41,13 @@ import {
 } from "./StorageEventManager/watching";
 import {
     addBatchWaiting,
+    disposeAllBatchGates,
     finishBatchWaiting,
     initialiseFileEventBatch,
     planBatchDeadline,
     releaseFileEventBatches,
+    scheduleStorageTimeout,
+    type BatchGateOutcome,
     type StorageEventBatching,
     type WaitInfo,
 } from "./StorageEventManager/batching";
@@ -75,11 +76,27 @@ import {
     type StorageEventHandlerEffects,
 } from "./StorageEventManager/processing";
 import {
+    assertStoreAcquired,
+    beginStoppingState,
     createStorageEventState,
     failFileEventAttempt,
+    getActiveRestorePromise,
+    getStoreRestoreFailure,
+    getStoreRestoreLoadedPromise,
+    hasPendingSnapshotWork,
     hasPendingStorageEvent,
-    removePendingEntry,
+    isAcceptingEvents,
+    isManagerStopped,
+    isManagerStopping,
+    isStoreAcquired,
+    isStoreRestoring,
+    markStoppedState,
+    notifyDispatchSlotWaiters,
+    resetStorePersistenceState,
     retainFileEvent,
+    runAcquiredReplayTransition,
+    runStoreRestoreTransition,
+    stopUnstartedAttempts,
     type FileEventItemSentinel,
     type QueuedFileEvent,
     type RunQueuedEventsOptions,
@@ -149,11 +166,14 @@ export abstract class StorageEventManagerBase<
     protected dispatchWindowSize = 5;
     private readonly incrementalPersistence: IStorageEventIncrementalPersistenceAdapter | undefined;
     private dispatchPaused = false;
-    private dispatchResumeSignal: PromiseWithResolvers<void> | undefined;
-    private restoreLoad: PromiseWithResolvers<void> | undefined;
+    private readonly dispatchResumeNotifier = createNotifier();
     private readonly stopSignal = promiseWithResolvers<void>();
     private stopWatchingPromise: Promise<void> | null = null;
-    private snapshotTimer: ReturnType<typeof setTimeout> | undefined;
+    private readonly snapshotSchedule = createCoalescingNotifier<void>({
+        maxWaitMs: 100,
+        onNotify: () => this._triggerTakeSnapshot(),
+        scheduleTimeout: scheduleStorageTimeout,
+    });
     private readonly activeDispatches = new Set<Promise<void>>();
     private readonly attemptSlotReleases = new WeakMap<FileEventAttempt, () => void>();
     private readonly buffer: StorageEventBuffer = {
@@ -213,9 +233,8 @@ export abstract class StorageEventManagerBase<
         log: this.log,
         takeSnapshot: (version) => this._takeSnapshot(version),
         loadSnapshot: () => this._loadSnapshot(),
-        loadSnapshotEntries: () => this.incrementalPersistence!.loadSnapshotEntries(),
+        loadSnapshotEntries: undefined,
         incrementalMode: false,
-        restoreLoaded: () => this.restoreLoad?.resolve(),
         dispatchQueuedEvent: (event, attempt, releaseSlot) => this.dispatchQueuedEvent(event, attempt, releaseSlot),
         isWaiting: (event) => this.attempts.isWaiting?.(event) ?? false,
         runQueuedEvents: (options) => this.runQueuedEvents(options),
@@ -256,7 +275,7 @@ export abstract class StorageEventManagerBase<
         },
         fail: this.queue.fail,
         isWaiting: (event) => this._waitingMap.get(event.args.file.path)?.event === event,
-        isStopping: () => this.eventState.stopping || this.eventState.stopped,
+        isStopping: () => this.isStopping(),
         isDispatchPaused: () => this.dispatchPaused,
         waitUntilDispatchResumed: () => this.waitUntilDispatchResumed(),
     };
@@ -267,9 +286,8 @@ export abstract class StorageEventManagerBase<
     };
 
     private waitUntilDispatchResumed(): Promise<void> {
-        if (!this.dispatchPaused || this.eventState.stopping || this.eventState.stopped) return Promise.resolve();
-        this.dispatchResumeSignal ??= promiseWithResolvers<void>();
-        return this.dispatchResumeSignal.promise;
+        if (!this.dispatchPaused || this.isStopping()) return Promise.resolve();
+        return this.dispatchResumeNotifier.wait();
     }
 
     /** Preserve adapter receivers and virtual admission when forwarding watcher notifications. */
@@ -292,9 +310,11 @@ export abstract class StorageEventManagerBase<
             : undefined;
         this.queue.incrementalMode = !!this.incrementalPersistence;
         if (this.incrementalPersistence) {
-            this.snapshotIO.applyDelta = (delta) => this.incrementalPersistence!.applySnapshotDelta(delta);
+            const incremental = this.incrementalPersistence;
+            this.queue.loadSnapshotEntries = () => incremental.loadSnapshotEntries();
+            this.snapshotIO.applyDelta = (delta) => incremental.applySnapshotDelta(delta);
         }
-        this.eventState.dispatchWindowSize = this.dispatchWindowSize;
+        this.eventState.dispatch.windowSize = this.dispatchWindowSize;
         this.setting = dependencies.setting;
         this.vaultService = dependencies.vaultService;
         this.admission.isTargetInternal = dependencies.isTargetInternalFile?.bind(dependencies);
@@ -356,9 +376,6 @@ export abstract class StorageEventManagerBase<
     _loadSnapshot(): Promise<(FileEventItem | FileEventItemSentinel)[] | null> {
         return this.adapter.persistence.loadSnapshot();
     }
-    _loadSnapshotEntries(): Promise<readonly StorageEventSnapshotRecord[] | null> {
-        return this.incrementalPersistence!.loadSnapshotEntries();
-    }
     /**
      * Ask the host adapter to classify a supplied file or folder value.
      * @param file - A host value or one of the shared file and folder representations.
@@ -399,83 +416,33 @@ export abstract class StorageEventManagerBase<
      */
     restoreState(): Promise<void> {
         const state = this.eventState;
-        if (state.stopping || state.stopped) return Promise.resolve();
-        if (state.restorePromise && state.restoreStoreGeneration === state.storeGeneration) {
-            this.snapShotRestored = state.restorePromise;
-            return state.restorePromise;
+        if (this.isStopping()) return Promise.resolve();
+        const activeRestore = getActiveRestorePromise(state);
+        if (activeRestore) {
+            this.snapShotRestored = activeRestore;
+            return activeRestore;
         }
-        if (state.storeAcquired) return Promise.resolve();
-        const generation = state.storeGeneration;
-        state.restorePending = true;
-        state.restoreStoreGeneration = generation;
-        const load = promiseWithResolvers<void>();
-        this.restoreLoad = load;
-        void load.promise.catch(() => {});
-        const restore = this._restoreFromSnapshot(generation)
-            .catch((error) => {
-                if (state.stopping || state.stopped) {
-                    load.resolve();
-                    if (state.storeGeneration === generation) {
-                        state.restorePromise = null;
-                        state.restoreStoreGeneration = null;
-                        state.restorePending = false;
-                        if (!state.storeAcquired) state.restoreFailure = { error };
-                    }
-                    return;
-                }
-                load.reject(error);
-                if (state.storeGeneration === generation) {
-                    state.restorePromise = null;
-                    state.restoreStoreGeneration = null;
-                    state.restorePending = false;
-                    if (!state.storeAcquired) state.restoreFailure = { error };
-                }
-                throw error;
-            })
-            .finally(() => {
-                if (state.storeGeneration === generation) {
-                    state.restorePending = false;
-                }
-            });
-        state.restorePromise = restore;
+        const generation = state.persistence.storeGeneration;
+        const restore = isStoreAcquired(state)
+            ? runAcquiredReplayTransition(state, generation, () => this.runQueuedEvents({ waitForProcessing: true }))
+            : runStoreRestoreTransition(state, generation, () => this._restoreFromSnapshot(generation));
         this.snapShotRestored = restore;
         return restore;
     }
 
+    /** Request store acquisition in the background and report any restoration failure through manager notifications. */
     override markStoreInitialised(): void {
         fireAndForget(this.restoreState().catch(this.notifications.reportFailure));
     }
 
+    /**
+     * Invalidate store-scoped persistence metadata when the backing snapshot store is replaced.
+     * Retained in-memory intents remain queued and are re-marked dirty for the replacement store.
+     */
     override resetPersistenceState(): void {
-        const state = this.eventState;
-        state.storeGeneration++;
-        this.restoreLoad?.resolve();
-        this.restoreLoad = undefined;
-        invalidatePendingSnapshotBatch(state);
-        state.hasPersisted = false;
-        state.persistedMutationVersion = 0;
-        state.committedEntryIds.clear();
-        state.nextRecordSequence = 0n;
-        // Rebuild dirty order from admission order before the adapter assigns replacement sequences.
-        state.dirtyUpserts.clear();
-        state.storeAcquired = false;
-        state.restoreFailure = undefined;
-        state.restorePromise = null;
-        state.restorePending = false;
-        state.restoreStoreGeneration = null;
+        invalidatePendingSnapshotBatch(this.eventState);
+        resetStorePersistenceState(this.eventState);
         this.snapShotRestored = null;
-        for (const entry of state.pendingSnapshot.values()) {
-            entry.persisted = false;
-            if (entry.operation) {
-                entry.operation.attempt.admissionPersistence = undefined;
-                entry.operation.attempt.admissionPersistenceStoreGeneration = undefined;
-                entry.operation.attempt.admissionFailure = undefined;
-            }
-            entry.sentinelReplay?.resolve();
-            entry.sentinelReplay = undefined;
-            entry.mutationVersion = ++state.snapshotMutationVersion;
-            state.dirtyUpserts.add(entry);
-        }
     }
     /**
      * Filter and admit host watcher events into the operation queue.
@@ -509,10 +476,9 @@ export abstract class StorageEventManagerBase<
      * @remarks Event admission, buffering, and snapshotting continue while paused. Repeated calls are safe.
      */
     override async pauseDispatch(): Promise<void> {
-        if (this.eventState.stopping || this.eventState.stopped) return;
+        if (this.isStopping()) return;
         this.dispatchPaused = true;
-        this.eventState.dispatchSlotWakeSignal?.resolve();
-        this.eventState.dispatchSlotWakeSignal = null;
+        notifyDispatchSlotWaiters(this.eventState);
         await Promise.all([...this.activeDispatches]);
     }
     /**
@@ -521,13 +487,11 @@ export abstract class StorageEventManagerBase<
      * @remarks Repeated calls are safe.
      */
     override resumeDispatch(): void {
-        if (this.eventState.stopping || this.eventState.stopped) return;
-        if (!this.dispatchPaused) {
+        if (this.isStopping() || !this.dispatchPaused) {
             return;
         }
         this.dispatchPaused = false;
-        this.dispatchResumeSignal?.resolve();
-        this.dispatchResumeSignal = undefined;
+        this.dispatchResumeNotifier.notify();
         fireAndForget(() => this.runQueuedEvents().catch((error) => this.reportOperationFailure(error)));
     }
     /**
@@ -535,72 +499,52 @@ export abstract class StorageEventManagerBase<
      * Active handlers retain ownership through their acknowledgement commits.
      */
     override beginStopWatching(): void {
-        const state = this.eventState;
-        if (state.stopping || state.stopped) return;
-        state.acceptingEvents = false;
-        state.stopping = true;
+        if (!beginStoppingState(this.eventState)) return;
         this.stopSignal.resolve();
-        this.restoreLoad?.resolve();
-        if (this.snapshotTimer !== undefined) {
-            clearTimeout(this.snapshotTimer);
-            this.snapshotTimer = undefined;
-        }
-        for (const waiting of this._waitingMap.values()) {
-            waiting.deadline.dispose();
-            waiting.canProceed.resolve("stopped");
-        }
-        this._waitingMap.clear();
-        this.dispatchResumeSignal?.resolve();
-        state.dispatchSlotWakeSignal?.resolve();
-        for (const entry of state.pendingSnapshot.values()) {
-            entry.sentinelReplay?.resolve();
-            const operation = entry.operation;
-            if (!operation) continue;
-            if (operation.attempt.handlerStarted) {
-                operation.flushRequested = true;
-                operation.flushSignal?.resolve();
-            } else {
-                stopFileEventAttempt(operation.attempt);
-            }
-        }
+        this.snapshotSchedule.dispose();
+        disposeAllBatchGates(this._waitingMap);
+        this.dispatchResumeNotifier.notify();
         this.notifications.updateStatus();
     }
 
+    /** Report whether this manager has entered or completed orderly shutdown (`stopping` or `stopped`). */
     override isStopping(): boolean {
-        return this.eventState.stopping || this.eventState.stopped;
+        return isManagerStopping(this.eventState);
     }
 
     /** Retire the manager after active handlers and pending snapshot commits settle. */
     override stopWatching(): Promise<void> {
         this.beginStopWatching();
-        if (this.stopWatchingPromise) return this.stopWatchingPromise;
-        this.stopWatchingPromise = (async () => {
-            const state = this.eventState;
-            try {
-                await Promise.allSettled([...state.admissions].map((admission) => admission.completion));
-                await Promise.allSettled([...this.activeDispatches]);
-                for (const entry of state.pendingSnapshot.values()) {
-                    const attempt = entry.operation?.attempt;
-                    if (attempt && !attempt.handlerStarted) stopFileEventAttempt(attempt);
+        return (this.stopWatchingPromise ??= this.retireManager());
+    }
+
+    private async retireManager(): Promise<void> {
+        const state = this.eventState;
+        await withScope(state, async (scope) => {
+            // Permanently mark `stopped` on scope exit so no background write can start after retirement.
+            scope.defer(() => markStoppedState(state));
+            // 1. Wait for admissions already in flight so their retained entries enter `pendingSnapshot`.
+            await Promise.allSettled([...state.admissions].map((admission) => admission.completion));
+            // 2. Drain active handler dispatches before settling any remaining unstarted attempts.
+            await Promise.allSettled([...this.activeDispatches]);
+            stopUnstartedAttempts(state);
+            // 3. Wait for started handlers through their acknowledgement commits.
+            await Promise.allSettled([...state.dispatch.inFlightOperations]);
+            // 4. Join any serial snapshot writer loop already in progress.
+            while (state.persistence.writerRunning) await state.persistence.tail;
+            await state.persistence.tail;
+            // 5. Flush remaining dirty intent once, or reject honestly without touching an unread store.
+            if (hasPendingSnapshotWork(state)) {
+                if (!isStoreAcquired(state)) {
+                    throw (
+                        getStoreRestoreFailure(state)?.error ??
+                        new Error("Storage event store was not acquired before stopping")
+                    );
                 }
-                await Promise.allSettled([...state.inFlightOperations]);
-                while (state.snapshotWriterRunning) await state.snapshotTail;
-                await state.snapshotTail;
-                if (state.dirtyUpserts.size > 0 || state.pendingBatch !== null) {
-                    if (!state.storeAcquired) {
-                        throw (
-                            state.restoreFailure?.error ??
-                            new Error("Storage event store was not acquired before stopping")
-                        );
-                    }
-                    await this._takeSnapshot();
-                    await state.snapshotTail;
-                }
-            } finally {
-                state.stopped = true;
+                await this._takeSnapshot();
+                await state.persistence.tail;
             }
-        })();
-        return this.stopWatchingPromise;
+        });
     }
     /**
      * Check whether an unfinished event refers to this path or one of its ancestors.
@@ -706,7 +650,7 @@ export abstract class StorageEventManagerBase<
      * @param operation - The operation whose predecessors and gate are being prepared.
      * @returns A promise resolving to the gate's proceed or cancel result, not handler completion.
      */
-    private initialiseOperation(operation: PendingFileEvent): Promise<boolean | "stopped"> {
+    private initialiseOperation(operation: PendingFileEvent): Promise<BatchGateOutcome> {
         return initialiseFileEventBatch(this.batching, operation);
     }
     private wakeBufferedDispatch(): void {
@@ -715,18 +659,21 @@ export abstract class StorageEventManagerBase<
     }
 
     private async dispatchQueuedEvent(event: FileEventItem, attempt: FileEventAttempt, releaseSlot: () => void) {
-        this.attemptSlotReleases.set(attempt, releaseSlot);
-        try {
-            await this.processFileEvent(event);
-        } catch (error) {
-            const operation = this.operations.get(event);
-            if (operation) this.failOperation(operation, error, attempt);
-        } finally {
-            if (this.attemptSlotReleases.delete(attempt)) {
-                releaseSlot();
-                this.wakeBufferedDispatch();
+        await withScope(attempt, async (scope) => {
+            this.attemptSlotReleases.set(attempt, releaseSlot);
+            scope.defer(() => {
+                if (this.attemptSlotReleases.delete(attempt)) {
+                    releaseSlot();
+                    this.wakeBufferedDispatch();
+                }
+            });
+            try {
+                await this.processFileEvent(event);
+            } catch (error) {
+                const operation = this.operations.get(event);
+                if (operation) this.failOperation(operation, error, attempt);
             }
-        }
+        });
     }
 
     /**
@@ -736,38 +683,45 @@ export abstract class StorageEventManagerBase<
      * @returns A promise fulfilled on successful completion; attempt failures are recorded and rethrown.
      */
     private async processOperation(operation: PendingFileEvent, attempt: FileEventAttempt): Promise<void> {
-        let dispatchSlot = this.attemptSlotReleases.get(attempt);
-        this.attemptSlotReleases.delete(attempt);
-        const releaseDispatchSlot = () => {
-            if (!dispatchSlot) return;
-            dispatchSlot();
-            dispatchSlot = undefined;
-            this.wakeBufferedDispatch();
-        };
-        const work = processStorageEventAttempt(
-            this.eventState,
-            operation,
-            attempt,
-            {
-                ...this.attempts,
-                acquireDispatchSlot: async () => {
-                    dispatchSlot ??= await acquireStorageEventDispatchSlot(
-                        this.eventState,
-                        this.dispatchWindowSize,
-                        this.attempts.isDispatchPaused
-                    );
-                    return dispatchSlot !== undefined;
+        await withScope(attempt, async (scope) => {
+            // Claim any dispatch slot reserved by `dispatchQueuedEvent` so this scope owns its release.
+            let dispatchSlot = this.attemptSlotReleases.get(attempt);
+            this.attemptSlotReleases.delete(attempt);
+            const releaseDispatchSlot = () => {
+                if (!dispatchSlot) return;
+                dispatchSlot();
+                dispatchSlot = undefined;
+                this.wakeBufferedDispatch();
+            };
+            // Registered in reverse execution order: release slot before waking the next buffered dispatch.
+            scope.defer(() => this.wakeBufferedDispatch());
+            scope.defer(() => releaseDispatchSlot());
+            const work = processStorageEventAttempt(
+                this.eventState,
+                operation,
+                attempt,
+                {
+                    ...this.attempts,
+                    acquireDispatchSlot: async () => {
+                        dispatchSlot ??= await acquireStorageEventDispatchSlot(
+                            this.eventState,
+                            this.dispatchWindowSize,
+                            this.attempts.isDispatchPaused
+                        );
+                        return dispatchSlot !== undefined;
+                    },
+                    // Track this operation until both its handler and acknowledgement commit settle.
+                    onHandlerStarted: () => {
+                        this.eventState.dispatch.inFlightOperations.add(work);
+                        scope.defer(() => {
+                            this.eventState.dispatch.inFlightOperations.delete(work);
+                        });
+                    },
                 },
-                onHandlerStarted: () => this.eventState.inFlightOperations.add(work),
-            },
-            releaseDispatchSlot
-        );
-        try {
+                releaseDispatchSlot
+            );
             await work;
-        } finally {
-            this.eventState.inFlightOperations.delete(work);
-            this.wakeBufferedDispatch();
-        }
+        });
     }
 
     /**
@@ -777,15 +731,15 @@ export abstract class StorageEventManagerBase<
      * @remarks The pause check and active registration happen synchronously together, preventing a request from starting after a pause.
      */
     private async dispatchFileEvent(event: FileEventItem): Promise<void> {
-        if (this.eventState.stopping || this.eventState.stopped) return;
-        const activeDispatch = promiseWithResolvers<void>();
-        this.activeDispatches.add(activeDispatch.promise);
-        try {
+        if (this.isStopping()) return;
+        await withScope(promiseWithResolvers<void>(), async (scope) => {
+            this.activeDispatches.add(scope.value.promise);
+            scope.defer(() => {
+                this.activeDispatches.delete(scope.value.promise);
+                scope.value.resolve();
+            });
             await this.requestProcessQueue(event);
-        } finally {
-            this.activeDispatches.delete(activeDispatch.promise);
-            activeDispatch.resolve();
-        }
+        });
     }
     /**
      * Retain an event and await its current processing attempt.
@@ -794,8 +748,9 @@ export abstract class StorageEventManagerBase<
      */
     async processFileEvent(event: FileEventItem): Promise<void> {
         if (this.isStopping()) return;
-        if (!this.eventState.storeAcquired) {
-            if (this.eventState.restoreFailure) throw this.eventState.restoreFailure.error;
+        if (!isStoreAcquired(this.eventState)) {
+            const failure = getStoreRestoreFailure(this.eventState);
+            if (failure) throw failure.error;
             await this.restoreState();
             if (this.isStopping()) return;
         }
@@ -803,8 +758,7 @@ export abstract class StorageEventManagerBase<
         await this.processOperation(operation, operation.attempt);
     }
     private startStoreLoad(): void {
-        const state = this.eventState;
-        if (state.restorePending || state.restoreFailure || this.isStopping()) {
+        if (isStoreRestoring(this.eventState) || getStoreRestoreFailure(this.eventState) || this.isStopping()) {
             return;
         }
         fireAndForget(this.restoreState().catch(this.notifications.reportFailure));
@@ -817,19 +771,19 @@ export abstract class StorageEventManagerBase<
      */
     private async persistSnapshot(completion?: SnapshotCompletion, requiredMutationVersion?: number): Promise<void> {
         const state = this.eventState;
-        if (state.stopped) return;
-        const generation = state.storeGeneration;
-        if (!state.storeAcquired) {
+        if (isManagerStopped(state)) return;
+        const generation = state.persistence.storeGeneration;
+        if (!isStoreAcquired(state)) {
             this.startStoreLoad();
-            if (state.restorePending) {
-                await this.restoreLoad?.promise;
+            const restoringLoad = getStoreRestoreLoadedPromise(state);
+            if (restoringLoad) {
+                await restoringLoad;
             }
         }
-        if (state.storeGeneration !== generation) throw new Error("Storage event store changed during persistence");
-        if (!state.storeAcquired) {
-            if (state.restoreFailure) throw state.restoreFailure.error;
-            throw new Error("Storage event store has not been acquired");
+        if (state.persistence.storeGeneration !== generation) {
+            throw new Error("Storage event store changed during persistence");
         }
+        assertStoreAcquired(state);
         return persistFileEventSnapshot(
             this.eventState,
             this.buffer,
@@ -849,9 +803,9 @@ export abstract class StorageEventManagerBase<
      * Load persisted events, dispatch them, and wait for their replay attempts.
      * @returns A promise for restoration; storage or dispatch errors reject it, while failed attempt results are reported and retained.
      */
-    async _restoreFromSnapshot(generation = this.eventState.storeGeneration) {
+    async _restoreFromSnapshot(generation = this.eventState.persistence.storeGeneration) {
         await restoreStorageEvents(this.queue, this.eventState);
-        if (this.eventState.storeGeneration !== generation) return;
+        if (this.eventState.persistence.storeGeneration !== generation) return;
     }
     /**
      * Dispatch events in the buffer and optionally wait for captured processing attempts.
@@ -866,19 +820,16 @@ export abstract class StorageEventManagerBase<
      * @returns Nothing; the write is deliberately not awaited by the caller.
      */
     private _triggerTakeSnapshot(): void {
-        if (this.eventState.stopping || this.eventState.stopped) return;
+        if (this.isStopping()) return;
         fireAndForget(() => this._takeSnapshot().catch((error) => this.reportOperationFailure(error)));
     }
     /**
-     * Throttled callback for requesting a background snapshot write.
-     * @returns The callback bound to `_triggerTakeSnapshot` with a 100 ms throttle interval.
+     * Request a coalesced background snapshot write within a 100 ms trailing window.
+     * @returns Nothing; repeated calls inside the active window share one pending write, and calls after stop are ignored.
      */
     triggerTakeSnapshot = (): void => {
-        if (this.eventState.stopping || this.eventState.stopped || this.snapshotTimer !== undefined) return;
-        this.snapshotTimer = setTimeout(() => {
-            this.snapshotTimer = undefined;
-            this._triggerTakeSnapshot();
-        }, 100);
+        if (this.isStopping()) return;
+        this.snapshotSchedule.update();
     };
     /**
      * Track a handler dispatch in status and restore the processing count in a `finally` block.
@@ -918,9 +869,21 @@ export abstract class StorageEventManagerBase<
      * @returns A promise fulfilled when watcher registration finishes; a restoration failure prevents registration and rejects it.
      */
     async beginWatch(): Promise<void> {
-        if (this.eventState.stopping || this.eventState.stopped) return;
-        await this.snapShotRestored;
-        if (this.eventState.stopping || this.eventState.stopped) return;
+        while (!this.isStopping()) {
+            const generation = this.eventState.persistence.storeGeneration;
+            const pending = getActiveRestorePromise(this.eventState) ?? this.snapShotRestored;
+            await pending;
+            if (this.isStopping()) return;
+            const nextPending = getActiveRestorePromise(this.eventState) ?? this.snapShotRestored;
+            if (
+                this.eventState.persistence.storeGeneration !== generation ||
+                (nextPending && nextPending !== pending)
+            ) {
+                continue;
+            }
+            break;
+        }
+        if (this.isStopping()) return;
         await this.adapter.watch.beginWatch({
             onCreate: (file, ctx) => this.watchVaultCreate(file, ctx),
             onChange: (file, ctx) => this.watchVaultChange(file, ctx),
@@ -941,14 +904,7 @@ export abstract class StorageEventManagerBase<
      * @remarks Protected so host subclasses can customise editor watcher handling.
      */
     protected watchEditorChange<TEditor = unknown, TInfo = unknown>(editor: TEditor, info: TInfo) {
-        if (
-            this.eventState.stopping ||
-            this.eventState.stopped ||
-            !this.eventState.acceptingEvents ||
-            !hasEditorChangePath(info) ||
-            !this.shouldBatchSave
-        )
-            return;
+        if (!isAcceptingEvents(this.eventState) || !hasEditorChangePath(info) || !this.shouldBatchSave) return;
         const settings = this.settings;
         if (!settings?.isConfigured || settings.suspendFileWatching || isRemediationModeActive(settings)) return;
         const path = readEditorChangePath(info, (file) => this.adapter.typeGuard.isFile(file));

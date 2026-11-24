@@ -61,6 +61,7 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         });
         services.appLifecycle.onFirstInitialise.addHandler(this._everyOnFirstInitialize.bind(this));
         services.fileProcessing.commitPendingFileEvents.addHandler(this._everyCommitPendingFileEvent.bind(this));
+        // Lifetime is bound to the service context; ControlService clears context events via `offAll()` on unload.
         services.appLifecycle.context?.events?.onEvent?.(EVENT_PLUGIN_UNLOADED, () => {
             this.vaultManager.beginStopWatching?.();
         });
@@ -71,18 +72,22 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         });
     }
 
+    /** Check whether the active storage-event manager retains unfinished work covering `path`; defaults conservatively to `true`. */
     hasPendingFileEvent(path: FilePath): boolean {
         return this.vaultManager.hasPendingFileEvent?.(path) ?? true;
     }
 
+    /** Delegate the storage-event shutdown fence from the active manager; defaults to `false`. */
     isStopping(): boolean {
         return this.vaultManager.isStopping?.() ?? false;
     }
 
+    /** Restore and replay persisted storage events for the active store generation. */
     restoreState() {
         return this.vaultManager.restoreState();
     }
 
+    /** Compatibility hook requesting background store acquisition without awaiting replay. */
     markStoreInitialised(): void {
         this.vaultManager.markStoreInitialised?.();
     }

@@ -5,12 +5,26 @@
 import type { FileEventItem } from "@lib/common/models/fileaccess.type";
 import { promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
 
+/** Boxed failure value preserving falsy or `undefined` rejections without conflating them with absence. */
+export type CapturedError = { readonly error: unknown };
+
+/** An attempt completed and its durable acknowledgement was committed. */
+export type OperationSucceededResult = { ok: true };
+/** An attempt failed with an error; its durable operation remains retained for retry. */
+export type OperationFailedResult = { ok: false; error: unknown; stopped?: false };
+/** An attempt ended before handler start because its manager entered orderly shutdown. */
+export type OperationStoppedResult = { ok: false; stopped: true };
 /** The settled outcome of one attempt; a later retry receives a different outcome promise. */
-export type OperationResult = { ok: true } | { ok: false; error: unknown; stopped?: false } | { ok: false; stopped: true };
+export type OperationResult = OperationSucceededResult | OperationFailedResult | OperationStoppedResult;
 
 /** Whether a settled attempt ended because its manager was stopped. */
-export function isStoppedResult(result: OperationResult): result is { ok: false; stopped: true } {
+export function isStoppedResult(result: OperationResult): result is OperationStoppedResult {
     return result.ok === false && result.stopped === true;
+}
+
+/** Whether a settled attempt ended with an operational error rather than an orderly stop. */
+export function isFailedResult(result: OperationResult): result is OperationFailedResult {
+    return result.ok === false && result.stopped !== true;
 }
 
 /** Per-attempt execution state, separate from the durable operation that may be retried. */
@@ -26,9 +40,10 @@ export type FileEventAttempt = {
     /** Failure-sequence cutoff used when this attempt captures retryable dependencies. */
     retryBefore?: number;
     /** An admission failure which must be observed after an active handler settles. */
-    admissionFailure?: { error: unknown };
+    admissionFailure?: CapturedError;
     /** Settled outcome of the first durable intent write, independent of queue dispatch. */
     admissionPersistence?: Promise<void>;
+    /** Store generation in which `admissionPersistence` was started, used to ignore stale store writes. */
     admissionPersistenceStoreGeneration?: number;
     /** Related operations whose captured attempts must succeed before this one proceeds. */
     prerequisites?: Map<PendingFileEvent, FileEventAttempt>;
@@ -46,6 +61,7 @@ export type FileEventAttempt = {
 export type PendingFileEvent = {
     /** Original event intent retained for persistence and replay. */
     event: FileEventItem;
+    /** Immutable retention-time snapshot of `getFileEventPaths(event)`, keeping path indexes balanced even if the live event mutates. */
     readonly indexedPaths: readonly string[];
     /** Manager-local ordering position used by snapshots and finite boundaries. */
     sequence: number;
@@ -82,6 +98,16 @@ export function createFileEventAttempt(reconcile = false): FileEventAttempt {
     return { completion: promiseWithResolvers<OperationResult>(), started: false, reconcile };
 }
 
+/** Record the coupled admission-persistence promise and store generation for an attempt. */
+export function recordAdmissionPersistence(
+    attempt: FileEventAttempt,
+    promise: Promise<void>,
+    storeGeneration: number
+): void {
+    attempt.admissionPersistence = promise;
+    attempt.admissionPersistenceStoreGeneration = storeGeneration;
+}
+
 /** Settle an unstarted attempt as an orderly stop while retaining its durable operation. */
 export function stopFileEventAttempt(attempt: FileEventAttempt): void {
     if (attempt.result || attempt.handlerStarted) return;
@@ -111,14 +137,15 @@ export function canRetryFileEvent(event: FileEventItem): boolean {
 }
 
 /**
- * Resolve the paths which establish ordering for this event.
+ * Resolve the unique paths which establish ordering for this event.
  * @param event - The original file-event intent.
- * @returns The file path plus its related path when present; RENAME uses oldPath and other events use renameTarget.
+ * @returns The file path plus its distinct related path when present; RENAME uses oldPath and other events use renameTarget.
  * @remarks The returned paths are used for ownership and ordering only; this function does not index the event.
  */
 export function getFileEventPaths(event: FileEventItem): string[] {
+    const filePath = event.args.file.path;
     const related = event.type === "RENAME" ? event.args.oldPath : event.args.renameTarget;
-    return related ? [event.args.file.path, related] : [event.args.file.path];
+    return related && related !== filePath ? [filePath, related] : [filePath];
 }
 
 /** A side-effect-free selection of the attempts a caller may capture and await. */
@@ -219,6 +246,6 @@ export function planFileEventPredecessors(
  * @remarks Does not alter any result or operation.
  */
 export function assertSuccessfulFileEvents(results: readonly OperationResult[]): void {
-    const failure = results.find((result) => !result.ok && !isStoppedResult(result));
-    if (failure?.ok === false && !isStoppedResult(failure)) throw failure.error;
+    const failure = results.find(isFailedResult);
+    if (failure) throw failure.error;
 }

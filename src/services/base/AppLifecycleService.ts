@@ -167,10 +167,12 @@ export abstract class AppLifecycleService<T extends ServiceContext = ServiceCont
         this.context.events.emitEvent(EVENT_APPLICATION_READY);
     }
 
+    /** Report whether this lifecycle service has entered terminal unload. */
     isUnloading(): boolean {
         return this._isUnloading;
     }
 
+    /** Enter terminal unload, blocking future `markIsReady()` transitions and signalling teardown fences. */
     markIsUnloading(): void {
         this._isUnloading = true;
     }

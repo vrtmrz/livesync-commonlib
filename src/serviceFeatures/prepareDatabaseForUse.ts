@@ -19,7 +19,7 @@ function reportPreparationFailure(log: LogFunction, message: string): false {
  * @param ignoreSuspending Whether to ignore suspension settings
  * @param continueOnFileFailure Whether individual file failures may satisfy application readiness
  * @param scanOptions Optional content-check policy; omitted options keep strict checks
- * @returns The initialisation outcome, including accepted individual file failures
+ * @returns The initialisation outcome, including accepted individual file failures, or `false` if aborted by unload before marking ready
  */
 
 export async function prepareDatabaseForUse(
@@ -98,6 +98,7 @@ export async function prepareDatabaseForUse(
         appLifecycle.markIsReady();
         return scanResult;
     } catch (error) {
+        if (abortIfUnloading()) return false;
         log(error, LOG_LEVEL_VERBOSE);
         throw error;
     }
