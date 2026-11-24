@@ -10,6 +10,13 @@ import createInlineWorker from "./bg.worker.ts?worker&inline";
 import { backgroundWorkerContract, type WorkerSplitRequest } from "./backgroundWorkerRpcContract.ts";
 import { toBackgroundWorkerError } from "./bgWorker.errors.ts";
 import { createSplitOperation } from "./bgWorker.splitting.ts";
+import {
+    acquireTrackedSplitConnection,
+    closeSplitConnectionTracker,
+    createSplitConnectionTrackerState,
+    trackConnection,
+} from "./splitConnectionTracker.ts";
+import { createSplitGate } from "./splitGate.ts";
 import type {
     EncryptArguments,
     EncryptHKDFArguments,
@@ -27,146 +34,37 @@ export type WorkerInstance = {
     cancelledSplitKeys: Set<number>;
 };
 
-function createSplitGate(capacity: number) {
-    const waiters = new Set<ReturnType<typeof promiseWithResolvers<void>>>();
-    let active = 0;
-    let closed: RpcError | undefined;
+type PoolConnection = ReturnType<typeof connectWorkerRpc<typeof backgroundWorkerContract>>;
+type PoolClient = Awaited<PoolConnection["ready"]>;
 
-    function release(): void {
-        const next = waiters.values().next().value;
-        if (next === undefined) {
-            active--;
-            return;
-        }
-        waiters.delete(next);
-        next.resolve();
-    }
-
-    async function acquire(signal: AbortSignal): Promise<() => void> {
-        if (closed !== undefined) {
-            throw closed;
-        }
-        if (signal.aborted) {
-            throw signal.reason;
-        }
-        if (active < capacity) {
-            active++;
-            return release;
-        }
-
-        const waiter = promiseWithResolvers<void>();
-        const onAbort = () => {
-            if (waiters.delete(waiter)) {
-                waiter.reject(signal.reason);
-            }
-        };
-        waiters.add(waiter);
-        signal.addEventListener("abort", onAbort, { once: true });
-        try {
-            await waiter.promise;
-            return release;
-        } finally {
-            signal.removeEventListener("abort", onAbort);
-        }
-    }
-
-    function close(error: RpcError): void {
-        closed = error;
-        for (const waiter of waiters) {
-            waiter.reject(error);
-        }
-        waiters.clear();
-    }
-
-    return { acquire, close };
+function createBackgroundWorkerConnection(): PoolConnection {
+    return connectWorkerRpc({
+        contract: backgroundWorkerContract,
+        createWorker: () => createInlineWorker() as Worker,
+    });
 }
 
 function createBackgroundWorkerPool() {
     const size = Math.max(1, Math.floor((compatGlobal.navigator.hardwareConcurrency || 8) / 2));
     const splitGate = createSplitGate(size);
-    type PoolConnection = ReturnType<typeof connectWorkerRpc<typeof backgroundWorkerContract>>;
-    type PoolClient = Awaited<PoolConnection["ready"]>;
-    const readySlots = new Map<PoolConnection, PoolClient>();
-    const activeSplitCounts = new Map<PoolConnection, number>();
-    let closed = false;
-
+    const splitConnections = createSplitConnectionTrackerState<PoolConnection, PoolClient>();
     const workerPool = createWorkerPool({
         size,
         createConnection: () => {
-            const connection = connectWorkerRpc({
-                contract: backgroundWorkerContract,
-                createWorker: () => createInlineWorker() as Worker,
-            });
-            const removeSlot = () => {
-                readySlots.delete(connection);
-                activeSplitCounts.delete(connection);
-            };
-            connection.signal.addEventListener("abort", removeSlot, { once: true });
-            void connection.ready.then(
-                (client) => {
-                    if (!closed && !connection.signal.aborted) {
-                        readySlots.set(connection, client);
-                    }
-                },
-                (): void => undefined
-            );
+            const connection = createBackgroundWorkerConnection();
+            trackConnection(splitConnections, connection, connection.ready);
             return connection;
         },
     });
 
-    function reserveSplitConnection(
-        connection: PoolConnection,
-        client: PoolClient,
-        releaseCandidate?: () => void
-    ) {
-        activeSplitCounts.set(connection, (activeSplitCounts.get(connection) ?? 0) + 1);
-        let released = false;
-        return {
-            connection,
-            client,
-            release() {
-                if (released) {
-                    return;
-                }
-                released = true;
-                const remaining = (activeSplitCounts.get(connection) ?? 0) - 1;
-                if (remaining > 0) {
-                    activeSplitCounts.set(connection, remaining);
-                } else {
-                    activeSplitCounts.delete(connection);
-                }
-                releaseCandidate?.();
-            },
-        };
-    }
-
-    async function acquireForSplit() {
-        const candidate = await workerPool.acquire();
-        if ((activeSplitCounts.get(candidate.connection) ?? 0) === 0) {
-            return reserveSplitConnection(candidate.connection, candidate.client, candidate.release);
-        }
-
-        // Another ready Worker has no active split even if encryption leases make it look busier.
-        for (const [connection, client] of readySlots) {
-            if (!connection.signal.aborted && (activeSplitCounts.get(connection) ?? 0) === 0) {
-                candidate.release();
-                return reserveSplitConnection(connection, client);
-            }
-        }
-
-        // Fallback when another slot is restarting and no unreserved ready Worker exists yet.
-        return reserveSplitConnection(candidate.connection, candidate.client, candidate.release);
-    }
-
+    const acquireCandidate = workerPool.acquire.bind(workerPool);
     return {
         ...workerPool,
         acquireSplitSlot: splitGate.acquire,
-        acquireForSplit,
+        acquireForSplit: () => acquireTrackedSplitConnection(splitConnections, acquireCandidate),
         close(reason: RpcError) {
-            closed = true;
             splitGate.close(reason);
-            readySlots.clear();
-            activeSplitCounts.clear();
+            closeSplitConnectionTracker(splitConnections);
             workerPool.close(reason);
         },
     };

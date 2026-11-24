@@ -8,6 +8,7 @@ const splitters = {
     3: splitPiecesRabinKarp,
 };
 
+/** Read diagnostic text safely even when a thrown value has a throwing accessor. */
 function readErrorField(error: unknown, field: "name" | "message"): string | undefined {
     try {
         const value = (error as Partial<Record<typeof field, unknown>> | null | undefined)?.[field];
@@ -17,6 +18,7 @@ function readErrorField(error: unknown, field: "name" | "message"): string | und
     }
 }
 
+/** Preserve the splitter diagnostic in the stream error sent to the caller. */
 function asRemoteSplitError(error: unknown): RpcError {
     const remoteName = readErrorField(error, "name") ?? "Error";
     const message =
@@ -24,6 +26,10 @@ function asRemoteSplitError(error: unknown): RpcError {
     return new RpcError("remote-error", message, { remoteName });
 }
 
+/**
+ * Adapt the RPC CancelSignal to the DOM AbortController required by V3 Rabin–Karp.
+ * Abort immediately if the RPC signal has already fired, and return a listener disposer.
+ */
 function bridgeCancellation(signal: CancelSignal, controller: AbortController): () => void {
     const abort = () => controller.abort(signal.reason);
     if (signal.aborted) {

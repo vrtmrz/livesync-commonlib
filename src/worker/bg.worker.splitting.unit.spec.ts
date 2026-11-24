@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { backgroundWorkerContract, splitStreamItems, type WorkerSplitRequest } from "./backgroundWorkerRpcContract.ts";
 import { splitBackgroundRequest } from "./bg.worker.splitting.ts";
 import { serveBackgroundWorker } from "./serveBackgroundWorker.ts";
-import { readWorkerPushStream } from "./workerPushStream.ts";
+import { readWorkerPushStream } from "./WorkerPushStreamReader.ts";
 
 const mockedSplitters = vi.hoisted(() => ({
     splitPieces2: vi.fn(),

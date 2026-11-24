@@ -5,7 +5,7 @@ import { decrypt as decryptHKDF, encrypt as encryptHKDF } from "octagonal-wheels
 import { serveWorkerRpc, type ServeWorkerRpcOptions } from "@vrtmrz/rpc/worker";
 import { backgroundWorkerContract, splitStreamItems } from "./backgroundWorkerRpcContract.ts";
 import { splitBackgroundRequest } from "./bg.worker.splitting.ts";
-import { serveWorkerPushStream } from "./workerPushStream.ts";
+import { serveWorkerPushStream } from "./WorkerPushStreamProducer.ts";
 
 export function serveBackgroundWorker(port: ServeWorkerRpcOptions<typeof backgroundWorkerContract>["port"]) {
     return serveWorkerRpc({

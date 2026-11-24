@@ -454,6 +454,7 @@ describe("Rabin–Karp background Worker splitting", () => {
         const splitCalled = promiseWithResolvers<void>();
         const release = vi.fn();
         const releaseSplitSlot = vi.fn();
+        const onFinish = vi.fn();
         const controller = new AbortController();
         const cancelReceived = promiseWithResolvers<unknown>();
         producer.addEventListener("message", ({ data }) => cancelReceived.resolve(data), { once: true });
@@ -483,7 +484,7 @@ describe("Rabin–Karp background Worker splitting", () => {
                     splitVersion: 3,
                     useSegmenter: false,
                 },
-                () => undefined
+                onFinish
             );
             const pending = operation.iterator.next();
             await splitCalled.promise;
@@ -492,8 +493,11 @@ describe("Rabin–Karp background Worker splitting", () => {
             expect(release).toHaveBeenCalledTimes(1);
             expect(releaseSplitSlot).toHaveBeenCalledTimes(1);
 
+            expect(onFinish.mock.calls).toEqual([[false]]);
+
             latePort.resolve(port);
             await expect(cancelReceived.promise).resolves.toEqual({ version: 1, type: "cancel" });
+            expect(onFinish.mock.calls).toEqual([[false]]);
             expect(release).toHaveBeenCalledTimes(1);
             expect(releaseSplitSlot).toHaveBeenCalledTimes(1);
         } finally {

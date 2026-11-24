@@ -51,7 +51,7 @@ import type { WriteResult } from "@lib/managers/LayeredChunkManager/types";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
 import { EntryManager } from "./EntryManager";
 import { ConflictManager } from "@lib/managers/ConflictManager";
-import { stopGeneratorOnReturn } from "@lib/worker/workerPushStream.ts";
+import { stopGeneratorOnReturn } from "@lib/worker/workerPushStreamProtocol.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 
 // Set up PouchDB with memory adapter

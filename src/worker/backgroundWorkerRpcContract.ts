@@ -1,6 +1,6 @@
 import { call, defineContract } from "@vrtmrz/rpc";
 import type { SplitArguments } from "./universalTypes.ts";
-import { isStringItem, ITEM_OVERHEAD_BYTES, measureStringItem } from "./workerPushStream.ts";
+import { isStringItem, ITEM_OVERHEAD_BYTES, measureStringItem } from "./workerPushStreamProtocol.ts";
 
 export type WorkerSplitRequest = Omit<SplitArguments, "type" | "key">;
 

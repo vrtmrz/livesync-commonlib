@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { splitPiecesRabinKarp } from "../string_and_binary/chunks.ts";
 import { backgroundWorkerContract, splitStreamItems, type WorkerSplitRequest } from "./backgroundWorkerRpcContract.ts";
 import { serveBackgroundWorker } from "./serveBackgroundWorker.ts";
-import { readWorkerPushStream } from "./workerPushStream.ts";
+import { readWorkerPushStream } from "./WorkerPushStreamReader.ts";
 
 async function withWorkerClient<T>(
     run: (client: WorkerRpcClient<typeof backgroundWorkerContract>) => Promise<T>
