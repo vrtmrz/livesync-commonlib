@@ -51,8 +51,9 @@ import {
 import { createBlob, determineTypeFromBlob } from "@lib/common/utils.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import {
-    createSyncParamsHanderForServer,
+    createSyncParamsHandler,
     SyncParamsFetchError,
+    type SyncParamsHandler,
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
 } from "@lib/replication/SyncParamsHandler.ts";
@@ -136,6 +137,8 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     readonly runtimeOptions: DirectFileManipulatorRuntimeOptions;
     ready = promiseWithResolvers<void>();
     services: HeadlessServiceHub<ServiceContext>;
+    // Per instance: a handler shared per server keeps the first manipulator's callbacks, which fail once it is closed.
+    private syncParamsHandler?: SyncParamsHandler;
     public async init() {
         try {
             await this.services.appLifecycle.onReady();
@@ -279,13 +282,12 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         }
     }
     async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
-        const server = `${setting.couchDB_URI.replace(/\/+$/, "")}/${setting.couchDB_DBNAME}`;
-        const manager = createSyncParamsHanderForServer(server, {
+        this.syncParamsHandler ??= createSyncParamsHandler({
             put: (params: SyncParameters) => this.putSyncParameters(setting, params),
             get: () => this.getSyncParameters(setting),
             create: () => this.getInitialSyncParameters(setting),
         });
-        return await manager.getPBKDF2Salt(refresh);
+        return await this.syncParamsHandler.getPBKDF2Salt(refresh);
     }
     $everyOnInitializeDatabase(db: LiveSyncLocalDB): Promise<boolean> {
         replicationFilter(db.localDatabase, this.options.enableCompression ?? false);
