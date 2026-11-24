@@ -86,11 +86,6 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
     restoreState() {
         return this.vaultManager.restoreState();
     }
-
-    /** Compatibility hook requesting background store acquisition without awaiting replay. */
-    markStoreInitialised(): void {
-        this.vaultManager.markStoreInitialised?.();
-    }
     async _everyOnFirstInitialize(): Promise<boolean> {
         if (this.isStopping()) return false;
         await this.vaultManager.beginWatch();

@@ -205,12 +205,12 @@ export async function processFilePair(
                 if (!file) {
                     throw new Error(`Missing storage file for ${path}`);
                 }
-                return await updateToDatabase(host, log, LOG_LEVEL_INFO, file, isStopping);
+                return await updateToDatabase(host, log, LOG_LEVEL_INFO, file);
             case "update-storage":
                 if (!doc) {
                     throw new Error(`Missing database entry for ${path}`);
                 }
-                const updateStorageResult = await updateToStorage(host, log, LOG_LEVEL_INFO, doc, options, isStopping);
+                const updateStorageResult = await updateToStorage(host, log, LOG_LEVEL_INFO, doc, options);
                 if (updateStorageResult === FilePairProcessResults.COMPLETED) {
                     updateFileMTimeInMap(host, fileMapKey, doc.mtime, isStopping);
                 }

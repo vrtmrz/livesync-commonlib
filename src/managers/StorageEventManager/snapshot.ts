@@ -3,7 +3,7 @@ import type { FileEventItem } from "@lib/common/types";
 import { promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
 import { assertFileEventAdmission } from "./operations";
 import {
-    assertStoreAcquired,
+    assertStoreLoaded,
     commitSnapshotWriteState,
     isManagerStopped,
     retainBufferedFileEvents,
@@ -173,7 +173,7 @@ async function writeBatch(
     io: StorageEventSnapshotIO
 ): Promise<void> {
     try {
-        assertStoreAcquired(state);
+        assertStoreLoaded(state);
         const plan = planSnapshotWrite(state, batch);
         if (plan) {
             await persistSnapshotPlan(state, io, plan);

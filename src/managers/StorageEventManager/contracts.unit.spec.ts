@@ -7,7 +7,6 @@ import { createFileEventAttempt } from "./operations";
 import { handleStorageFileEvent, processStorageEventAttempt, type StorageEventAttemptEffects } from "./processing";
 import { persistFileEventSnapshot } from "./snapshot";
 import {
-    completeStoreRestore,
     createStorageEventState,
     retainFileEvent,
     type QueuedFileEvent,
@@ -185,7 +184,7 @@ describe("exported storage-event boundary decisions", () => {
         "does not acknowledge stale snapshot ownership: %s",
         async (reason) => {
             const state = createStorageEventState();
-            completeStoreRestore(state, state.persistence.storeGeneration);
+            state.persistence.storeLoaded = true;
             const event = intent();
             const entry = retainFileEvent(state, event);
             const attempt = entry.operation!.attempt;
@@ -210,7 +209,7 @@ describe("exported storage-event boundary decisions", () => {
 
     it("does not commit a completion whose admission failed", async () => {
         const state = createStorageEventState();
-        completeStoreRestore(state, state.persistence.storeGeneration);
+        state.persistence.storeLoaded = true;
         const event = intent();
         const entry = retainFileEvent(state, event);
         const attempt = entry.operation!.attempt;
@@ -234,7 +233,7 @@ describe("exported storage-event boundary decisions", () => {
 
     it("retains replacement ownership installed while an older completion is being saved", async () => {
         const state = createStorageEventState();
-        completeStoreRestore(state, state.persistence.storeGeneration);
+        state.persistence.storeLoaded = true;
         const event = intent();
         const old = retainFileEvent(state, event);
         const save = vi.fn(async (_events: QueuedFileEvent[]) => {

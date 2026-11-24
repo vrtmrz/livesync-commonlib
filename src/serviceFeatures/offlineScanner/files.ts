@@ -22,13 +22,17 @@ import { inspectMetadataDocumentIdentity } from "./metadata";
 import { getPathFromEntry, convertCase } from "./paths";
 import { FilePairProcessResults, MetadataDocumentIdentityStatuses, type FilePairProcessResult } from "./types";
 
+function isStorageStopping(host: { serviceModules: object }): boolean {
+    const modules = host.serviceModules as { storageAccess?: { isStopping?(): boolean } };
+    return modules.storageAccess?.isStopping?.() === true;
+}
+
 /** Finalise one selected scan reflection, including failures which reject. */
 async function reflectScannedEntry(
     host: NecessaryServices<never, "fileHandler">,
     entry: MetaEntry,
     file: FilePath | null,
     force: boolean,
-    isStopping: () => boolean,
     options?: VaultScanOptions
 ): Promise<FilePairProcessResult> {
     const target = entry._rev ? { documentId: entry._id, revision: entry._rev } : undefined;
@@ -43,7 +47,7 @@ async function reflectScannedEntry(
     } catch (error) {
         // The owner notification is awaited after the reflection operation fails.
         // Its rejection must remain a persistence failure, not another read failure.
-        if (!isStopping() && target && options?.onReflectionFailed) {
+        if (!isStorageStopping(host) && target && options?.onReflectionFailed) {
             await options.onReflectionFailed(target, error);
         }
         return FilePairProcessResults.FAILED;
@@ -91,7 +95,7 @@ export async function syncFileBetweenDBandStorage(
         case TARGET_IS_NEW:
             if (!host.services.vault.isFileSizeTooLarge(doc.size)) {
                 log("STORAGE <- DB :" + docPath);
-                const reflection = await reflectScannedEntry(host, doc, stripAllPrefixes(docPath), false, isStopping, scanOptions);
+                const reflection = await reflectScannedEntry(host, doc, stripAllPrefixes(docPath), false, scanOptions);
                 if (isStopping()) {
                     return FilePairProcessResults.FAILED;
                 }
@@ -137,12 +141,21 @@ async function reconcileEqualTimeFile(
         );
         return FilePairProcessResults.SKIPPED;
     }
-    const observed = await checkEqualTimeProvenance(host, log, file, doc, isStopping, scanOptions);
-    if (isStopping()) {
-        return FilePairProcessResults.FAILED;
+    if (scanOptions?.strictContentCheck === false) {
+        const unchanged = await host.serviceModules.fileHandler.canSkipUnchangedFile?.(file, doc);
+        if (isStopping()) return FilePairProcessResults.FAILED;
+        if (unchanged) {
+            log(`STORAGE ? DB : ${file.path} skipped using unchanged storage and revision metadata`, LOG_LEVEL_DEBUG);
+            return FilePairProcessResults.SKIPPED;
+        }
     }
-    if (observed !== undefined) {
-        return observed;
+    if (doc._rev) {
+        const tracked = await host.serviceModules.fileHandler.tryRecordUntrackedFileRevision(file, doc._rev);
+        if (isStopping()) return FilePairProcessResults.FAILED;
+        if (tracked) {
+            log("STORAGE == DB :" + file.path, LOG_LEVEL_DEBUG);
+            return FilePairProcessResults.COMPLETED;
+        }
     }
     log("STORAGE ? DB :" + file.path + " Checking content", LOG_LEVEL_DEBUG);
     try {
@@ -156,37 +169,6 @@ async function reconcileEqualTimeFile(
         log(error, LOG_LEVEL_VERBOSE);
         return FilePairProcessResults.FAILED;
     }
-}
-
-async function checkEqualTimeProvenance(
-    host: NecessaryServices<never, "fileHandler">,
-    log: LogFunction,
-    file: UXFileInfoStub,
-    doc: MetaEntry,
-    isStopping: () => boolean,
-    scanOptions?: VaultScanOptions
-): Promise<FilePairProcessResult | undefined> {
-    if (scanOptions?.strictContentCheck === false) {
-        const unchanged = await host.serviceModules.fileHandler.canSkipUnchangedFile?.(file, doc);
-        if (isStopping()) {
-            return FilePairProcessResults.FAILED;
-        }
-        if (unchanged) {
-            log(`STORAGE ? DB : ${file.path} skipped using unchanged storage and revision metadata`, LOG_LEVEL_DEBUG);
-            return FilePairProcessResults.SKIPPED;
-        }
-    }
-    if (doc._rev) {
-        const tracked = await host.serviceModules.fileHandler.tryRecordUntrackedFileRevision(file, doc._rev);
-        if (isStopping()) {
-            return FilePairProcessResults.FAILED;
-        }
-        if (tracked) {
-            log("STORAGE == DB :" + file.path, LOG_LEVEL_DEBUG);
-            return FilePairProcessResults.COMPLETED;
-        }
-    }
-    return undefined;
 }
 
 function createComparisonPathLookup(settings: ObsidianLiveSyncSettings, paths: readonly FilePathWithPrefix[]) {
@@ -317,20 +299,19 @@ export async function collectDatabaseFiles(
     };
 }
 
-/** Persist a storage file to the local database unless size limits or the stop fence abort the write. */
+/** Persist a storage file to the local database unless size limits reject the write. */
 export async function updateToDatabase(
     host: NecessaryServices<"vault", "fileHandler">,
     log: LogFunction,
     logLevel: LOG_LEVEL,
-    file: UXFileInfoStub,
-    isStopping: () => boolean = () => false
+    file: UXFileInfoStub
 ): Promise<FilePairProcessResult> {
     if (!host.services.vault.isFileSizeTooLarge(file.stat.size)) {
         const path = file.path;
         if (!(await host.serviceModules.fileHandler.storeFileToDB(file))) {
             return FilePairProcessResults.FAILED;
         }
-        if (isStopping()) {
+        if (isStorageStopping(host)) {
             return FilePairProcessResults.FAILED;
         }
         host.services.context.events.emitEvent("event-file-changed", { file: path, automated: true });
@@ -341,14 +322,13 @@ export async function updateToDatabase(
     }
 }
 
-/** Reflect a local database entry to storage unless deleted, oversized, or aborted by the stop fence. */
+/** Reflect a local database entry to storage unless deleted, oversized, or conflicted. */
 export async function updateToStorage(
     host: NecessaryServices<"vault" | "path", "fileHandler">,
     log: LogFunction,
     logLevel: LOG_LEVEL,
     w: MetaEntry,
-    scanOptions?: VaultScanOptions,
-    isStopping: () => boolean = () => false
+    scanOptions?: VaultScanOptions
 ): Promise<FilePairProcessResult> {
     const path = getPathFromEntry(host, w);
     if (!w) {
@@ -367,8 +347,8 @@ export async function updateToStorage(
         log(`UPDATE STORAGE: ${path} has conflicts. skipped (x)`, LOG_LEVEL_INFO);
         return FilePairProcessResults.SKIPPED;
     }
-    const reflected = await reflectScannedEntry(host, w, null, true, isStopping, scanOptions);
-    if (isStopping()) {
+    const reflected = await reflectScannedEntry(host, w, null, true, scanOptions);
+    if (isStorageStopping(host)) {
         return FilePairProcessResults.FAILED;
     }
     // Keep a failed reflection eligible for a later scan without recording it as locally observed.

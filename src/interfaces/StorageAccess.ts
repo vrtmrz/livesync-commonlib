@@ -36,8 +36,6 @@ export interface StorageAccess extends FileNameLookup {
     normalisePath(path: string): string;
 
     restoreState(): Promise<void>;
-    /** Compatibility hook to request store acquisition. Await restoreState() to track completion. */
-    markStoreInitialised?(): void;
 
     /** Includes queued, running, and failed work; absence requires a conservative content check. */
     hasPendingFileEvent?(path: FilePath): boolean;

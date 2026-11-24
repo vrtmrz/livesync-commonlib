@@ -29,8 +29,6 @@ export abstract class StorageEventManager {
     /** Resume file-handler dispatch after a supported pause. */
     resumeDispatch?(): void;
     abstract restoreState(): Promise<void>;
-    /** Compatibility hook to request store acquisition. Await restoreState() to track completion. */
-    markStoreInitialised?(): void;
     /**
      * Invalidate store-scoped persistence state when the backing snapshot store is replaced.
      * Retained in-memory intents remain queued and must be persisted to the replacement store.

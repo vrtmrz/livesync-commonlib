@@ -22,8 +22,7 @@ import { sanitiseEventForPersistence } from "./StorageEventManager/snapshot";
 import {
     TYPE_SENTINEL_FLUSH,
     isManagerStopped,
-    isStoreAcquired,
-    isStoreRestoring,
+    isStoreLoaded,
     type QueuedFileEvent,
 } from "./StorageEventManager/state";
 
@@ -124,6 +123,7 @@ function runtime(persistence: IStorageEventPersistenceAdapter, window = 5, Manag
     } as unknown as StorageEventManagerBaseDependencies;
     const manager = new Manager(adapter, dependencies);
     manager["dispatchWindowSize"] = window;
+    manager["concurrentProcessing"] = Semaphore(window);
     return { manager, settings, process, optional, watcher, status, log, state: manager["eventState"] };
 }
 
@@ -482,7 +482,7 @@ describe("Astra review regressions", () => {
         const { manager } = runtime(storage.adapter);
         await manager.pauseDispatch();
         const restore = manager.restoreState();
-        await vi.waitFor(() => expect(isStoreRestoring(manager["eventState"])).toBe(false));
+        await vi.waitFor(() => expect(manager["eventState"].persistence.storeLoadPromise).toBeNull());
         manager.enqueue(event("live"));
         await vi.waitFor(() => expect(storage.orderedRecords()).toHaveLength(1));
         expect(storage.orderedRecords()[0].id).toBe("000000000002");
@@ -554,7 +554,7 @@ describe("Step 1 review regressions", () => {
         });
         const restore = manager.restoreState();
         await started.promise;
-        expect(state.dispatch.activeSlots).toBe(window);
+        expect(state.dispatch.dispatched.size).toBe(window);
         expect(state.dispatch.inFlightOperations.size).toBe(window);
         expect(process).toHaveBeenCalledTimes(window);
         expect(storage.commit).not.toHaveBeenCalled();
@@ -707,7 +707,7 @@ describe("Step 1 review regressions", () => {
         const live = { ...event("live"), type: "DELETE" } as const;
         manager.enqueue(live);
         read.resolve([event("restored"), sentinel(), { ...event("restored-delete"), type: "DELETE" }]);
-        await vi.waitFor(() => expect(isStoreRestoring(state)).toBe(false));
+        await vi.waitFor(() => expect(state.persistence.storeLoadPromise).toBeNull());
         const entries = [...state.pendingSnapshot.values()];
         expect(keys(entries.map((entry) => entry.event))).toEqual([
             "restored",
@@ -1227,12 +1227,12 @@ describe("preserve-and-stop and Commonlib handoff", () => {
         await started.promise;
         manager.enqueue(second);
         await vi.waitFor(() => expect(semaphore.waiting).toBe(1));
-        expect(state.dispatch.activeSlots).toBe(2);
+        expect(state.dispatch.dispatched.size).toBe(2);
 
         const paused = manager.pauseDispatch();
         handler.resolve(true);
         await paused;
-        await vi.waitFor(() => expect(state.dispatch.activeSlots).toBe(0));
+        await vi.waitFor(() => expect(state.dispatch.inFlightOperations.size).toBe(0));
         expect(process).toHaveBeenCalledExactlyOnceWith(first);
         expect(storage.contents()).toEqual([sanitiseEventForPersistence(second)]);
         const permit = await semaphore.tryAcquire(1, 0);
@@ -1252,7 +1252,7 @@ describe("preserve-and-stop and Commonlib handoff", () => {
             expect(process).toHaveBeenCalledExactlyOnceWith(first);
             expect(storage.contents()).toEqual([sanitiseEventForPersistence(second)]);
         }
-        expect(state.dispatch.activeSlots).toBe(0);
+        expect(state.dispatch.dispatched.size).toBe(0);
         expect(semaphore.waiting).toBe(0);
     });
 
@@ -1534,7 +1534,7 @@ describe.each(["incremental", "suppressed full snapshot I/O"] as const)("7,453-e
                 lookups.mockRestore();
             }
             processed.push(item.key);
-            peakSlots = Math.max(peakSlots, state.dispatch.activeSlots);
+            peakSlots = Math.max(peakSlots, state.dispatch.dispatched.size);
             active++;
             peakHandlers = Math.max(peakHandlers, active);
             // Hold the first five distinct ready operations until the window fills.
@@ -1750,7 +1750,7 @@ describe("Astra Pass 2 regressions", () => {
         const { manager, state, process } = runtime(storage.adapter);
 
         await expect(manager.restoreState()).rejects.toThrow("Invalid storage event snapshot");
-        expect(isStoreAcquired(state)).toBe(false);
+        expect(isStoreLoaded(state)).toBe(false);
         expect(state.pendingSnapshot.size).toBe(0);
         expect(state.pendingOperationCount).toBe(0);
         expect(state.persistence.activeRecordIds.size).toBe(0);
@@ -1846,7 +1846,7 @@ describe("Astra Pass 3 regressions", () => {
             const { manager, process, optional, state } = runtime(storage.adapter);
 
             await expect(manager.restoreState()).rejects.toThrow("Invalid persisted storage event");
-            expect(isStoreAcquired(state)).toBe(false);
+            expect(isStoreLoaded(state)).toBe(false);
             expect(state.pendingSnapshot.size).toBe(0);
             expect(process).not.toHaveBeenCalled();
             expect(optional).not.toHaveBeenCalled();
@@ -1904,13 +1904,13 @@ describe("Astra Pass 3 regressions", () => {
 
             await manager.stopWatching();
             await expect(scan).resolves.toBe(false);
-            expect(isStoreAcquired(state)).toBe(false);
+            expect(isStoreLoaded(state)).toBe(false);
             expect(storage.commit).not.toHaveBeenCalled();
 
             // Late database-closed rejection from the abandoned read must not overwrite or surface unhandled.
             read.reject(new Error("Database closed during unload"));
             await new Promise<void>((resolve) => setImmediate(resolve));
-            expect(isStoreAcquired(state)).toBe(false);
+            expect(isStoreLoaded(state)).toBe(false);
             expect(storage.commit).not.toHaveBeenCalled();
             expect(process).not.toHaveBeenCalled();
             expect(keys(storage.contents())).toEqual(["unread-during-stop"]);
@@ -2005,7 +2005,7 @@ describe("Astra Pass 3 regressions", () => {
                 },
             ]);
             expect(manager.hasPendingFileEvent("old.md" as FilePath)).toBe(true);
-            expect(isStoreAcquired(state)).toBe(false);
+            expect(isStoreLoaded(state)).toBe(false);
 
             await expect(manager.stopWatching()).rejects.toThrow("Storage event store was not acquired before stopping");
             await expect(restoring).resolves.toBeUndefined();
@@ -2061,7 +2061,7 @@ describe("Astra Pass 3 regressions", () => {
             }
             const corrupt = runtime(sparseStorage.adapter);
             await expect(withoutHasOwn(() => corrupt.manager.restoreState())).rejects.toThrow("Invalid storage event");
-            expect(isStoreAcquired(corrupt.state)).toBe(false);
+            expect(isStoreLoaded(corrupt.state)).toBe(false);
             await corrupt.manager.stopWatching();
         }
     );
@@ -2161,7 +2161,7 @@ describe("Astra Pass 3 regressions", () => {
             .mockRejectedValueOnce(replayFailure);
 
         await expect(manager.restoreState()).rejects.toBe(replayFailure);
-        expect(isStoreAcquired(state)).toBe(true);
+        expect(isStoreLoaded(state)).toBe(true);
         await expect(manager.beginWatch()).rejects.toBe(replayFailure);
         expect(watcher).not.toHaveBeenCalled();
 
@@ -2173,4 +2173,75 @@ describe("Astra Pass 3 regressions", () => {
         expect(watcher).toHaveBeenCalledTimes(1);
         await manager.stopWatching();
     });
+
+    it.each(modes)(
+        "restores and replays a persisted internal-file event without stat even when type is CHANGED (%s)",
+        async (mode) => {
+            const internalChanged: FileEventItem = {
+                type: "CHANGED",
+                key: "internal-changed",
+                args: {
+                    file: {
+                        path: ".obsidian/plugins/sample/data.json" as FilePath,
+                        name: "data.json",
+                        isFolder: false,
+                        isInternal: true,
+                        stat: undefined,
+                    },
+                },
+            };
+            const storage = store(mode, [internalChanged]);
+            const { manager, optional, process } = runtime(storage.adapter);
+
+            await manager.restoreState();
+            expect(optional).toHaveBeenCalledExactlyOnceWith(".obsidian/plugins/sample/data.json");
+            expect(process).not.toHaveBeenCalled();
+            expect(storage.contents()).toEqual([]);
+            await manager.stopWatching();
+        }
+    );
+
+    it.each(modes)(
+        "does not mark a replacement %s store loaded when updateStatus resets persistence during restore",
+        async (mode) => {
+            const firstStore = store(mode, [{ type: TYPE_SENTINEL_FLUSH }]);
+            const replacementStore = store(mode, [event("only-new")]);
+            let activeStore = firstStore;
+            const switchingAdapter: IStorageEventPersistenceAdapter =
+                mode === "incremental"
+                    ? ({
+                          loadSnapshot: () => activeStore.adapter.loadSnapshot(),
+                          saveSnapshot: (items) => activeStore.adapter.saveSnapshot(items),
+                          loadSnapshotEntries: () =>
+                              (activeStore.adapter as IStorageEventIncrementalPersistenceAdapter).loadSnapshotEntries(),
+                          applySnapshotDelta: (delta) =>
+                              (activeStore.adapter as IStorageEventIncrementalPersistenceAdapter).applySnapshotDelta(
+                                  delta
+                              ),
+                      } satisfies IStorageEventIncrementalPersistenceAdapter)
+                    : {
+                          loadSnapshot: () => activeStore.adapter.loadSnapshot(),
+                          saveSnapshot: (items) => activeStore.adapter.saveSnapshot(items),
+                      };
+            const { manager, status, state, process } = runtime(switchingAdapter);
+            let swapped = false;
+            status.mockImplementation(() => {
+                if (swapped) return;
+                swapped = true;
+                activeStore = replacementStore;
+                manager.resetPersistenceState();
+            });
+
+            await manager.restoreState();
+            expect(isStoreLoaded(state)).toBe(false);
+            await manager._takeSnapshot();
+            expect(isStoreLoaded(state)).toBe(true);
+            expect(keys(replacementStore.contents())).toContain("only-new");
+
+            await manager.waitForIdle();
+            expect(keys(process.mock.calls.map(([item]) => item))).toEqual(["only-new"]);
+            expect(replacementStore.contents()).toEqual([]);
+            await manager.stopWatching();
+        }
+    );
 });

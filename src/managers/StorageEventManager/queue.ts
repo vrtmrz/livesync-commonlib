@@ -8,7 +8,6 @@ import { fireAndForget } from "@lib/common/utils";
 import type { LogFunction } from "@lib/services/lib/logUtils";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
-import { createOwnedResource } from "octagonal-wheels/resource";
 import {
     assertSuccessfulFileEvents,
     isFailedResult,
@@ -19,19 +18,15 @@ import {
 } from "./operations";
 import {
     TYPE_SENTINEL_FLUSH,
-    completeStoreRestore,
     installRestoredEntries,
     isAcceptingEvents,
     isManagerStopping,
-    isStoreAcquired,
-    isStoreRestoring,
+    isStoreLoaded,
     markSentinelDispatched,
     prepareRetainedEvent,
     pendingFileOperations,
-    releaseDispatchSlot,
     retainBufferedFileEvents,
     retainFileEvent,
-    tryAcquireDispatchSlot,
     type EventAdmission,
     type PendingSnapshotEntry,
     type QueuedFileEvent,
@@ -59,7 +54,7 @@ export interface StorageEventQueueEffects extends StorageEventNotifications {
     /** Whether the manager selected incremental persistence at construction. */
     incrementalMode?: boolean;
     /** Enter the host event-processing route for one file event. */
-    dispatchQueuedEvent(event: FileEventItem, attempt: FileEventAttempt, releaseDispatchSlot: () => void): Promise<void>;
+    dispatchQueuedEvent(event: FileEventItem, attempt: FileEventAttempt): Promise<void>;
     /** Whether an event currently owns an active batch wait gate. */
     isWaiting?(event: FileEventItem): boolean;
     /** Run the shared queue dispatcher, optionally waiting for processing. */
@@ -86,9 +81,6 @@ export interface StorageEventQueueEffects extends StorageEventNotifications {
  * @param event - The accepted file event to enqueue.
  * @param effects - Host buffer, persistence, dispatch, status, and failure callbacks.
  * @returns Nothing; appends a sentinel before DELETE/RENAME, appends the event, and refreshes status synchronously.
- * @remarks Persistence and dispatch run in a background task whose failures are handled here rather than returned.
- * If that task fails while a handler is active, its error is recorded on that attempt and its operation is released
- * so the handler can settle before retry ownership changes; otherwise the attempt is failed immediately.
  */
 export function enqueueStorageEvent(
     state: StorageEventState,
@@ -128,13 +120,6 @@ export function enqueueStorageEvent(
     });
 }
 
-/**
- * Merge attempts registered by in-flight admissions into an existing flush boundary.
- * @param boundary - The operation-to-attempt map already captured by the flush.
- * @param admissions - Admissions whose completion may have added operations after initial capture.
- * @returns Nothing; adds only operations absent from the boundary.
- * @remarks An attempt already captured remains authoritative, preserving the caller's original ownership snapshot.
- */
 function mergeAdmittedAttempts(
     boundary: Map<PendingFileEvent, FileEventAttempt>,
     admissions: readonly EventAdmission[]
@@ -152,10 +137,6 @@ function mergeAdmittedAttempts(
  * @param effects - Callbacks for capturing attempts, releasing gates, dispatching, waiting, and reporting failures.
  * @returns A promise which settles after captured admissions and attempts; rejects with the first rejected admission
  * or, when admissions succeeded, the first failed operation result.
- * @remarks Flush intent is signalled before awaiting active admissions. Current buffered work is retained and batch
- * gates are released before the failure sequence is read for capture; attempts later registered by those admissions
- * are merged without replacing earlier captures. Dispatch is then started in the background. Work admitted after the
- * initial admission snapshot can remain outside this finite wait.
  */
 export async function flushStorageEvents(state: StorageEventState, effects: StorageEventQueueEffects): Promise<void> {
     const admissions = [...state.admissions];
@@ -187,27 +168,17 @@ export async function flushStorageEvents(state: StorageEventState, effects: Stor
     assertSuccessfulFileEvents(results);
 }
 
-/**
- * Reserve one dispatch window slot only for work that can advance towards a handler.
- * Returns an idempotent release function backed by `createOwnedResource`, or `undefined` if paused or stopping.
- */
-export async function acquireStorageEventDispatchSlot(
-    state: StorageEventState,
-    limit: number,
-    isPaused?: () => boolean
-): Promise<(() => void) | undefined> {
-    while (!isManagerStopping(state) && !isPaused?.()) {
-        if (tryAcquireDispatchSlot(state, limit)) {
-            const permit = createOwnedResource(undefined, () => releaseDispatchSlot(state));
-            return () => void permit.dispose();
-        }
-        await state.dispatch.slotNotifier.wait();
-    }
-    return undefined;
+function canDispatch(state: StorageEventState, effects: StorageEventQueueEffects): boolean {
+    return !isManagerStopping(state) && isStoreLoaded(state) && !effects.isDispatchPaused?.();
 }
 
-function canDispatch(state: StorageEventState, effects: StorageEventQueueEffects): boolean {
-    return !isManagerStopping(state) && isStoreAcquired(state) && !isStoreRestoring(state) && !effects.isDispatchPaused?.();
+function activeDispatchedCount(state: StorageEventState, effects: StorageEventQueueEffects): number {
+    let active = 0;
+    for (const operation of state.dispatch.dispatched) {
+        if (operation.attempt.result || operation.attempt.successor || effects.isWaiting?.(operation.event)) continue;
+        active++;
+    }
+    return active;
 }
 
 function canDispatchOperation(effects: StorageEventQueueEffects, operation: PendingFileEvent): boolean {
@@ -275,22 +246,32 @@ function nextDispatchCandidate(state: StorageEventState, effects: StorageEventQu
     return { entry, take: () => takeBufferedEvent(effects.buffer, index) };
 }
 
+function hasPendingQueueItems(state: StorageEventState, effects: StorageEventQueueEffects): boolean {
+    return Boolean(state.dispatch.replayQueue?.hasPending || effects.buffer.read().length > 0);
+}
+
 function dispatchOperation(
+    state: StorageEventState,
     effects: StorageEventQueueEffects,
-    operation: PendingFileEvent,
-    releaseSlot: () => void
+    operation: PendingFileEvent
 ): void {
     const attempt = operation.attempt;
-    if (attempt.result || attempt.started) {
-        releaseSlot();
-        return;
-    }
+    if (attempt.result || attempt.started) return;
+    state.dispatch.dispatched.add(operation);
     fireAndForget(
-        effects.dispatchQueuedEvent(operation.event, attempt, releaseSlot).finally(releaseSlot).catch(() => {})
+        effects
+            .dispatchQueuedEvent(operation.event, attempt)
+            .catch(() => {})
+            .finally(() => {
+                state.dispatch.dispatched.delete(operation);
+                if (canDispatch(state, effects) && hasPendingQueueItems(state, effects)) {
+                    fireAndForget(effects.runQueuedEvents().catch(effects.reportFailure));
+                }
+            })
     );
 }
 
-/** Dispatch ready operations up to the current window and process sentinels in order. */
+/** Pump ready operations up to the current window and process sentinels in order. */
 async function dispatchBufferedEvents(state: StorageEventState, effects: StorageEventQueueEffects): Promise<void> {
     state.dispatch.windowSize = effects.dispatchWindowSize?.() ?? state.dispatch.windowSize;
     while (canDispatch(state, effects)) {
@@ -301,33 +282,19 @@ async function dispatchBufferedEvents(state: StorageEventState, effects: Storage
             await dispatchSentinelEntry(state, effects, next.entry);
             continue;
         }
-        const releaseSlot = await acquireStorageEventDispatchSlot(state, state.dispatch.windowSize, effects.isDispatchPaused);
-        if (!releaseSlot) return;
-        dispatchAfterAcquiringSlot(state, effects, releaseSlot);
+        if (activeDispatchedCount(state, effects) >= state.dispatch.windowSize) return;
+        next.take();
+        dispatchOperation(state, effects, next.entry.operation);
     }
-}
-
-function dispatchAfterAcquiringSlot(
-    state: StorageEventState,
-    effects: StorageEventQueueEffects,
-    releaseSlot: () => void
-): void {
-    // Retry capture can remove the candidate while capacity is unavailable.
-    const next = canDispatch(state, effects) ? nextDispatchCandidate(state, effects) : undefined;
-    const operation = next?.entry.operation;
-    if (!next || !operation) {
-        releaseSlot();
-        return;
-    }
-    next.take();
-    dispatchOperation(effects, operation, releaseSlot);
 }
 
 async function dispatchUntilBlocked(state: StorageEventState, effects: StorageEventQueueEffects): Promise<void> {
     while (canDispatch(state, effects)) {
         await shareRunningResult(state.dispatch.key, () => dispatchBufferedEvents(state, effects));
-        // An admission or dependency settlement can arrive as the shared run is exiting.
-        if (!canDispatch(state, effects) || !nextDispatchCandidate(state, effects)) return;
+        if (!canDispatch(state, effects)) return;
+        const next = nextDispatchCandidate(state, effects);
+        if (!next) return;
+        if (next.entry.operation && activeDispatchedCount(state, effects) >= state.dispatch.windowSize) return;
     }
 }
 
@@ -366,10 +333,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isOptionalPath(value: unknown): boolean {
-    return value === undefined || typeof value === "string";
-}
-
 function isFileStat(value: unknown): boolean {
     return (
         isRecord(value) &&
@@ -390,19 +353,10 @@ function isPersistedFile(value: unknown, type: string): boolean {
     }
     if (value.isFolder !== undefined && value.isFolder !== false) return false;
     if (!isOptionalBoolean(value.isInternal) || !isOptionalBoolean(value.deleted)) return false;
-    return isFileStat(value.stat) || (type === "INTERNAL" && value.stat === undefined);
+    return isFileStat(value.stat) || ((type === "INTERNAL" || value.isInternal === true) && value.stat === undefined);
 }
 
-function isFileEventArgs(value: unknown, type: string): boolean {
-    return (
-        isRecord(value) &&
-        isPersistedFile(value.file, type) &&
-        isOptionalPath(value.oldPath) &&
-        isOptionalPath(value.renameTarget)
-    );
-}
-
-/** Validate one persisted event before it can enter in-memory state and attach runtime replay flags. */
+/** Validate the structural invariants of one persisted event before it enters in-memory state. */
 function stageRestoredEvent(event: QueuedFileEvent, id?: string): RestoredSnapshotEvent {
     if (!isRecord(event)) throw new Error("Invalid persisted storage event");
     if (event.type === TYPE_SENTINEL_FLUSH) return { ...prepareRetainedEvent({ type: TYPE_SENTINEL_FLUSH }), id };
@@ -412,11 +366,14 @@ function stageRestoredEvent(event: QueuedFileEvent, id?: string): RestoredSnapsh
         !event.key ||
         !isOptionalBoolean(event.cancelled) ||
         !isOptionalBoolean(event.batched) ||
-        !isOptionalBoolean(event.skipBatchWait)
+        !isOptionalBoolean(event.skipBatchWait) ||
+        !isRecord(event.args) ||
+        !isPersistedFile(event.args.file, event.type) ||
+        (event.args.oldPath !== undefined && typeof event.args.oldPath !== "string") ||
+        (event.args.renameTarget !== undefined && typeof event.args.renameTarget !== "string")
     ) {
         throw new Error("Invalid persisted storage event");
     }
-    if (!isFileEventArgs(event.args, event.type)) throw new Error("Invalid persisted storage event");
     return { ...prepareRetainedEvent({ ...event, restoredFromPreviousRuntime: true, skipBatchWait: true }), id };
 }
 
@@ -500,25 +457,27 @@ async function loadRestoredEventsUnlessStopped(
     }
 }
 
-/** Load and validate a whole store before claiming it and replaying its retained intents. */
-export async function restoreStorageEvents(effects: StorageEventQueueEffects, state: StorageEventState): Promise<void> {
-    const generation = state.persistence.storeGeneration;
-    if (isStoreAcquired(state) || !canRestoreGeneration(state, generation)) return;
+/**
+ * Load and validate the active store generation once before claiming ownership and installing restored entries.
+ * @returns The number of restored entries installed, or `-1` if aborted by stop or store replacement.
+ */
+export async function loadStorageEventStore(
+    effects: StorageEventQueueEffects,
+    state: StorageEventState,
+    generation: number
+): Promise<number> {
+    if (state.persistence.storeLoaded || !canRestoreGeneration(state, generation)) return -1;
     const staged = await loadRestoredEventsUnlessStopped(effects, state, generation);
-    if (!staged || !canRestoreGeneration(state, generation)) return;
+    if (!staged || !canRestoreGeneration(state, generation)) return -1;
 
-    if (staged.length > 0) {
-        effects.log(`Restoring storage operation snapshot: ${staged.length} items`, LOG_LEVEL_VERBOSE);
-        installRestoredQueue(state, effects, staged);
-    } else {
-        effects.log("No snapshot to restore", LOG_LEVEL_VERBOSE);
-    }
-    completeStoreRestore(state, generation);
-
-    if (staged.length > 0) {
-        effects.updateStatus();
-        await effects.runQueuedEvents({ waitForProcessing: true });
-    } else if (generation > 0 && (state.dispatch.replayQueue?.hasPending || effects.buffer.read().length > 0)) {
-        fireAndForget(effects.runQueuedEvents().catch(effects.reportFailure));
-    }
+    effects.log(
+        staged.length > 0 ? `Restoring storage operation snapshot: ${staged.length} items` : "No snapshot to restore",
+        LOG_LEVEL_VERBOSE
+    );
+    if (!canRestoreGeneration(state, generation)) return -1;
+    if (staged.length > 0) installRestoredQueue(state, effects, staged);
+    state.persistence.storeLoaded = true;
+    state.persistence.hasPersisted = true;
+    if (staged.length > 0) effects.updateStatus();
+    return staged.length;
 }

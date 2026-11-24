@@ -6,7 +6,9 @@
 
 - Calling `stopWatching()` during unload preserves pending file intents for
   replay and lets active handlers finish and acknowledge their work before the
-  host closes storage. Editor change hints only adjust the batch deadline.
+  host closes storage; if uncommitted intent was staged before the store was
+  acquired, `stopWatching()` rejects without overwriting the unread store.
+  Editor change hints only adjust the batch deadline.
 - The storage-event manager uses bounded dispatch and coalesces persistence
   writes when replaying or admitting local file events.
 - Hosts can implement the optional `IStorageEventIncrementalPersistenceAdapter`

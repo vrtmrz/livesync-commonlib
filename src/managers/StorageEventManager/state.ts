@@ -3,9 +3,7 @@
  * Snapshot writes are delegated to the snapshot module; these state transitions update in-memory invariants atomically.
  */
 import type { FileEventItem, FilePath } from "@lib/common/types";
-import { createNotifier, type Notifier } from "octagonal-wheels/concurrency/notifier";
-import { promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
-import { withScope } from "octagonal-wheels/resource/scope";
+import type { PromiseWithResolvers } from "octagonal-wheels/promises";
 import {
     createFileEventAttempt,
     getFileEventPaths,
@@ -79,44 +77,16 @@ export type RunQueuedEventsOptions = { waitForProcessing?: boolean };
 /** Monotonic manager lifecycle phase (`running` -> `stopping` -> `stopped`). */
 export type StorageEventManagerLifecycle = "running" | "stopping" | "stopped";
 
-/** No store restoration has run for the current store generation. */
-export type StoreUnacquiredState = {
-    readonly status: "unacquired";
-};
-
-/** Initial snapshot load is in flight for `generation`; writers wait on `loaded` while `restoreState()` shares `promise`. */
-export type StoreRestoringState = {
-    readonly status: "restoring";
-    readonly generation: number;
-    readonly loaded: PromiseWithResolvers<void>;
-    readonly promise: Promise<void>;
-};
-
-/** Store contents have been loaded for `generation`; `restorePromise` preserves single-flight `restoreState()` calls. */
-export type StoreAcquiredState = {
-    readonly status: "acquired";
-    readonly generation: number;
-    readonly restorePromise?: Promise<void>;
-};
-
-/** Store restoration failed before acquisition for `generation`; writers observe `error` until a retry or store reset. */
-export type StoreRestoreFailedState = {
-    readonly status: "failed";
-    readonly generation: number;
-    readonly error: unknown;
-};
-
-/** Explicit store-ownership state machine for the active store generation. */
-export type StoreOwnershipState =
-    | StoreUnacquiredState
-    | StoreRestoringState
-    | StoreAcquiredState
-    | StoreRestoreFailedState;
-
-/** Snapshot versioning, dirty-set tracking, and serialised writer state for the active store generation. */
+/** Snapshot versioning, store-load state, dirty-set tracking, and serialised writer state for the active store generation. */
 export type SnapshotPersistenceState = {
     /** Monotonically incremented each time the backing snapshot store is replaced. */
     storeGeneration: number;
+    /** Whether the active store generation has been loaded before admitting durable writes. */
+    storeLoaded: boolean;
+    /** Single-flight initial store load promise for the active store generation, if in flight. */
+    storeLoadPromise: Promise<void> | null;
+    /** Last store-load error for the active generation; blocks implicit writes until an explicit retry or store reset. */
+    storeLoadError?: CapturedError;
     /** Monotonic counter used to allocate store-scoped incremental record identifiers. */
     nextRecordSequence: bigint;
     /** Incremented whenever live intent or sentinel state requires a newer snapshot write. */
@@ -143,12 +113,10 @@ export type SnapshotPersistenceState = {
 export type DispatchWindowState = {
     /** Restored prefix queue drained one sentinel-delimited segment at a time. */
     replayQueue?: StorageEventReplayQueue;
-    /** Currently occupied dispatch slots. */
-    activeSlots: number;
-    /** Maximum concurrent operations allowed in the dispatch window. */
+    /** Operations currently dispatched from the queue and not yet settled. */
+    dispatched: Set<PendingFileEvent>;
+    /** Maximum concurrent non-waiting operations pumped from the queue at once. */
     windowSize: number;
-    /** Wakes callers waiting for a dispatch slot to open or for pause/stop changes. */
-    readonly slotNotifier: Notifier;
     /** Promises for operations that have crossed the host handler start boundary. */
     inFlightOperations: Set<Promise<void>>;
     /** Stable lock key so concurrent dispatch calls for this manager share one run. */
@@ -159,9 +127,7 @@ export type DispatchWindowState = {
 export interface StorageEventState {
     /** Monotonic manager lifecycle phase. */
     lifecycle: StorageEventManagerLifecycle;
-    /** Store-acquisition state machine for the active store generation. */
-    store: StoreOwnershipState;
-    /** Snapshot mutation, dirty tracking, and serial writer state. */
+    /** Snapshot mutation, store-load, dirty tracking, and serial writer state. */
     persistence: SnapshotPersistenceState;
     /** Bounded dispatch-window and in-flight handler tracking state. */
     dispatch: DispatchWindowState;
@@ -213,15 +179,16 @@ export type CommittedSnapshotPlan = {
 
 /**
  * Create empty ownership state for one manager instance.
- * @returns Fresh maps, counters, lifecycle state machines, and a resolved initial snapshot tail.
+ * @returns Fresh maps, counters, lifecycle state, and a resolved initial snapshot tail.
  * @remarks The state is isolated to one manager; no host callbacks or persistence are invoked here.
  */
 export function createStorageEventState(): StorageEventState {
     return {
         lifecycle: "running",
-        store: { status: "unacquired" },
         persistence: {
             storeGeneration: 0,
+            storeLoaded: false,
+            storeLoadPromise: null,
             nextRecordSequence: 0n,
             mutationVersion: 0,
             persistedMutationVersion: 0,
@@ -234,9 +201,8 @@ export function createStorageEventState(): StorageEventState {
             tail: Promise.resolve(),
         },
         dispatch: {
-            activeSlots: 0,
+            dispatched: new Set(),
             windowSize: 5,
-            slotNotifier: createNotifier(),
             inFlightOperations: new Set(),
             key: Symbol("storageEventDispatch"),
         },
@@ -266,166 +232,31 @@ export function isManagerStopped(state: Readonly<StorageEventState>): boolean {
     return state.lifecycle === "stopped";
 }
 
-/** Whether initial store restoration has loaded and claimed the active store generation. */
-export function isStoreAcquired(state: Readonly<StorageEventState>): boolean {
-    return state.store.status === "acquired" && state.store.generation === state.persistence.storeGeneration;
+/** Whether the active store generation has been loaded before committing writes. */
+export function isStoreLoaded(state: Readonly<StorageEventState>): boolean {
+    return state.persistence.storeLoaded;
 }
 
-/** Whether an initial snapshot load is currently in flight for the active store generation. */
-export function isStoreRestoring(state: Readonly<StorageEventState>): boolean {
-    return state.store.status === "restoring" && state.store.generation === state.persistence.storeGeneration;
-}
-
-/** Return the wrapped restore error for the active store generation, preserving falsy thrown values. */
-export function getStoreRestoreFailure(state: Readonly<StorageEventState>): CapturedError | undefined {
-    return state.store.status === "failed" && state.store.generation === state.persistence.storeGeneration
-        ? { error: state.store.error }
-        : undefined;
-}
-
-/** Return the single-flight `restoreState()` promise for the active store generation, if any. */
-export function getActiveRestorePromise(state: Readonly<StorageEventState>): Promise<void> | null {
-    if (state.store.status === "restoring" && state.store.generation === state.persistence.storeGeneration) {
-        return state.store.promise;
-    }
-    if (state.store.status === "acquired" && state.store.generation === state.persistence.storeGeneration) {
-        return state.store.restorePromise ?? null;
-    }
-    return null;
-}
-
-/** Return the load-completion barrier for an in-flight restore in the active store generation. */
-export function getStoreRestoreLoadedPromise(state: Readonly<StorageEventState>): Promise<void> | undefined {
-    return state.store.status === "restoring" && state.store.generation === state.persistence.storeGeneration
-        ? state.store.loaded.promise
-        : undefined;
-}
-
-/** Require that the active store generation has been acquired before committing snapshot I/O. */
-export function assertStoreAcquired(state: Readonly<StorageEventState>): void {
-    if (isStoreAcquired(state)) return;
-    const failure = getStoreRestoreFailure(state);
-    if (failure) throw failure.error;
+/** Require that the active store generation has been loaded before committing snapshot I/O. */
+export function assertStoreLoaded(state: Readonly<StorageEventState>): void {
+    if (state.persistence.storeLoaded) return;
+    if (state.persistence.storeLoadError) throw state.persistence.storeLoadError.error;
     throw new Error("Storage event store has not been acquired");
-}
-
-/**
- * Run one store-restoration attempt under a scoped lifecycle transition.
- * Publishes the shared `restoring` promise synchronously before invoking `run`, binds cleanup to this
- * exact attempt identity so overlapping retries cannot be clobbered, and settles callers after cleanup.
- */
-export function runStoreRestoreTransition(
-    state: StorageEventState,
-    generation: number,
-    run: () => Promise<void>
-): Promise<void> {
-    const loaded = promiseWithResolvers<void>();
-    // Callers may not await `loaded` when restore fails with no concurrent snapshot writer.
-    void loaded.promise.catch(() => {});
-    const completion = promiseWithResolvers<void>();
-    const restoring: StoreRestoringState = {
-        status: "restoring",
-        generation,
-        loaded,
-        promise: completion.promise,
-    };
-    state.store = restoring;
-    void withScope(restoring, async (scope) => {
-        scope.defer(() => finishStoreRestore(state, restoring));
-        try {
-            await run();
-        } catch (error) {
-            failStoreRestore(state, restoring, error);
-            if (isManagerStopping(state)) return;
-            throw error;
-        }
-    }).then(
-        () => completion.resolve(),
-        (error) => completion.reject(error)
-    );
-    return completion.promise;
-}
-
-/**
- * Retry replay on an already-acquired store after an earlier replay failure without re-reading storage.
- * Keeps store ownership intact while sharing one promise across concurrent `restoreState()` and `beginWatch()` callers.
- */
-export function runAcquiredReplayTransition(
-    state: StorageEventState,
-    generation: number,
-    run: () => Promise<void>
-): Promise<void> {
-    const completion = promiseWithResolvers<void>();
-    const acquired: StoreAcquiredState = {
-        status: "acquired",
-        generation,
-        restorePromise: completion.promise,
-    };
-    state.store = acquired;
-    void withScope(acquired, async () => {
-        try {
-            await run();
-        } catch (error) {
-            if (state.store === acquired) {
-                state.store = { status: "acquired", generation };
-            }
-            if (isManagerStopping(state)) return;
-            throw error;
-        }
-    }).then(
-        () => completion.resolve(),
-        (error) => completion.reject(error)
-    );
-    return completion.promise;
-}
-
-/** Atomically mark the active store generation as loaded/acquired and wake waiting snapshot writers. */
-export function completeStoreRestore(state: StorageEventState, generation: number): void {
-    if (state.persistence.storeGeneration !== generation) return;
-    let restorePromise: Promise<void> | undefined;
-    if (state.store.status === "restoring") {
-        restorePromise = state.store.promise;
-        state.store.loaded.resolve();
-    } else if (state.store.status === "acquired") {
-        restorePromise = state.store.restorePromise;
-    }
-    state.store = { status: "acquired", generation, restorePromise };
-    state.persistence.hasPersisted = true;
-}
-
-/** Record a restoration or replay failure for one exact restore attempt and settle waiting snapshot writers. */
-export function failStoreRestore(state: StorageEventState, attempt: StoreRestoringState, error: unknown): void {
-    if (state.persistence.storeGeneration !== attempt.generation) return;
-    if (state.store === attempt) {
-        if (isManagerStopping(state)) attempt.loaded.resolve();
-        else attempt.loaded.reject(error);
-        state.store = { status: "failed", generation: attempt.generation, error };
-        return;
-    }
-    if (state.store.status === "acquired" && state.store.restorePromise === attempt.promise) {
-        // Store acquisition already succeeded; clear the failed replay promise without losing ownership.
-        state.store = { status: "acquired", generation: attempt.generation };
-    }
-}
-
-/** Clear an unfinished `restoring` state for this exact attempt when restore returns early (for example, on stop). */
-export function finishStoreRestore(state: StorageEventState, attempt: StoreRestoringState): void {
-    if (state.store !== attempt) return;
-    attempt.loaded.resolve();
-    state.store = { status: "unacquired" };
 }
 
 /** Invalidate store-scoped persistence metadata and re-mark all retained entries dirty for a replacement store. */
 export function resetStorePersistenceState(state: StorageEventState): void {
-    state.persistence.storeGeneration++;
-    if (state.store.status === "restoring") state.store.loaded.resolve();
-    state.store = { status: "unacquired" };
-    state.persistence.hasPersisted = false;
-    state.persistence.persistedMutationVersion = 0;
-    state.persistence.committedEntryIds.clear();
-    state.persistence.nextRecordSequence = 0n;
+    const persistence = state.persistence;
+    persistence.storeGeneration++;
+    persistence.storeLoaded = false;
+    persistence.storeLoadPromise = null;
+    persistence.storeLoadError = undefined;
+    persistence.hasPersisted = false;
+    persistence.persistedMutationVersion = 0;
+    persistence.committedEntryIds.clear();
+    persistence.nextRecordSequence = 0n;
     // Rebuild dirty order from admission order before the adapter assigns replacement sequences.
-    state.persistence.dirtyUpserts.clear();
+    persistence.dirtyUpserts.clear();
     for (const entry of state.pendingSnapshot.values()) {
         entry.persisted = false;
         if (entry.operation) {
@@ -435,8 +266,8 @@ export function resetStorePersistenceState(state: StorageEventState): void {
         }
         entry.sentinelReplay?.resolve();
         entry.sentinelReplay = undefined;
-        entry.mutationVersion = ++state.persistence.mutationVersion;
-        state.persistence.dirtyUpserts.add(entry);
+        entry.mutationVersion = ++persistence.mutationVersion;
+        persistence.dirtyUpserts.add(entry);
     }
 }
 
@@ -449,14 +280,12 @@ export function stopUnstartedAttempts(state: StorageEventState): void {
 }
 
 /**
- * Synchronously transition a running manager to `stopping`, waking pending waits and settling unstarted attempts.
+ * Synchronously transition a running manager to `stopping`, signalling active optional providers and settling unstarted attempts.
  * @returns `true` on the first transition into `stopping`; `false` if shutdown was already underway or complete.
  */
 export function beginStoppingState(state: StorageEventState): boolean {
     if (state.lifecycle !== "running") return false;
     state.lifecycle = "stopping";
-    if (state.store.status === "restoring") state.store.loaded.resolve();
-    state.dispatch.slotNotifier.notify();
     for (const entry of state.pendingSnapshot.values()) {
         entry.sentinelReplay?.resolve();
         const operation = entry.operation;
@@ -474,18 +303,14 @@ export function beginStoppingState(state: StorageEventState): boolean {
 /** Mark the manager permanently `stopped` after active handlers and final snapshot I/O have settled. */
 export function markStoppedState(state: StorageEventState): void {
     state.lifecycle = "stopped";
-}
-
-/** Increment and return the snapshot mutation version after an observable queue-state change. */
-export function advanceSnapshotMutationVersion(state: StorageEventState): number {
-    return ++state.persistence.mutationVersion;
+    state.dispatch.dispatched.clear();
 }
 
 /** Mark a sentinel dispatched and advance the snapshot mutation version once. */
 export function markSentinelDispatched(state: StorageEventState, entry: PendingSnapshotEntry): void {
     if (entry.dispatched) return;
     entry.dispatched = true;
-    advanceSnapshotMutationVersion(state);
+    state.persistence.mutationVersion++;
 }
 
 /** Whether uncommitted dirty entries or a queued snapshot batch still require persistence. */
@@ -516,33 +341,11 @@ export function commitSnapshotWriteState(state: StorageEventState, plan: Committ
     );
 }
 
-/** Try to reserve one dispatch window slot when capacity is available. */
-export function tryAcquireDispatchSlot(state: StorageEventState, limit: number): boolean {
-    if (state.dispatch.activeSlots >= limit) return false;
-    state.dispatch.activeSlots++;
-    return true;
-}
-
-/** Release one occupied dispatch window slot and wake callers waiting for capacity. */
-export function releaseDispatchSlot(state: StorageEventState): void {
-    state.dispatch.activeSlots = Math.max(0, state.dispatch.activeSlots - 1);
-    state.dispatch.slotNotifier.notify();
-}
-
-/** Wake callers blocked on dispatch slot capacity (for example, when dispatch pauses or stops). */
-export function notifyDispatchSlotWaiters(state: StorageEventState): void {
-    state.dispatch.slotNotifier.notify();
-}
-
 /**
  * Register an operation in the per-path ordering index once.
  * @param state - The manager state whose latest-operation index is updated.
  * @param operation - The retained operation whose retention-time `indexedPaths` are indexed.
  * @returns Nothing; on first registration, marks the operation and updates its path entries.
- * @remarks Uses `operation.indexedPaths` (the immutable retention-time result of `getFileEventPaths`)
- * so path registration, completion cleanup, and O(1) `pendingPathCounts` always address the exact same keys
- * even if the live event object is later mutated. Each path records its previous latest operation as a
- * predecessor when that attempt has not succeeded; a failed predecessor remains relevant.
  */
 function registerOperation(state: StorageEventState, operation: PendingFileEvent): void {
     if (operation.registered) return;
@@ -555,7 +358,7 @@ function registerOperation(state: StorageEventState, operation: PendingFileEvent
 }
 
 /** Rebuild path ownership after restored intents are prepended to live entries. */
-export function rebuildLatestOperations(state: StorageEventState): void {
+function rebuildLatestOperations(state: StorageEventState): void {
     state.latestByPath.clear();
     for (const entry of state.pendingSnapshot.values()) {
         const operation = entry.operation;
@@ -597,11 +400,8 @@ function clonePersistenceContext(ctx: unknown): unknown {
  */
 export function sanitiseEventForPersistence(event: QueuedFileEvent): QueuedFileEvent {
     if (event.type === TYPE_SENTINEL_FLUSH) return { type: TYPE_SENTINEL_FLUSH };
-    // Omit transient replay flags; restore re-applies them when loading from durable storage.
     const { restoredFromPreviousRuntime: _restored, skipBatchWait: _skip, args, ...rest } = event;
-    // Omit `args.cache` intentionally: cached content is an ephemeral hint and must not bloat snapshots.
     const { oldPath, renameTarget, ctx } = args;
-    // Clone file metadata so later in-place mutations on the live event cannot alter persisted intent.
     const file = { ...args.file };
     if (file.stat) file.stat = { ...file.stat };
     const persistedArgs: FileEventItem["args"] = { file };
@@ -644,10 +444,6 @@ export function allocateStorageEventRecordId(state: StorageEventState): string {
  * @param event - A file event or ordering sentinel to retain.
  * @param register - Whether a file operation should also enter the per-path ordering index.
  * @returns The existing entry for this event object, or the newly created entry.
- * @remarks Snapshot collection passes register as false for events surfaced by batch gates, so persistence
- * discovery cannot become their first path-indexing moment and change path ownership or ordering. The registered
- * flag independently prevents later duplicate indexing. Retention does not write a snapshot or start a handler;
- * a new operation captures the current failure sequence as its boundary.
  */
 export function retainFileEvent(
     state: StorageEventState,
@@ -663,7 +459,7 @@ export function retainFileEvent(
 }
 
 /** Install a prepared entry after its payload and durable ID have been checked. */
-export function installRetainedEvent(
+function installRetainedEvent(
     state: StorageEventState,
     prepared: PreparedRetainedEvent,
     register: boolean,
@@ -772,8 +568,6 @@ export function removePendingEntry(state: StorageEventState, entry: PendingSnaps
  * @param state - The manager state receiving entries and ordering barriers.
  * @param events - The current ordered host buffer; it is read-only and is not replaced here.
  * @returns Nothing; retained entries and any delete/rename barrier are updated in memory.
- * @remarks A sentinel applies to the next buffered file event only when that event is DELETE or RENAME.
- * This records the boundary for later dispatch; it does not persist the snapshot.
  */
 export function retainBufferedFileEvents(state: StorageEventState, events: readonly QueuedFileEvent[]): void {
     let barrierBefore: number | undefined;
@@ -792,8 +586,6 @@ export function retainBufferedFileEvents(state: StorageEventState, events: reado
  * @param state - The manager state whose retained entries are inspected.
  * @param before - The first excluded sequence; the default includes all retained operations.
  * @returns Operations whose entry sequence is strictly less than before, in snapshot insertion order.
- * @remarks Sentinels are excluded. The strict comparison lets a sentinel wait for predecessors without capturing
- * itself or later operations. This is a read-only selection and does not capture attempts or retry failures.
  */
 export function pendingFileOperations(state: StorageEventState, before = Number.POSITIVE_INFINITY): PendingFileEvent[] {
     const operations: PendingFileEvent[] = [];
@@ -810,8 +602,6 @@ export function pendingFileOperations(state: StorageEventState, before = Number.
  * @param attempt - The attempt whose completion promise may still be unsettled.
  * @param error - The failure observed by this attempt.
  * @returns True when this call records and resolves the failure; false when the attempt was already settled.
- * @remarks Only in-memory attempt state changes here. The durable operation remains retained, and no snapshot
- * write is performed.
  */
 export function failFileEventAttempt(state: StorageEventState, attempt: FileEventAttempt, error: unknown): boolean {
     if (attempt.result) return false;
@@ -827,10 +617,6 @@ export function failFileEventAttempt(state: StorageEventState, attempt: FileEven
  * @param operation - The durable operation completed by this attempt.
  * @param attempt - The attempt whose handler completed and whose completion-snapshot step has settled.
  * @returns Nothing; records success and conditionally clears the operation's current path entries.
- * @remarks The caller must await the completion-snapshot step before calling this function; that step may be a
- * no-op if the entry or attempt has already been replaced. A newer operation or replacement attempt keeps its
- * index entries because both operation identity and current-attempt identity are checked. This function records
- * the in-memory result; it does not write or commit a snapshot.
  */
 export function completeFileEventAttempt(
     state: StorageEventState,
@@ -850,9 +636,7 @@ export function completeFileEventAttempt(
  * @param state - The manager state containing retained snapshot entries.
  * @param filename - The queried path.
  * @returns True when an unacknowledged event path is the queried path or one of its ancestors; rename source and
- * related paths are both considered. False once entries have been acknowledged and removed from `pendingSnapshot`,
- * or for sentinels and unrelated paths.
- * @remarks This is a read-only prefix check. It does not test whether the queried path is an ancestor of an event.
+ * related paths are both considered.
  */
 export function hasPendingStorageEvent(state: StorageEventState, filename: FilePath): boolean {
     let prefix: string = filename;

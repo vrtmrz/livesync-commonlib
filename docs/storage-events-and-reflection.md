@@ -262,10 +262,10 @@ The sentinel waits for earlier operations to settle. Its removal commits once
 it has been dispatched and all earlier operations have durably acknowledged
 completion.
 
-Ready attempts use a bounded dispatch window. Batch timers, related
-prerequisites, ordered predecessors, coalesced successors, and recovery pauses
-release the dispatch capacity their producers may need. Ready retries and
-resumed attempts share the window.
+Ready attempts use a bounded dispatch window so large restores do not launch all
+operations at once. Waiting batch timers and coalesced predecessors do not hold
+window capacity, and the host concurrency semaphore bounds active handlers for
+initial dispatches, retries, and resumed attempts alike.
 
 The quiet period starts at the latest accepted update and includes time spent
 filtering. The maximum intentional delay starts at the first uncommitted

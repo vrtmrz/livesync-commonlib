@@ -3527,4 +3527,39 @@ describe("offline scanner content-read outcome", () => {
             setTimeoutSpy.mockRestore();
         }
     });
+
+    it("does not emit event-file-changed or onReflectionFailed after stop interrupts an in-flight save or reflection", async () => {
+        let stopping = false;
+        const saveDone = promiseWithResolvers<boolean>();
+        const reflectDone = promiseWithResolvers<never>();
+        const emitEvent = vi.fn();
+        const onReflectionFailed = vi.fn();
+        const host = {
+            services: {
+                context: { events: { emitEvent } },
+                vault: { isFileSizeTooLarge: () => false },
+                path: { getPath: (entry: { path: string }) => entry.path },
+            },
+            serviceModules: {
+                storageAccess: { isStopping: () => stopping },
+                fileHandler: {
+                    storeFileToDB: vi.fn(() => saveDone.promise),
+                    reflectDatabaseEntry: vi.fn(() => reflectDone.promise),
+                },
+            },
+        } as any;
+        const file = { path: "a.md", stat: { size: 10 } } as UXFileInfoStub;
+        const doc = { _id: "a", _rev: "1-a", path: "a.md", size: 10 } as MetaEntry;
+
+        const dbSave = updateToDatabase(host, vi.fn(), LOG_LEVEL_INFO, file);
+        const storageReflect = updateToStorage(host, vi.fn(), LOG_LEVEL_INFO, doc, { onReflectionFailed });
+        stopping = true;
+        saveDone.resolve(true);
+        reflectDone.reject(new Error("reflection failed after stop"));
+
+        await expect(dbSave).resolves.toBe(FilePairProcessResults.FAILED);
+        await expect(storageReflect).resolves.toBe(FilePairProcessResults.FAILED);
+        expect(emitEvent).not.toHaveBeenCalled();
+        expect(onReflectionFailed).not.toHaveBeenCalled();
+    });
 });
