@@ -317,17 +317,17 @@ describe("Astra review regressions", () => {
         expect(storage.contents()).toEqual([]);
     }, 1500);
 
-    it.each(modes)("captures durable payload and indexed paths before a held %s write", async (mode) => {
+    it.each(modes)("captures durable file metadata and indexed paths before a held %s write", async (mode) => {
         const storage = store(mode);
         const { manager, process } = runtime(storage.adapter);
         const live = event("live", "original.md");
-        const ctx = { nested: { value: "original" } };
+        const ctx = { source: "host" };
         live.args.ctx = ctx;
         const admission = blockCommit(storage);
         const processing = manager.processFileEvent(live);
         await admission.entered;
         live.args.file.path = "updated.md" as FilePath;
-        ctx.nested.value = "updated";
+        live.args.file.stat!.size = 999;
         expect(manager.hasPendingFileEvent("original.md" as FilePath)).toBe(true);
         expect(manager.hasPendingFileEvent("updated.md" as FilePath)).toBe(false);
         admission.resolve();
@@ -337,7 +337,7 @@ describe("Astra review regressions", () => {
                 ? storage.applySnapshotDelta.mock.calls[0][0].upsert[0].event
                 : storage.saveSnapshot.mock.calls[0][0][0];
         expect(written).toMatchObject({
-            args: { file: { path: "original.md" }, ctx: { nested: { value: "original" } } },
+            args: { file: { path: "original.md", stat: { size: 3 } }, ctx },
         });
         expect(process.mock.calls[0][0]).toBe(live);
         expect(manager.hasPendingFileEvent("original.md" as FilePath)).toBe(false);
@@ -1765,32 +1765,14 @@ describe("Astra Pass 2 regressions", () => {
         expect(await storage.loadSnapshot()).toBe(sparse);
     });
 
-    it("snapshots structured-cloneable context and forwards non-cloneable host context verbatim", () => {
-        const structuredItem = event("structured-ctx");
-        const nested = { tag: "initial" };
-        const map = new Map([["k", new Set([1, 2])]]);
-        structuredItem.args.ctx = { nested, map };
-        const persistedStructured = sanitiseEventForPersistence(structuredItem) as FileEventItem;
-        nested.tag = "mutated";
-        const clonedCtx = persistedStructured.args.ctx as { nested: { tag: string }; map: Map<string, Set<number>> };
-        expect(clonedCtx.nested.tag).toBe("initial");
-        expect([...clonedCtx.map.get("k")!]).toEqual([1, 2]);
-
+    it("detaches file metadata while forwarding opaque host context verbatim", () => {
+        const item = event("opaque-ctx");
         const opaqueCtx = { id: 1, helper: () => "host-only" };
-        const opaqueItem = event("opaque-ctx");
-        opaqueItem.args.ctx = opaqueCtx;
-        const persistedOpaque = sanitiseEventForPersistence(opaqueItem) as FileEventItem;
-        expect(persistedOpaque.args.ctx).toBe(opaqueCtx);
-
-        vi.stubGlobal("structuredClone", undefined);
-        try {
-            const fallbackItem = event("fallback-ctx");
-            fallbackItem.args.ctx = { map };
-            const persistedFallback = sanitiseEventForPersistence(fallbackItem) as FileEventItem;
-            expect(persistedFallback.args.ctx).toBe(fallbackItem.args.ctx);
-        } finally {
-            vi.unstubAllGlobals();
-        }
+        item.args.ctx = opaqueCtx;
+        const persisted = sanitiseEventForPersistence(item) as FileEventItem;
+        item.args.file.stat!.mtime = 9999;
+        expect(persisted.args.file.stat!.mtime).toBe(2);
+        expect(persisted.args.ctx).toBe(opaqueCtx);
     });
 });
 

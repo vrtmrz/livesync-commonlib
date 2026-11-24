@@ -147,6 +147,7 @@ export abstract class AppLifecycleService<T extends ServiceContext = ServiceCont
 
     private _isReady = false;
     private _isUnloading = false;
+    private readonly _unloadingListeners = new Set<() => void>();
     /**
      * Check if the plug-in is ready.
      * A ready plug-in means it has been fully initialised and is operational.
@@ -172,9 +173,30 @@ export abstract class AppLifecycleService<T extends ServiceContext = ServiceCont
         return this._isUnloading;
     }
 
-    /** Enter terminal unload, blocking future `markIsReady()` transitions and signalling teardown fences. */
+    /**
+     * Register a synchronous listener invoked once when terminal unload begins.
+     * Invokes `listener` immediately if this lifecycle service is already unloading.
+     */
+    onUnloading(listener: () => void): () => void {
+        if (this._isUnloading) {
+            listener();
+            return () => {};
+        }
+        this._unloadingListeners.add(listener);
+        return () => {
+            this._unloadingListeners.delete(listener);
+        };
+    }
+
+    /** Enter terminal unload, blocking future `markIsReady()` transitions and notifying synchronous unload listeners once. */
     markIsUnloading(): void {
+        if (this._isUnloading) return;
         this._isUnloading = true;
+        const listeners = [...this._unloadingListeners];
+        this._unloadingListeners.clear();
+        for (const listener of listeners) {
+            listener();
+        }
     }
 
     /**

@@ -18,7 +18,6 @@ import type { IStorageAccessManager, StorageAccess } from "@lib/interfaces/Stora
 import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService";
 import { StorageEventManager } from "@lib/interfaces/StorageEventManager.ts";
-import { EVENT_PLUGIN_UNLOADED } from "@lib/events/coreEvents";
 import { createBlob, fireAndForget, type CustomRegExp } from "@lib/common/utils";
 import type { VaultService } from "@lib/services/base/VaultService";
 import type { SettingService } from "@lib/services/base/SettingService";
@@ -61,8 +60,7 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         });
         services.appLifecycle.onFirstInitialise.addHandler(this._everyOnFirstInitialize.bind(this));
         services.fileProcessing.commitPendingFileEvents.addHandler(this._everyCommitPendingFileEvent.bind(this));
-        // Lifetime is bound to the service context; ControlService clears context events via `offAll()` on unload.
-        services.appLifecycle.context?.events?.onEvent?.(EVENT_PLUGIN_UNLOADED, () => {
+        services.appLifecycle.onUnloading?.(() => {
             this.vaultManager.beginStopWatching?.();
         });
         services.appLifecycle.onBeforeUnload.addHandler(async () => {

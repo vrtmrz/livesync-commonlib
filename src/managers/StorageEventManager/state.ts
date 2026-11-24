@@ -374,29 +374,12 @@ function rebuildLatestOperations(state: StorageEventState): void {
 }
 
 /**
- * Detach structured-cloneable host context at retention time so later caller mutations do not
- * leak into durable snapshots. Non-structured-cloneable values fall back verbatim to the host's
- * persistence adapter under the documented host-owned serialisability contract.
- */
-function clonePersistenceContext(ctx: unknown): unknown {
-    if (ctx === null || ctx === undefined || typeof ctx !== "object") return ctx;
-    if (typeof structuredClone === "function") {
-        try {
-            return structuredClone(ctx);
-        } catch {
-            // Forward non-structured-cloneable host context verbatim for the host's adapter.
-        }
-    }
-    return ctx;
-}
-
-/**
  * Produce a detached, minimal persisted copy of a queued event without mutating the live event.
  *
  * Strips runtime-only replay flags (`restoredFromPreviousRuntime`, `skipBatchWait`) and ephemeral
  * in-memory content caches (`args.cache`) so durable snapshots stay bounded and replay re-reads
- * current Vault bytes. Shallow-clones `args.file` and `args.file.stat` and detaches structured-
- * cloneable `args.ctx`, omitting optional keys when `undefined` to preserve compact persisted shapes.
+ * current Vault bytes. Shallow-clones `args.file` and `args.file.stat`, and forwards opaque
+ * `args.ctx` verbatim under the host-owned serialisability and immutability contract.
  */
 export function sanitiseEventForPersistence(event: QueuedFileEvent): QueuedFileEvent {
     if (event.type === TYPE_SENTINEL_FLUSH) return { type: TYPE_SENTINEL_FLUSH };
@@ -407,8 +390,7 @@ export function sanitiseEventForPersistence(event: QueuedFileEvent): QueuedFileE
     const persistedArgs: FileEventItem["args"] = { file };
     if (oldPath !== undefined) persistedArgs.oldPath = oldPath;
     if (renameTarget !== undefined) persistedArgs.renameTarget = renameTarget;
-    const persistedContext = clonePersistenceContext(ctx);
-    if (persistedContext !== undefined) persistedArgs.ctx = persistedContext;
+    if (ctx !== undefined) persistedArgs.ctx = ctx;
     return { ...rest, args: persistedArgs };
 }
 

@@ -65,4 +65,22 @@ describe("AppLifecycleService pending storage shutdown", () => {
         await expect(lifecycle.onBeforeUnload()).resolves.toBe(false);
         expect(calls).toEqual(["failed", "pending-storage"]);
     });
+
+    it("notifies synchronous onUnloading listeners once and blocks subsequent markIsReady transitions", () => {
+        const { lifecycle, readinessSeenByListeners } = setup();
+        const events: string[] = [];
+        const unsubscribe = lifecycle.onUnloading(() => events.push("cancelled"));
+        lifecycle.onUnloading(() => events.push("registered"));
+        unsubscribe();
+
+        lifecycle.markIsUnloading();
+        lifecycle.markIsUnloading();
+        lifecycle.markIsReady();
+        lifecycle.onUnloading(() => events.push("late"));
+
+        expect(lifecycle.isUnloading()).toBe(true);
+        expect(lifecycle.isReady()).toBe(false);
+        expect(readinessSeenByListeners).toEqual([]);
+        expect(events).toEqual(["registered", "late"]);
+    });
 });

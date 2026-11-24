@@ -514,9 +514,16 @@ export interface IAppLifecycleService {
 
     /**
      * Mark the application as terminally unloading, preventing future `markIsReady()` transitions
-     * and signalling startup/preparation routines to abort cleanly.
+     * and notifying synchronous unload listeners once.
      */
     markIsUnloading?(): void;
+
+    /**
+     * Register a synchronous listener invoked once when terminal unload begins.
+     * Invokes `listener` immediately if `isUnloading()` is already true.
+     * @returns A cleanup callback that unregisters the listener before unload.
+     */
+    onUnloading?(listener: () => void): () => void;
 
     markIsReady(): void;
 
