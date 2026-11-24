@@ -1,6 +1,7 @@
 import { ContentReadError } from "@lib/common/LSError.ts";
 import type { StorageContentClassification } from "./provenance";
 import {
+    getProvenancePath,
     readProvenanceSnapshot,
     currentStorageSnapshotMatches,
     classifyStorageContent,
@@ -16,6 +17,17 @@ import type { FilePathWithPrefix, MetaEntry, UXFileInfoStub } from "@lib/common/
 import { isDocContentSame } from "@lib/common/utils";
 
 import type { FileHandlerContext, PreservationResult } from "./context";
+
+/** Decoded incoming file body supplied for live-write protection (absent for deletions). */
+type IncomingContent = string | string[] | Blob | ArrayBuffer;
+
+/**
+ * Narrow decoded incoming content so an empty body (`""`) is treated as present,
+ * distinguishing live writes from incoming deletions (`undefined`).
+ */
+function hasIncomingContent(content: IncomingContent | undefined): content is IncomingContent {
+    return content !== undefined;
+}
 
 /**
  * Preserve changed storage before an incoming write can replace its bytes.
@@ -33,14 +45,18 @@ export async function preserveUnsyncedStorageAsConflict(
     path: FilePathWithPrefix,
     existDoc: UXFileInfoStub,
     incomingEntry: MetaEntry,
-    incomingContent?: string | string[] | Blob | ArrayBuffer
+    incomingContent?: IncomingContent
 ): Promise<PreservationResult> {
     // Capture bytes and branch identity before classifying against database
     // revisions. A later storage change requires a fresh snapshot.
-    const observedProvenance = await readProvenanceSnapshot(ctx, path);
+    const observedPath = existDoc.path;
+    const observedProvenance = await readProvenanceSnapshot(ctx, observedPath);
     const readFile = await ctx.host.readFileFromStub(existDoc);
+    if (readFile.path !== observedPath) {
+        return { preserved: false };
+    }
     const snapshot = { file: readFile, revision: observedProvenance };
-    if (incomingContent && (await isDocContentSame(incomingContent, readFile.body))) {
+    if (hasIncomingContent(incomingContent) && (await isDocContentSame(incomingContent, readFile.body))) {
         return (await currentStorageSnapshotMatches(ctx, readFile, observedProvenance))
             ? { preserved: false, snapshot }
             : { preserved: false };
@@ -57,7 +73,7 @@ export async function preserveUnsyncedStorageAsConflict(
             incomingEntry,
             undefined,
             observedProvenance,
-            incomingContent ? { _rev: incomingEntry._rev, data: incomingContent } : undefined,
+            hasIncomingContent(incomingContent) ? { _rev: incomingEntry._rev, data: incomingContent } : undefined,
             false
         );
     } catch (error) {
@@ -77,7 +93,7 @@ export async function preserveUnsyncedStorageAsConflict(
         return { preserved: false, snapshot };
     }
     if (classification.kind === "matching-leaf") {
-        await rememberMatchingLeaf(ctx, path, classification.revision, readFile.stat.mtime, readFile.body);
+        await rememberMatchingLeaf(ctx, observedPath, classification.revision, readFile.stat.mtime, readFile.body);
         await queueConflictCheckFor(ctx, path);
         return { preserved: true };
     }
@@ -117,13 +133,34 @@ export async function recheckIncomingStorage(
     ctx: FileHandlerContext,
     path: FilePathWithPrefix,
     incomingEntry: MetaEntry,
-    incomingContent: string | string[] | Blob | ArrayBuffer | undefined,
+    incomingContent: IncomingContent | undefined,
     allowExistingConflicts: boolean
 ): Promise<PreservationResult> {
+    // Re-read the current storage observation for `path`; abort if absent or replaced by a folder.
     const current = await ctx.host.storage().getStub(path);
     if (!current || isFolderInfo(current)) return { preserved: false };
+    if (current.path !== path) {
+        // Case-insensitive or Unicode-normalised lookups can return another spelling.
+        // Refuse to inspect or protect a file belonging to a distinct document ID.
+        const [currentDocumentId, targetDocumentId] = await Promise.all([
+            ctx.path.path2id(current.path),
+            ctx.path.path2id(path),
+        ]);
+        if (currentDocumentId !== targetDocumentId) {
+            return { preserved: false };
+        }
+        // For live writes, commit and final validation address provenance under `path`.
+        // If storage reverted to another provenance key (for example, a different filename case),
+        // defer so reflection restarts through spelling reconciliation instead of splitting keys.
+        // Deletions omit `incomingContent` and legitimately target the observed spelling directly.
+        if (hasIncomingContent(incomingContent) && getProvenancePath(ctx, current.path) !== getProvenancePath(ctx, path)) {
+            return { preserved: false };
+        }
+    }
+    // Re-run overwrite/deletion protection on the fresh observation before checking for new conflicts.
     const protection = await preserveUnsyncedStorageAsConflict(ctx, path, current, incomingEntry, incomingContent);
     if (protection.preserved || !protection.snapshot) return protection;
+    // Stop reflection if conflict leaves appeared while storage was being rechecked, unless policy permits writing through them.
     if (
         !allowExistingConflicts &&
         !ctx.setting.currentSettings().writeDocumentsIfConflicted &&
