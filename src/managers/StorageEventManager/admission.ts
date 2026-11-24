@@ -15,7 +15,7 @@ import type { FileEvent } from "@lib/interfaces/StorageEventManager";
 import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess";
 import type { LogFunction } from "@lib/services/lib/logUtils";
 import type { EventAdmission, StorageEventState } from "./state";
-import type { PendingFileEvent } from "./operations";
+import type { FileEventAttempt, PendingFileEvent } from "./operations";
 
 /**
  * Inject host settings, path and file checks, queue actions, and diagnostics into admission.
@@ -217,12 +217,12 @@ async function prepareEvent(
  * @param effects - Queue and release actions supplied by the facade.
  * @returns Nothing; a found operation receives admission time, failure boundary, and attempt tracking.
  */
-function registerAdmission(
+export function registerAdmission(
     state: StorageEventState,
     admission: EventAdmission,
     item: FileEventItem,
     effects: StorageEventAdmissionEffects
-): void {
+): FileEventAttempt | undefined {
     effects.enqueue(item);
     const operation = state.operations.get(item);
     if (!operation) return;
@@ -230,6 +230,7 @@ function registerAdmission(
     operation.failureBoundary = admission.failureBoundary;
     if (admission.flushRequested) effects.release([operation]);
     admission.operations.set(operation, operation.attempt);
+    return operation.attempt;
 }
 
 /**
@@ -265,6 +266,7 @@ async function appendStorageEvents(
  * @param params - Host watcher events to select.
  * @param ctx - Optional host context forwarded to admitted items.
  * @param effects - Host services used during selection and enqueueing.
+ * @param ready - Load ordered buffers before filtering, if initial loading is still needed.
  * @returns A promise for admission completion, not handler completion; rejected admission is reported and remains rejected.
  * @remarks When the manager no longer accepts events, this returns an already-fulfilled promise without admitting them.
  */
@@ -272,7 +274,21 @@ export function admitStorageEvents(
     state: StorageEventState,
     params: readonly FileEvent[],
     ctx: unknown,
-    effects: StorageEventAdmissionEffects
+    effects: StorageEventAdmissionEffects,
+    ready?: () => Promise<unknown> | undefined
+): Promise<void> {
+    return trackStorageEventAdmission(state, effects, (admission) => {
+        const loading = ready?.();
+        const append = () => appendStorageEvents(state, params, ctx, admission, effects);
+        return loading ? loading.then(append) : append();
+    });
+}
+
+/** Register an admission synchronously, including when it must wait for the saved buffers to load. */
+export function trackStorageEventAdmission(
+    state: StorageEventState,
+    effects: StorageEventAdmissionEffects,
+    start: (admission: EventAdmission) => Promise<void>
 ): Promise<void> {
     if (!state.acceptingEvents) return Promise.resolve();
     const admission: EventAdmission = {
@@ -283,7 +299,7 @@ export function admitStorageEvents(
         flushRequested: false,
     };
     state.admissions.add(admission);
-    admission.completion = appendStorageEvents(state, params, ctx, admission, effects);
+    admission.completion = start(admission);
     void admission.completion.then(
         () => state.admissions.delete(admission),
         (error) => {

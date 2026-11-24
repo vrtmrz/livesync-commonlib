@@ -1,5 +1,5 @@
 import type { IStorageEventTypeGuardAdapter } from "./IStorageEventTypeGuardAdapter";
-import type { IStorageEventPersistenceAdapter } from "./IStorageEventPersistenceAdapter";
+import type { IStorageEventPersistenceAdapter, PendingStorageEventStore } from "./IStorageEventPersistenceAdapter";
 import type { IStorageEventWatchAdapter } from "./IStorageEventWatchAdapter";
 import type { IStorageEventStatusAdapter } from "./IStorageEventStatusAdapter";
 import type { IStorageEventConverterAdapter } from "./IStorageEventConverterAdapter";
@@ -13,6 +13,8 @@ import type { IStorageEventConverterAdapter } from "./IStorageEventConverterAdap
 export interface IStorageEventManagerAdapter<TFile, TFolder> {
     readonly typeGuard: IStorageEventTypeGuardAdapter<TFile, TFolder>;
     readonly persistence: IStorageEventPersistenceAdapter;
+    /** Select the ordered store when the host can persist separate event buffers. */
+    readonly pendingEventStore?: PendingStorageEventStore;
     readonly watch: IStorageEventWatchAdapter<TFile, unknown>;
     readonly status: IStorageEventStatusAdapter;
     readonly converter: IStorageEventConverterAdapter<TFile>;

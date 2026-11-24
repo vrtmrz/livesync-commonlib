@@ -3,10 +3,12 @@
  * The snapshot tail keeps provisional marking, save, rollback, and in-memory acknowledgement in one ordered step.
  */
 import type { FileEventItem } from "@lib/common/types";
+import { delay } from "@lib/common/utils";
 import { assertFileEventAdmission } from "./operations";
 import {
     retainBufferedFileEvents,
     retainFileEvent,
+    type OrderedStorageEventState,
     type PendingSnapshotEntry,
     type QueuedFileEvent,
     type SnapshotCompletion,
@@ -108,4 +110,91 @@ export async function persistFileEventSnapshot(
     });
     state.snapshotTail = save.catch(() => {});
     await save;
+}
+
+const APPEND_YIELD_MS = 50;
+
+function writeOrderedStore(state: StorageEventState, write: () => Promise<void>): Promise<void> {
+    const done = state.snapshotTail.then(write);
+    state.snapshotTail = done.catch(() => {});
+    return done;
+}
+
+/** Save the next buffer, coalescing requests until the writer detaches it. */
+export function appendPendingEventBuffer(state: StorageEventState, ordered: OrderedStorageEventState): Promise<void> {
+    if (ordered.nextWrite) return ordered.nextWrite;
+    if (ordered.nextBuffer.length === 0) return ordered.appendTail;
+
+    const write = ordered.appendTail
+        .catch(() => {})
+        .then(async () => {
+            if (ordered.appendFinishedAt !== undefined) {
+                const remainingYield = APPEND_YIELD_MS - (Date.now() - ordered.appendFinishedAt);
+                if (remainingYield > 0) await delay(remainingYield);
+            }
+
+            await writeOrderedStore(state, async () => {
+                const entries = ordered.nextBuffer;
+                ordered.nextBuffer = [];
+                ordered.nextWrite = undefined;
+                for (const entry of entries) entry.bufferWrite = write;
+
+                try {
+                    const key = await ordered.store.append(entries.map(({ event }) => event));
+                    const buffer = { key, remaining: entries.length };
+                    for (const entry of entries) entry.savedBuffer = buffer;
+                } catch (error) {
+                    // Keep the failed entries ahead of any arrivals during this write.
+                    ordered.nextBuffer = entries.concat(ordered.nextBuffer);
+                    throw error;
+                } finally {
+                    for (const entry of entries) entry.bufferWrite = undefined;
+                    ordered.appendFinishedAt = Date.now();
+                }
+            });
+        });
+    ordered.nextWrite = write;
+    ordered.appendTail = write;
+    return write;
+}
+
+/** Wait only for the append that owns this entry. Restored entries are already durable. */
+export function persistOrderedEntry(
+    state: StorageEventState,
+    ordered: OrderedStorageEventState,
+    entry: PendingSnapshotEntry
+): Promise<void> {
+    if (entry.savedBuffer) return Promise.resolve();
+    return entry.bufferWrite ?? appendPendingEventBuffer(state, ordered);
+}
+
+/** Acknowledge one entry in memory, deleting its buffer only when the last entry completes. */
+export function acknowledgeOrderedEntry(
+    state: StorageEventState,
+    ordered: OrderedStorageEventState,
+    entry: PendingSnapshotEntry,
+    updateStatus: () => void,
+    completion?: SnapshotCompletion
+): Promise<void> {
+    return writeOrderedStore(state, async () => {
+        if (completion) assertFileEventAdmission(completion.attempt);
+        if (state.pendingSnapshot.get(entry.event) !== entry) return;
+        if (completion && entry.operation?.attempt !== completion.attempt) return;
+
+        const buffer = entry.savedBuffer!;
+        if (buffer.remaining === 1) await ordered.store.remove(buffer.key);
+        buffer.remaining--;
+        if (entry.operation) ordered.pendingOperations--;
+        state.pendingSnapshot.delete(entry.event);
+        updateStatus();
+    });
+}
+
+/** Retire a saved buffer with no effects to replay. */
+export function acknowledgeEmptyOrderedBuffer(
+    state: StorageEventState,
+    ordered: OrderedStorageEventState,
+    key: string
+): Promise<void> {
+    return writeOrderedStore(state, () => ordered.store.remove(key));
 }

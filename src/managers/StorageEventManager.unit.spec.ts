@@ -638,6 +638,228 @@ describe("StorageEventManagerBase", () => {
     });
 
     describe("Snapshot Restore", () => {
+        type StoredBuffer = {
+            readonly key: string;
+            readonly events: readonly (FileEventItem | FileEventItemSentinel)[];
+        };
+
+        function createPendingBufferStore(initial: readonly StoredBuffer[] = []) {
+            let buffers = initial.map(({ key, events }) => ({ key, events: [...events] }));
+            let nextKey = 0;
+            const appendBuffer = async (events: readonly (FileEventItem | FileEventItemSentinel)[]) => {
+                const key = `buffer-${++nextKey}`;
+                buffers = [...buffers, { key, events: [...events] }];
+                return key;
+            };
+            const store = {
+                load: vi.fn(async () => buffers.map(({ key, events }) => ({ key, events: [...events] }))),
+                append: vi.fn(appendBuffer),
+                remove: vi.fn(async (key: string) => {
+                    buffers = buffers.filter((buffer) => buffer.key !== key);
+                }),
+            };
+            return {
+                store,
+                append: appendBuffer,
+                read: () => buffers.map(({ key, events }) => ({ key, events: [...events] })),
+            };
+        }
+
+        it("replays the first loaded buffer without appending it and removes each completed buffer by key", async () => {
+            const firstEvent: FileEventItem = {
+                type: "CHANGED",
+                key: "legacy-event",
+                args: { file: adapter.converter.toFileInfo(createMockFile("ordered.md", "ordered.md", 1000)) },
+            };
+            const secondEvent: FileEventItem = {
+                type: "CHANGED",
+                key: "later-event",
+                args: { file: adapter.converter.toFileInfo(createMockFile("ordered.md", "ordered.md", 2000)) },
+            };
+            const pending = createPendingBufferStore([
+                { key: "legacy", events: [firstEvent] },
+                { key: "later-buffer", events: [secondEvent] },
+            ]);
+            Object.assign(adapter, { pendingEventStore: pending.store });
+            manager = new TestStorageEventManager(adapter, dependencies);
+            const processingOrder: string[] = [];
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockImplementation(async (event) => {
+                processingOrder.push(event.key);
+                return true;
+            });
+
+            await manager.restoreState();
+
+            expect(pending.store.load).toHaveBeenCalledOnce();
+            expect(pending.store.append).not.toHaveBeenCalled();
+            expect(processingOrder).toEqual(["legacy-event", "later-event"]);
+            expect(dependencies.fileProcessing.processFileEvent).toHaveBeenNthCalledWith(
+                1,
+                expect.objectContaining({ key: "legacy-event", restoredFromPreviousRuntime: true })
+            );
+            expect(dependencies.fileProcessing.processFileEvent).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({ key: "later-event", restoredFromPreviousRuntime: true })
+            );
+            expect(pending.store.remove.mock.calls).toEqual([["legacy"], ["later-buffer"]]);
+            expect(pending.read()).toEqual([]);
+        });
+
+        it("replays a whole failed buffer on the next manager and removes it only after every member succeeds", async () => {
+            const firstEvent: FileEventItem = {
+                type: "CHANGED",
+                key: "first-member",
+                args: { file: adapter.converter.toFileInfo(createMockFile("buffered.md", "buffered.md", 1000)) },
+            };
+            const secondEvent: FileEventItem = {
+                type: "CHANGED",
+                key: "second-member",
+                args: { file: adapter.converter.toFileInfo(createMockFile("buffered.md", "buffered.md", 2000)) },
+            };
+            const buffer = { key: "failed-buffer", events: [firstEvent, secondEvent] } as const;
+            const pending = createPendingBufferStore([buffer]);
+            Object.assign(adapter, { pendingEventStore: pending.store });
+            manager = new TestStorageEventManager(adapter, dependencies);
+
+            let releaseFailedMember!: () => void;
+            const failedMember = new Promise<void>((resolve) => {
+                releaseFailedMember = resolve;
+            });
+            let signalFailedMemberStarted!: () => void;
+            const failedMemberStarted = new Promise<void>((resolve) => {
+                signalFailedMemberStarted = resolve;
+            });
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockImplementation(async (event) => {
+                if (event.key === "second-member") {
+                    signalFailedMemberStarted();
+                    await failedMember;
+                    throw new Error("second member failed");
+                }
+                return true;
+            });
+
+            const firstReplay = manager.restoreState();
+            try {
+                await failedMemberStarted;
+                expect(pending.read()).toEqual([buffer]);
+                expect(pending.store.remove).not.toHaveBeenCalled();
+            } finally {
+                releaseFailedMember();
+            }
+            await firstReplay;
+
+            expect(pending.read()).toEqual([buffer]);
+            expect(pending.store.remove).not.toHaveBeenCalled();
+
+            let releaseReplayedMember!: () => void;
+            const replayedMember = new Promise<void>((resolve) => {
+                releaseReplayedMember = resolve;
+            });
+            let signalReplayedMemberStarted!: () => void;
+            const replayedMemberStarted = new Promise<void>((resolve) => {
+                signalReplayedMemberStarted = resolve;
+            });
+            const replayOrder: string[] = [];
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockClear();
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockImplementation(async (event) => {
+                replayOrder.push(event.key);
+                if (event.key === "second-member") {
+                    signalReplayedMemberStarted();
+                    await replayedMember;
+                }
+                return true;
+            });
+            manager = new TestStorageEventManager(adapter, dependencies);
+            const secondReplay = manager.restoreState();
+            try {
+                await replayedMemberStarted;
+                expect(replayOrder).toEqual(["first-member", "second-member"]);
+                expect(pending.read()).toEqual([buffer]);
+                expect(pending.store.remove).not.toHaveBeenCalled();
+            } finally {
+                releaseReplayedMember();
+            }
+            await secondReplay;
+
+            expect(replayOrder).toEqual(["first-member", "second-member"]);
+            expect(pending.store.append).not.toHaveBeenCalled();
+            expect(pending.store.remove.mock.calls).toEqual([["failed-buffer"]]);
+            expect(pending.read()).toEqual([]);
+        });
+
+        it("does not process a new event until its buffer append commits", async () => {
+            const pending = createPendingBufferStore();
+            Object.assign(adapter, { pendingEventStore: pending.store });
+            manager = new TestStorageEventManager(adapter, dependencies);
+            await manager.restoreState();
+
+            let releaseAppend!: () => void;
+            const appendCommit = new Promise<void>((resolve) => {
+                releaseAppend = resolve;
+            });
+            let signalAppendStarted!: () => void;
+            const appendStarted = new Promise<void>((resolve) => {
+                signalAppendStarted = resolve;
+            });
+            pending.store.append.mockImplementation(async (events) => {
+                signalAppendStarted();
+                await appendCommit;
+                return await pending.append(events);
+            });
+
+            let buffersWhenHandled: StoredBuffer[] = [];
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockImplementation(async () => {
+                buffersWhenHandled = pending.read();
+                return true;
+            });
+            const file = adapter.converter.toFileInfo(createMockFile("new-event.md", "new-event.md"));
+            try {
+                await manager.appendQueue([{ type: "CHANGED", file, skipBatchWait: true }]);
+                await appendStarted;
+                expect(pending.read()).toEqual([]);
+                expect(dependencies.fileProcessing.processFileEvent).not.toHaveBeenCalled();
+            } finally {
+                releaseAppend();
+            }
+
+            await vi.waitFor(() => expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled());
+            expect(buffersWhenHandled).toHaveLength(1);
+            expect(buffersWhenHandled[0].events).toEqual([
+                expect.objectContaining({
+                    args: expect.objectContaining({ file: expect.objectContaining({ path: "new-event.md" }) }),
+                }),
+            ]);
+            await manager.waitForIdle();
+            expect(pending.read()).toEqual([]);
+        });
+
+        it("retires a delete buffer when a flush retries its first failed append", async () => {
+            const pending = createPendingBufferStore();
+            Object.assign(adapter, { pendingEventStore: pending.store });
+            manager = new TestStorageEventManager(adapter, dependencies);
+            await manager.restoreState();
+
+            let rejectAppend!: (error: Error) => void;
+            const writing = new Promise<string>((_resolve, reject) => {
+                rejectAppend = reject;
+            });
+            pending.store.append.mockReturnValueOnce(writing);
+            const file = adapter.converter.toFileInfo(createMockFile("deleted.md", "deleted.md"));
+            await manager.appendQueue([{ type: "DELETE", file }]);
+            await vi.waitFor(() => expect(pending.store.append).toHaveBeenCalledOnce());
+
+            const failedFlush = expect(manager.waitForIdle()).rejects.toThrow("first append failed");
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            rejectAppend(new Error("first append failed"));
+            await failedFlush;
+            expect(dependencies.fileProcessing.processFileEvent).not.toHaveBeenCalled();
+
+            await manager.waitForIdle();
+            expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledOnce();
+            await vi.waitFor(() => expect(pending.read()).toEqual([]));
+            expect(pending.store.remove.mock.calls).toEqual([["buffer-1"]]);
+        });
+
         it("should wait for restored event processing to finish", async () => {
             let releaseProcessing!: (result: boolean) => void;
             const processing = new Promise<boolean>((resolve) => {

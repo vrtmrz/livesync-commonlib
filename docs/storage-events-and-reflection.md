@@ -259,6 +259,23 @@ timers do not occupy a processing slot, and time spent waiting for a slot does
 not restart the maximum delay. Once due, the operation acquires a slot and reads
 current content for processing.
 
+### Ordered pending buffers (unreleased)
+
+A host can supply `pendingEventStore` on its storage-event manager adapter to
+store ordered arrays of new event intents. The store returns buffers in replay
+order, including any legacy snapshot as the first buffer. `append()` returns a
+distinct key after commit. The manager groups requests for the next buffer and
+waits for the append before handling its events.
+
+A saved array remains intact until every entry in it has completed. Each
+successful operation releases its in-process dependants as soon as its own
+local effect completes. The final successful operation deletes the whole
+buffer. If an operation fails, other work can proceed where its dependencies
+allow, and the failed buffer remains recoverable. A later application instance
+loads that whole array and revalidates ordinary file events against current
+storage and database state. Hosts must surface store failures to the manager
+and resolve deletion only once the supplied key has been durably removed.
+
 ## Retrying ordinary file operations
 
 The following extension is available in Commonlib 0.4.1. A failed ordinary

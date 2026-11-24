@@ -6,6 +6,7 @@ import type { FileEventItem } from "@lib/common/types";
 import { LOG_LEVEL_VERBOSE } from "@lib/common/types";
 import { fireAndForget } from "@lib/common/utils";
 import type { LogFunction } from "@lib/services/lib/logUtils";
+import type { PendingStorageEventBuffer } from "../adapters";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import {
     assertSuccessfulFileEvents,
@@ -19,6 +20,7 @@ import {
     retainBufferedFileEvents,
     retainFileEvent,
     type EventAdmission,
+    type PendingSnapshotEntry,
     type QueuedFileEvent,
     type RunQueuedEventsOptions,
     type StorageEventBuffer,
@@ -34,6 +36,10 @@ export interface StorageEventQueueEffects extends StorageEventNotifications {
     log: LogFunction;
     /** Persist the current intent snapshot. */
     takeSnapshot(): Promise<void>;
+    /** Persist one intent before dispatch when using the ordered buffer store. */
+    persistEntry?(entry: PendingSnapshotEntry): Promise<void>;
+    /** Acknowledge a sentinel after its predecessor barrier has run. */
+    acknowledgeSentinel?(entry: PendingSnapshotEntry): Promise<void>;
     /** Load the prior runtime's saved event intent, if any. */
     loadSnapshot(): Promise<QueuedFileEvent[] | null>;
     /** Enter the host event-processing route for one file event. */
@@ -71,14 +77,15 @@ export function enqueueStorageEvent(
         barrierBefore = retainFileEvent(state, sentinel).sequence;
         effects.buffer.append(sentinel);
     }
-    const operation = retainFileEvent(state, event).operation!;
+    const entry = retainFileEvent(state, event);
+    const operation = entry.operation!;
     operation.barrierBefore ??= barrierBefore;
     effects.buffer.append(event);
     const attempt = operation.attempt;
     effects.updateStatus();
     fireAndForget(async () => {
         try {
-            await effects.takeSnapshot();
+            await (effects.persistEntry?.(entry) ?? effects.takeSnapshot());
             await effects.runQueuedEvents();
         } catch (error) {
             if (attempt.started && !attempt.result) {
@@ -111,6 +118,7 @@ function mergeAdmittedAttempts(
  * Flush the finite set of operations and admissions visible at entry.
  * @param state - The manager state containing active admissions, retained operations, and the current failure sequence.
  * @param effects - Callbacks for capturing attempts, releasing gates, dispatching, waiting, and reporting failures.
+ * @param loading - A pending initial load already requested at this flush boundary.
  * @returns A promise which settles after captured admissions and attempts; rejects with the first rejected admission
  * or, when admissions succeeded, the first failed operation result.
  * @remarks Flush intent is signalled before awaiting active admissions. Current buffered work is retained and batch
@@ -118,13 +126,23 @@ function mergeAdmittedAttempts(
  * are merged without replacing earlier captures. Dispatch is then started in the background. Work admitted after the
  * initial admission snapshot can remain outside this finite wait.
  */
-export async function flushStorageEvents(state: StorageEventState, effects: StorageEventQueueEffects): Promise<void> {
+export async function flushStorageEvents(
+    state: StorageEventState,
+    effects: StorageEventQueueEffects,
+    loading?: Promise<readonly PendingFileEvent[]>
+): Promise<void> {
     const admissions = [...state.admissions];
     for (const admission of admissions) admission.flushRequested = true;
-    retainBufferedFileEvents(state, effects.buffer.read());
+    if (!state.ordered) retainBufferedFileEvents(state, effects.buffer.read());
     const operations = pendingFileOperations(state);
     effects.release(operations);
     const boundary = effects.capture(operations, state.nextFailureSequence);
+    if (loading) {
+        for (const operation of await loading) {
+            if (!boundary.has(operation)) boundary.set(operation, operation.attempt);
+        }
+        effects.release([...boundary.keys()]);
+    }
     const admitted = await Promise.allSettled(admissions.map((admission) => admission.completion));
     mergeAdmittedAttempts(boundary, admissions);
     effects.release([...boundary.keys()]);
@@ -146,15 +164,20 @@ export async function flushStorageEvents(state: StorageEventState, effects: Stor
  */
 async function dispatchBufferedEvents(state: StorageEventState, effects: StorageEventQueueEffects): Promise<void> {
     while (effects.buffer.read().length > 0) {
+        const next = effects.buffer.read()[0];
+        if (next.type === TYPE_SENTINEL_FLUSH && effects.persistEntry) {
+            // Leave the ordering marker pending if its append fails so dispatch can retry it.
+            await effects.persistEntry(retainFileEvent(state, next));
+        }
         const event = effects.buffer.shift()!;
         const entry = retainFileEvent(state, event);
         if (event.type === TYPE_SENTINEL_FLUSH) {
             entry.dispatched = true;
             // Capture predecessors only; self and successors must never enter this boundary.
             const results = await effects.wait(effects.capture(pendingFileOperations(state, entry.sequence)));
-            if (results.every((result) => result.ok)) {
+            if (effects.acknowledgeSentinel || results.every((result) => result.ok)) {
                 try {
-                    await effects.takeSnapshot();
+                    await (effects.acknowledgeSentinel?.(entry) ?? effects.takeSnapshot());
                 } catch (error) {
                     effects.reportFailure(error);
                 }
@@ -179,16 +202,14 @@ export async function runBufferedStorageEvents(
     effects: StorageEventQueueEffects,
     options: RunQueuedEventsOptions = {}
 ): Promise<void> {
-    retainBufferedFileEvents(state, effects.buffer.read());
-    const accepted = pendingFileOperations(state);
+    if (!state.ordered) retainBufferedFileEvents(state, effects.buffer.read());
+    const accepted = options.waitForProcessing ? pendingFileOperations(state) : undefined;
     await shareRunningResult(state.dispatchKey, () => dispatchBufferedEvents(state, effects));
-    if (options.waitForProcessing) {
-        const results = await effects.wait(effects.capture(accepted));
-        for (const result of results) {
-            if (result.ok === false) {
-                effects.reportFailure(result.error);
-            }
-        }
+    if (!accepted) return;
+    const results = await effects.wait(effects.capture(accepted));
+    if (state.ordered) return; // Failed attempts have already been reported.
+    for (const result of results) {
+        if (result.ok === false) effects.reportFailure(result.error);
     }
 }
 
@@ -206,14 +227,40 @@ export async function restoreStorageEvents(effects: StorageEventQueueEffects): P
         effects.log("No snapshot to restore", LOG_LEVEL_VERBOSE);
         return;
     }
-    effects.log(`Restoring storage operation snapshot: ${snapshot.length} items`, LOG_LEVEL_VERBOSE);
-    effects.buffer.replace(
-        snapshot.map((event) =>
-            event.type === TYPE_SENTINEL_FLUSH
-                ? event
-                : { ...event, restoredFromPreviousRuntime: true, skipBatchWait: true }
-        )
-    );
-    effects.updateStatus();
+    replayStorageEvents(effects, snapshot.map(markRestoredEvent));
     await effects.runQueuedEvents({ waitForProcessing: true });
+}
+
+/** Retain the restored events in replay order, sharing acknowledgement ownership within each saved buffer. */
+export function restoreOrderedStorageEvents(
+    state: StorageEventState,
+    effects: StorageEventQueueEffects,
+    buffers: readonly PendingStorageEventBuffer[]
+): PendingFileEvent[] {
+    const events: QueuedFileEvent[] = [];
+    const operations: PendingFileEvent[] = [];
+    for (const { key, events: saved } of buffers) {
+        const buffer = { key, remaining: saved.length };
+        for (const event of saved) {
+            const restored = event.type === TYPE_SENTINEL_FLUSH ? { ...event } : markRestoredEvent(event);
+            const entry = retainFileEvent(state, restored, true, buffer);
+            events.push(restored);
+            if (entry.operation) operations.push(entry.operation);
+        }
+    }
+    retainBufferedFileEvents(state, events);
+    replayStorageEvents(effects, events);
+    return operations;
+}
+
+function markRestoredEvent(event: QueuedFileEvent): QueuedFileEvent {
+    return event.type === TYPE_SENTINEL_FLUSH
+        ? event
+        : { ...event, restoredFromPreviousRuntime: true, skipBatchWait: true };
+}
+
+function replayStorageEvents(effects: StorageEventQueueEffects, events: QueuedFileEvent[]): void {
+    effects.log(`Restoring storage operation snapshot: ${events.length} items`, LOG_LEVEL_VERBOSE);
+    effects.buffer.replace(events);
+    effects.updateStatus();
 }

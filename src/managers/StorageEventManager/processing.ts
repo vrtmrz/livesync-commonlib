@@ -19,6 +19,7 @@ import {
 import {
     completeFileEventAttempt,
     pendingFileOperations,
+    type PendingSnapshotEntry,
     type SnapshotCompletion,
     type StorageEventNotifications,
     type StorageEventState,
@@ -36,6 +37,8 @@ export interface StorageEventAttemptEffects extends StorageEventNotifications {
     initialise(operation: PendingFileEvent): Promise<boolean>;
     /** Persist current intent before handler execution. */
     takeSnapshot(): Promise<void>;
+    /** Wait for a specific intent when the store writes immutable buffers. */
+    persistEntry?(entry: PendingSnapshotEntry): Promise<void>;
     /** Persist the completion acknowledgement for this exact snapshot entry and attempt. */
     completeSnapshot(completion: SnapshotCompletion): Promise<void>;
     /** Obtain the host semaphore which limits concurrent file handling. */
@@ -142,7 +145,7 @@ export async function processStorageEventAttempt(
     const entry = state.pendingSnapshot.get(operation.event)!;
     try {
         const gate = prepareAttempt(state, operation, attempt, effects);
-        await effects.takeSnapshot();
+        await (effects.persistEntry?.(entry) ?? effects.takeSnapshot());
         assertFileEventAdmission(attempt);
         const canProceed = await gate;
         assertFileEventAdmission(attempt);
