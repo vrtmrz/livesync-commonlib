@@ -1,16 +1,23 @@
-// Foreground part of Worker-off-loaded functions
-
+import { RpcError } from "@vrtmrz/rpc";
+import { connectWorkerRpc, createWorkerPool } from "@vrtmrz/rpc/worker";
 import { promiseWithResolvers } from "octagonal-wheels/promises.js";
-import type { LiveSyncEventHub } from "@lib/hub/hub.ts";
-//@ts-ignore
-import WorkerX from "./bg.worker.ts?worker&inline";
+import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
+import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
-import { info, LOG_KIND_ERROR } from "octagonal-wheels/common/logger.js";
-import { encryptionOnWorker, encryptionHKDFOnWorker, handleTaskEncrypt } from "./bgWorker.encryption.ts";
-import { _splitPieces2Worker, handleTaskSplit, abortSplitTasks } from "./bgWorker.splitting.ts";
-import { END_OF_DATA } from "./universalTypes.ts";
+import type { LiveSyncEventHub } from "@lib/hub/hub.ts";
+// @ts-expect-error The browser package build supplies the inline Worker factory.
+import createInlineWorker from "./bg.worker.ts?worker&inline";
+import { backgroundWorkerContract, type WorkerSplitRequest } from "./backgroundWorkerRpcContract.ts";
+import { toBackgroundWorkerError } from "./bgWorker.errors.ts";
+import { createSplitOperation } from "./bgWorker.splitting.ts";
+import {
+    acquireTrackedSplitConnection,
+    closeSplitConnectionTracker,
+    createSplitConnectionTrackerState,
+    trackConnection,
+} from "./splitConnectionTracker.ts";
+import { createSplitGate } from "./splitGate.ts";
 import type {
-    CancelSplitArguments,
     EncryptArguments,
     EncryptHKDFArguments,
     EncryptHKDFProcessItem,
@@ -19,16 +26,183 @@ import type {
     SplitArguments,
     SplitProcessItem,
 } from "./universalTypes.ts";
-import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 
 export type WorkerInstance = {
     worker: Worker;
     processing: number;
-    /** Keys of tasks currently dispatched to this worker instance. */
     taskKeys: Set<number>;
-    /** Cancelled splits awaiting their terminal response. */
     cancelledSplitKeys: Set<number>;
 };
+
+type PoolConnection = ReturnType<typeof connectWorkerRpc<typeof backgroundWorkerContract>>;
+type PoolClient = Awaited<PoolConnection["ready"]>;
+
+function createBackgroundWorkerConnection(): PoolConnection {
+    return connectWorkerRpc({
+        contract: backgroundWorkerContract,
+        createWorker: () => createInlineWorker() as Worker,
+    });
+}
+
+function createBackgroundWorkerPool() {
+    const size = Math.max(1, Math.floor((compatGlobal.navigator.hardwareConcurrency || 8) / 2));
+    const splitGate = createSplitGate(size);
+    const splitConnections = createSplitConnectionTrackerState<PoolConnection, PoolClient>();
+    const workerPool = createWorkerPool({
+        size,
+        createConnection: () => {
+            const connection = createBackgroundWorkerConnection();
+            trackConnection(splitConnections, connection, connection.ready);
+            return connection;
+        },
+    });
+
+    const acquireCandidate = workerPool.acquire.bind(workerPool);
+    return {
+        ...workerPool,
+        acquireSplitSlot: splitGate.acquire,
+        acquireForSplit: () => acquireTrackedSplitConnection(splitConnections, acquireCandidate),
+        close(reason: RpcError) {
+            splitGate.close(reason);
+            closeSplitConnectionTracker(splitConnections);
+            workerPool.close(reason);
+        },
+    };
+}
+
+type BackgroundWorkerPool = ReturnType<typeof createBackgroundWorkerPool>;
+type EncryptionRequest = Omit<EncryptArguments, "key"> | Omit<EncryptHKDFArguments, "key">;
+
+let pool: BackgroundWorkerPool | undefined;
+let offPlatformUnloaded: (() => void) | undefined;
+let nextKey = 0;
+
+export const tasks = new Map<number, ProcessItem>();
+const cancelSplits = new Map<number, (error: unknown) => void>();
+
+export function initialiseWorkerModule(events: LiveSyncEventHub): void {
+    terminateWorker();
+    const current = createBackgroundWorkerPool();
+    pool = current;
+    offPlatformUnloaded = events.onEvent(EVENT_PLATFORM_UNLOADED, terminateWorker);
+    void current.start().catch((error: unknown) => {
+        if (pool === current) {
+            Logger(error, LOG_LEVEL_VERBOSE);
+        }
+    });
+}
+
+export function terminateWorker(): void {
+    const current = pool;
+    pool = undefined;
+    offPlatformUnloaded?.();
+    offPlatformUnloaded = undefined;
+    current?.close(new RpcError("disconnected", "The background Worker pool has shut down."));
+    cancelSplits.clear();
+    tasks.clear();
+}
+
+function getPool(): BackgroundWorkerPool {
+    if (!pool) {
+        throw new Error("No available workers");
+    }
+    return pool;
+}
+
+export function removeTask(key: number): void {
+    tasks.delete(key);
+}
+
+export function cancelSplitTask(key: number): void {
+    cancelSplits.get(key)?.(new RpcError("aborted", "Background split was cancelled."));
+}
+
+function createTrackedSplit(request: WorkerSplitRequest) {
+    const process: SplitProcessItem = { key: nextKey++, type: "split", finalize() {} };
+    const operation = createSplitOperation(
+        () => {
+            const current = getPool();
+            tasks.set(process.key, process);
+            cancelSplits.set(process.key, operation.cancel);
+            return current;
+        },
+        request,
+        (workerFinished) => {
+            process.workerFinished = workerFinished;
+            cancelSplits.delete(process.key);
+            removeTask(process.key);
+        }
+    );
+    return { process, iterator: operation.iterator };
+}
+
+async function consumeSplit(iterator: AsyncGenerator<string, void, unknown>): Promise<void> {
+    for await (const _chunk of iterator) {
+        // The low-level split task exposes completion through its handle.
+    }
+}
+
+async function runEncryption(current: BackgroundWorkerPool, request: EncryptionRequest): Promise<string> {
+    const lease = await current.acquire();
+    const { input, passphrase } = request;
+    try {
+        if ("pbkdf2Salt" in request) {
+            return await lease.client.call[request.type]([input, passphrase, request.pbkdf2Salt]);
+        }
+        return await lease.client.call[request.type]([input, passphrase, request.autoCalculateIterations]);
+    } finally {
+        lease.release();
+    }
+}
+
+export function startWorker(data: Omit<EncryptHKDFArguments, "key">): EncryptHKDFProcessItem;
+export function startWorker(data: Omit<EncryptArguments, "key">): EncryptProcessItem;
+export function startWorker(data: Omit<SplitArguments, "key">): SplitProcessItem;
+export function startWorker(data: EncryptionRequest | Omit<SplitArguments, "key">): ProcessItem {
+    const current = getPool();
+    if (data.type === "split") {
+        const { type: _type, ...request } = data;
+        const { process, iterator } = createTrackedSplit(request);
+        void consumeSplit(iterator).catch((error: unknown) => Logger(error, LOG_LEVEL_VERBOSE));
+        return process;
+    }
+
+    // Take the same snapshot as posting immediately, including a view's visible salt bytes.
+    const request = "pbkdf2Salt" in data ? { ...data, pbkdf2Salt: data.pbkdf2Salt.slice() } : { ...data };
+    const task = promiseWithResolvers<string>();
+    const process: EncryptProcessItem | EncryptHKDFProcessItem = {
+        key: nextKey++,
+        type: data.type,
+        task,
+        finalize() {},
+    };
+    tasks.set(process.key, process);
+    void runEncryption(current, request).then(
+        (result) => {
+            removeTask(process.key);
+            task.resolve(result);
+        },
+        (error: unknown) => {
+            removeTask(process.key);
+            task.reject(toBackgroundWorkerError(error));
+        }
+    );
+    return process;
+}
+
+function prepareSplit(
+    splitVersion: WorkerSplitRequest["splitVersion"],
+    dataSrc: Blob,
+    pieceSize: number,
+    plainSplit: boolean,
+    minimumChunkSize: number,
+    filename?: string,
+    useSegmenter = false
+) {
+    return () =>
+        createTrackedSplit({ dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter, splitVersion })
+            .iterator;
+}
 
 export function splitPieces2Worker(
     dataSrc: Blob,
@@ -38,8 +212,9 @@ export function splitPieces2Worker(
     filename?: string,
     useSegmenter?: boolean
 ) {
-    return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, 1, useSegmenter ?? false);
+    return prepareSplit(1, dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
 }
+
 export function splitPieces2WorkerV2(
     dataSrc: Blob,
     pieceSize: number,
@@ -48,8 +223,9 @@ export function splitPieces2WorkerV2(
     filename?: string,
     useSegmenter?: boolean
 ) {
-    return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, 2, useSegmenter ?? false);
+    return prepareSplit(2, dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
 }
+
 export function splitPieces2WorkerRabinKarp(
     dataSrc: Blob,
     pieceSize: number,
@@ -58,15 +234,15 @@ export function splitPieces2WorkerRabinKarp(
     filename?: string,
     useSegmenter?: boolean
 ) {
-    return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, 3, useSegmenter ?? false);
+    return prepareSplit(3, dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
 }
 
 export function encryptWorker(input: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {
-    return encryptionOnWorker({ type: "encrypt", input, passphrase, autoCalculateIterations });
+    return startWorker({ type: "encrypt", input, passphrase, autoCalculateIterations }).task.promise;
 }
 
-export function decryptWorker(input: string, passphrase: string, autoCalculateIterations: boolean) {
-    return encryptionOnWorker({ type: "decrypt", input, passphrase, autoCalculateIterations });
+export function decryptWorker(input: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {
+    return startWorker({ type: "decrypt", input, passphrase, autoCalculateIterations }).task.promise;
 }
 
 export function encryptHKDFWorker(
@@ -74,7 +250,7 @@ export function encryptHKDFWorker(
     passphrase: string,
     pbkdf2Salt: Uint8Array<ArrayBuffer>
 ): Promise<string> {
-    return encryptionHKDFOnWorker({ type: "encryptHKDF", input, passphrase, pbkdf2Salt });
+    return startWorker({ type: "encryptHKDF", input, passphrase, pbkdf2Salt }).task.promise;
 }
 
 export function decryptHKDFWorker(
@@ -82,173 +258,5 @@ export function decryptHKDFWorker(
     passphrase: string,
     pbkdf2Salt: Uint8Array<ArrayBuffer>
 ): Promise<string> {
-    return encryptionHKDFOnWorker({ type: "decryptHKDF", input, passphrase, pbkdf2Salt });
-}
-
-export const tasks = new Map<number, ProcessItem>();
-/** Reverse map: task key → the worker instance it was dispatched to. */
-const taskWorkerMap = new Map<number, WorkerInstance>();
-
-/**
- * Remove a completed (or aborted) task from both the tasks map and its worker's taskKeys set.
- */
-export function removeTask(key: number): void {
-    tasks.delete(key);
-    const inst = taskWorkerMap.get(key);
-    if (inst) {
-        inst.taskKeys.delete(key);
-        taskWorkerMap.delete(key);
-    }
-}
-
-/** Worker-side cancellation takes effect asynchronously when the worker receives the `cancelSplit` message. */
-export function cancelSplitTask(key: number): void {
-    const process = tasks.get(key);
-    const inst = taskWorkerMap.get(key);
-    removeTask(key);
-    if (process?.type !== "split" || process.workerFinished || !inst) {
-        return;
-    }
-
-    inst.cancelledSplitKeys.add(key);
-    const data: CancelSplitArguments = { type: "cancelSplit", key };
-    inst.worker.postMessage({ data });
-}
-
-function initialiseWorkers() {
-    const maxConcurrency = ~~((compatGlobal.navigator.hardwareConcurrency || 8) / 2);
-    return Array.from(
-        { length: maxConcurrency },
-        () =>
-            ({
-                // WorkerX is an imported inline worker.
-                // @ts-ignore
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-                worker: WorkerX() as Worker,
-                processing: 0,
-                taskKeys: new Set<number>(),
-                cancelledSplitKeys: new Set<number>(),
-            }) satisfies WorkerInstance
-    );
-}
-
-let workers: WorkerInstance[] = [];
-let offPlatformUnloaded: (() => void) | undefined;
-export function initialiseWorkerModule(events: LiveSyncEventHub) {
-    if (workers.length > 0) {
-        terminateWorker();
-    }
-    workers = initialiseWorkers();
-    for (const inst of workers) {
-        inst.worker.onmessage = ({ data }) => {
-            const key = data.key as number;
-            const splitFinished = data.result === END_OF_DATA || "error" in data;
-            if (inst.cancelledSplitKeys.has(key)) {
-                if (splitFinished) {
-                    inst.cancelledSplitKeys.delete(key);
-                }
-                return;
-            }
-            const process = tasks.get(key);
-            if (!process) {
-                info(`Invalid key ${key} of background processing`, LOG_KIND_ERROR);
-                return;
-            }
-            if (process.type === "split") {
-                if (splitFinished) {
-                    process.workerFinished = true;
-                }
-                handleTaskSplit(process, data);
-            } else if (process.type === "encrypt" || process.type === "decrypt") {
-                handleTaskEncrypt(process, data);
-            } else if (process.type === "encryptHKDF" || process.type === "decryptHKDF") {
-                handleTaskEncrypt(process, data);
-            } else {
-                info(
-                    "Invalid response type" +
-                        (typeof process.type === "string" ? process.type : JSON.stringify(process))
-                );
-            }
-        };
-        inst.worker.onerror = (ev) => {
-            inst.worker.terminate();
-            workers.splice(workers.indexOf(inst), 1);
-            // Clean up all tasks that were assigned to this worker.
-            const crashError = new Error(`Background worker crashed: ${ev?.message ?? "unknown error"}`);
-            const splitKeys: number[] = [];
-            for (const key of inst.taskKeys) {
-                const process = tasks.get(key);
-                if (!process) continue;
-                tasks.delete(key);
-                if (process.type === "split") {
-                    splitKeys.push(key);
-                } else if ("task" in process) {
-                    process.task.reject(crashError);
-                }
-            }
-            inst.taskKeys.clear();
-            inst.cancelledSplitKeys.clear();
-            if (splitKeys.length > 0) {
-                abortSplitTasks(splitKeys, crashError);
-            }
-        };
-    }
-
-    offPlatformUnloaded = events.onEvent(EVENT_PLATFORM_UNLOADED, () => {
-        terminateWorker();
-    });
-}
-
-let key = 0;
-let roundRobinIdx = 0;
-
-function nextWorker() {
-    if (workers === undefined || workers.length === 0) {
-        throw new Error("No available workers");
-    }
-    const inst = workers[roundRobinIdx];
-    roundRobinIdx = (roundRobinIdx + 1) % workers.length;
-    return inst;
-}
-
-export function startWorker(data: Omit<EncryptHKDFArguments, "key">): EncryptHKDFProcessItem;
-export function startWorker(data: Omit<EncryptArguments, "key">): EncryptProcessItem;
-export function startWorker(data: Omit<SplitArguments, "key">): SplitProcessItem;
-export function startWorker(data: Omit<EncryptArguments | SplitArguments | EncryptHKDFArguments, "key">): ProcessItem {
-    const _key = key++;
-    const inst = nextWorker();
-    const promise = promiseWithResolvers<string>();
-    const item: ProcessItem = {
-        key: _key,
-        task: promise,
-        type: data.type,
-        finalize: () => {
-            inst.processing--;
-        },
-    };
-    tasks.set(_key, item);
-    inst.taskKeys.add(_key);
-    taskWorkerMap.set(_key, inst);
-    inst.processing++;
-    try {
-        inst.worker.postMessage({
-            data: { ...data, key: _key },
-        });
-        return item;
-    } catch (error) {
-        item.finalize();
-        removeTask(_key);
-        throw error;
-    }
-}
-
-export function terminateWorker() {
-    for (const inst of workers) {
-        inst.worker.terminate();
-        inst.cancelledSplitKeys.clear();
-    }
-    workers = [];
-    offPlatformUnloaded?.();
-    offPlatformUnloaded = undefined;
-    // isTerminated = true;
+    return startWorker({ type: "decryptHKDF", input, passphrase, pbkdf2Salt }).task.promise;
 }

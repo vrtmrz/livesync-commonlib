@@ -1,38 +1,15 @@
-/// <reference lib="webworker" />
-// Background part of Worker-offloaded content-splitting function
+import { RpcError, type CancelSignal } from "@vrtmrz/rpc";
+import { splitPieces2, splitPieces2V2, splitPiecesRabinKarp } from "@lib/string_and_binary/chunks.ts";
+import type { WorkerSplitRequest } from "./backgroundWorkerRpcContract.ts";
 
-import { splitPiecesRabinKarp, splitPieces2V2, splitPieces2 } from "@lib/string_and_binary/chunks.ts";
-import { postBack } from "./bg.common.ts";
-import { END_OF_DATA } from "./universalTypes.ts";
-import type { SplitArguments, SplitErrorPayload } from "./universalTypes.ts";
+const splitters = {
+    1: splitPieces2,
+    2: splitPieces2V2,
+    3: splitPiecesRabinKarp,
+};
 
-/**
- * Creates a function to post messages back to the main thread.
- * @param key The key associated with the message.
- * @returns A function that posts messages back to the main thread.
- */
-function getMainThreadPostBack(key: number) {
-    const _key = key;
-    let seq = 0;
-    return function (data: string | END_OF_DATA) {
-        if (data === END_OF_DATA) {
-            if (seq === 0) {
-                postBack(_key, seq++, "");
-            }
-            postBack(_key, seq++, END_OF_DATA);
-        } else {
-            postBack(_key, seq++, data);
-        }
-    };
-}
-
-const activeSplits = new Map<number, AbortController>();
-
-export function cancelSplit(key: number): void {
-    activeSplits.get(key)?.abort();
-}
-
-function readErrorField(error: unknown, field: "name" | "message" | "stack"): string | undefined {
+/** Read diagnostic text safely even when a thrown value has a throwing accessor. */
+function readErrorField(error: unknown, field: "name" | "message"): string | undefined {
     try {
         const value = (error as Partial<Record<typeof field, unknown>> | null | undefined)?.[field];
         return typeof value === "string" ? value : undefined;
@@ -41,55 +18,74 @@ function readErrorField(error: unknown, field: "name" | "message" | "stack"): st
     }
 }
 
-/**
- * Processes the splitting of data into chunks.
- * @param data The data to be split.
- */
-export async function processSplit(data: SplitArguments) {
-    const key = data.key;
-    const dataSrc = data.dataSrc;
-    const pieceSize = data.pieceSize;
-    const plainSplit = data.plainSplit;
-    const minimumChunkSize = data.minimumChunkSize;
-    const filename = data.filename;
-    const useSegmenter = data.useSegmenter;
-    const controller = new AbortController();
-    const signal = controller.signal;
-    activeSplits.set(key, controller);
+/** Preserve the splitter diagnostic in the stream error sent to the caller. */
+function asRemoteSplitError(error: unknown): RpcError {
+    const remoteName = readErrorField(error, "name") ?? "Error";
+    const message =
+        typeof error === "string" ? error : (readErrorField(error, "message") ?? "Background splitting failed");
+    return new RpcError("remote-error", message, { remoteName });
+}
 
+/**
+ * Adapt the RPC CancelSignal to the DOM AbortController required by V3 Rabin–Karp.
+ * Abort immediately if the RPC signal has already fired, and return a listener disposer.
+ */
+function bridgeCancellation(signal: CancelSignal, controller: AbortController): () => void {
+    const abort = () => controller.abort(signal.reason);
+    if (signal.aborted) {
+        abort();
+    } else {
+        signal.addEventListener("abort", abort, { once: true });
+    }
+    return () => signal.removeEventListener("abort", abort);
+}
+
+export async function* splitBackgroundRequest(
+    request: WorkerSplitRequest,
+    signal: CancelSignal
+): AsyncGenerator<string, void, unknown> {
+    if (signal.aborted) {
+        return;
+    }
+
+    const controller = new AbortController();
+    const removeAbortListener = request.splitVersion === 3 ? bridgeCancellation(signal, controller) : () => {};
     try {
-        const splitLegacy = data.splitVersion === 2 ? splitPieces2V2 : splitPieces2;
-        const gen =
-            data.splitVersion === 3
-                ? await splitPiecesRabinKarp(
+        const { dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter, splitVersion } = request;
+        const splitter = splitters[splitVersion];
+        const split =
+            splitVersion === 3
+                ? await splitter(
                       dataSrc,
                       pieceSize,
                       plainSplit,
                       minimumChunkSize,
                       filename,
                       useSegmenter,
-                      signal
+                      controller.signal
                   )
-                : await splitLegacy(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
-        // Rename to `emit` to avoid shadowing the module-level `postBack` import from bg.common.ts.
-        // When esbuild bundles this worker inline (?worker&inline), both variables may be minified to the
-        // same short identifier, causing the closure inside getMainThreadPostBack to call itself
-        // recursively instead of calling bg.common.postBack, resulting in "Maximum call stack size exceeded".
-        const emit = getMainThreadPostBack(key);
-        for await (const v of gen()) {
-            if (signal.aborted) {
-                break;
-            }
-            emit(v);
+                : await splitter(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
+
+        // V1 and V2 may be awaiting Blob preparation here; cancellation takes effect after that read settles.
+        if (signal.aborted) {
+            return;
         }
-        emit(END_OF_DATA);
+
+        let produced = false;
+        for await (const chunk of split()) {
+            // V1 and V2 do not accept a signal, so stop after an in-progress read and between chunks.
+            if (signal.aborted) {
+                return;
+            }
+            produced = true;
+            yield chunk;
+        }
+        if (!produced && !signal.aborted) {
+            yield "";
+        }
     } catch (error) {
-        const name = readErrorField(error, "name") ?? "Error";
-        const message =
-            typeof error === "string" ? error : (readErrorField(error, "message") ?? "Background splitting failed");
-        const stack = readErrorField(error, "stack");
-        self.postMessage({ key, error: { name, message, stack } } satisfies SplitErrorPayload);
+        throw asRemoteSplitError(error);
     } finally {
-        activeSplits.delete(key);
+        removeAbortListener();
     }
 }
