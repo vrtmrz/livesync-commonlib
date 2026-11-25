@@ -2,12 +2,20 @@ import { describe, expect, it, vi } from "vitest";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import type { FileEventItem, FilePath } from "@lib/common/types";
 import { flushStorageEvents, runBufferedStorageEvents, type StorageEventQueueEffects } from "./queue";
-import { createStorageEventState, retainFileEvent, type EventAdmission, type StorageEventState } from "./state";
+import {
+    TYPE_SENTINEL_FLUSH,
+    createStorageEventState,
+    retainFileEvent,
+    type EventAdmission,
+    type QueuedFileEvent,
+    type StorageEventState,
+} from "./state";
+import type { PendingStorageEventStore } from "../adapters";
 import { createFileEventAttempt, type FileEventAttempt, type PendingFileEvent } from "./operations";
 
 /** Supply a retained event and minimal host effects while leaving queue selection and dispatch real. */
-function fixture() {
-    const state = createStorageEventState();
+function fixture(store?: PendingStorageEventStore) {
+    const state = createStorageEventState(store);
     const event: FileEventItem = {
         type: "CHANGED",
         key: "finite-boundary",
@@ -16,8 +24,25 @@ function fixture() {
         },
     };
     const operation = retainFileEvent(state, event).operation!;
+    let events: QueuedFileEvent[] = [];
     const effects: StorageEventQueueEffects = {
-        buffer: { read: () => [], replace: vi.fn(), append: vi.fn(), shift: () => undefined },
+        buffer: {
+            read: () => events,
+            replace: (next) => {
+                events = next;
+            },
+            append: (event) => {
+                events.push(event);
+            },
+            peek: () => events[0],
+            takeHead: (expected) => {
+                if (events[0] !== expected) {
+                    return false;
+                }
+                events.shift();
+                return true;
+            },
+        },
         log: vi.fn(),
         takeSnapshot: vi.fn(async () => {}),
         loadSnapshot: vi.fn(async () => []),
@@ -46,6 +71,37 @@ function admission(state: StorageEventState, operations: Map<PendingFileEvent, F
     state.admissions.add(record);
     return { record, completion };
 }
+
+describe("ordered queue dispatch", () => {
+    it("checks the replacement head independently after an in-flight append", async () => {
+        const { state, effects } = fixture({ load: vi.fn(), append: vi.fn(), remove: vi.fn() });
+        const original = { type: TYPE_SENTINEL_FLUSH } as const;
+        const replacement = { type: TYPE_SENTINEL_FLUSH } as const;
+        const appendStarted = promiseWithResolvers<void>();
+        const appendCommitted = promiseWithResolvers<void>();
+        effects.persistEntry = vi.fn(async (entry) => {
+            if (entry.event === original) {
+                appendStarted.resolve();
+                await appendCommitted.promise;
+            }
+        });
+        effects.acknowledgeSentinel = vi.fn(async () => {});
+        effects.buffer.append(original);
+
+        const dispatch = runBufferedStorageEvents(state, effects);
+        await appendStarted.promise;
+        effects.buffer.replace([replacement]);
+        appendCommitted.resolve();
+        await dispatch;
+
+        expect(effects.persistEntry).toHaveBeenNthCalledWith(1, expect.objectContaining({ event: original }));
+        expect(effects.persistEntry).toHaveBeenNthCalledWith(2, expect.objectContaining({ event: replacement }));
+        expect(effects.acknowledgeSentinel).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ event: replacement })
+        );
+        expect(effects.buffer.read()).toEqual([]);
+    });
+});
 
 describe("exported queue completion boundaries", () => {
     it("retains the originally captured attempt when an in-flight admission reports a replacement", async () => {

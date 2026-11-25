@@ -96,8 +96,10 @@ export interface StorageEventBuffer {
     replace(events: QueuedFileEvent[]): void;
     /** Append one event or sentinel at the current tail. */
     append(event: QueuedFileEvent): void;
-    /** Remove and return the next queued item. */
-    shift(): QueuedFileEvent | undefined;
+    /** Return the current head, if any, without removing it. */
+    peek(): QueuedFileEvent | undefined;
+    /** Remove the expected item only if it is still the head. */
+    takeHead(expected: QueuedFileEvent): boolean;
 }
 
 /** Host notifications kept outside the state owner. */

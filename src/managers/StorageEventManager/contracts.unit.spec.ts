@@ -34,7 +34,14 @@ function buffer(initial: QueuedFileEvent[] = []): StorageEventBuffer {
         append: (event) => {
             events.push(event);
         },
-        shift: () => events.shift(),
+        peek: () => events[0],
+        takeHead: (expected) => {
+            if (events[0] !== expected) {
+                return false;
+            }
+            events.shift();
+            return true;
+        },
     };
 }
 

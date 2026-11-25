@@ -167,14 +167,20 @@ export async function flushStorageEvents(
  * for retry and rejects dispatch.
  */
 async function dispatchBufferedEvents(state: StorageEventState, effects: StorageEventQueueEffects): Promise<void> {
-    while (effects.buffer.read().length > 0) {
-        const next = effects.buffer.read()[0];
-        if (next.type === TYPE_SENTINEL_FLUSH && effects.persistEntry) {
-            // Leave the ordering marker pending if its append fails so dispatch can retry it.
-            await effects.persistEntry(retainFileEvent(state, next));
+    while (true) {
+        const event = effects.buffer.peek();
+        if (event === undefined) {
+            return;
         }
-        const event = effects.buffer.shift()!;
         const entry = retainFileEvent(state, event);
+        if (event.type === TYPE_SENTINEL_FLUSH && effects.persistEntry) {
+            // Leave the ordering marker pending if its append fails so dispatch can retry it.
+            await effects.persistEntry(entry);
+        }
+        // The head can change while persistence is pending. Check the replacement on its own iteration.
+        if (!effects.buffer.takeHead(event)) {
+            continue;
+        }
         if (event.type === TYPE_SENTINEL_FLUSH) {
             entry.dispatched = true;
             // Capture predecessors only; self and successors must never enter this boundary.

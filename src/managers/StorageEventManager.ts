@@ -153,7 +153,14 @@ export abstract class StorageEventManagerBase<
         append: (event) => {
             this.bufferedQueuedItems.push(event);
         },
-        shift: () => this.bufferedQueuedItems.shift(),
+        peek: () => this.bufferedQueuedItems[0],
+        takeHead: (expected) => {
+            if (this.bufferedQueuedItems[0] !== expected) {
+                return false;
+            }
+            this.bufferedQueuedItems.shift();
+            return true;
+        },
     };
     private readonly notifications: StorageEventNotifications = {
         updateStatus: () => this.updateStatus(),
