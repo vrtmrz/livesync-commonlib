@@ -9,4 +9,6 @@ export interface KeyValueDatabase {
 }
 
 /** Opens the key-value database owned by one service composition. */
-export type KeyValueDatabaseFactory = (databaseKey: string) => Promise<KeyValueDatabase>;
+export type KeyValueDatabaseFactory<TDatabase extends KeyValueDatabase = KeyValueDatabase> = (
+    databaseKey: string
+) => Promise<TDatabase>;
