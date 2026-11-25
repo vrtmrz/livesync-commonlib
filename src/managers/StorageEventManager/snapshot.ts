@@ -129,7 +129,8 @@ export function appendPendingEventBuffer(state: StorageEventState, ordered: Orde
         .catch(() => {})
         .then(async () => {
             if (ordered.appendFinishedAt !== undefined) {
-                const remainingYield = APPEND_YIELD_MS - (Date.now() - ordered.appendFinishedAt);
+                const elapsed = Math.max(0, Date.now() - ordered.appendFinishedAt);
+                const remainingYield = APPEND_YIELD_MS - elapsed;
                 if (remainingYield > 0) await delay(remainingYield);
             }
 

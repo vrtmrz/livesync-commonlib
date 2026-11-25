@@ -5,7 +5,7 @@ import type { FileProcessingService } from "@lib/services/base/FileProcessingSer
 import { admitStorageEvents, selectRenameFileEvent, type StorageEventAdmissionEffects } from "./admission";
 import { createFileEventAttempt } from "./operations";
 import { handleStorageFileEvent, processStorageEventAttempt, type StorageEventAttemptEffects } from "./processing";
-import { persistFileEventSnapshot } from "./snapshot";
+import { appendPendingEventBuffer, persistFileEventSnapshot } from "./snapshot";
 import { createStorageEventState, retainFileEvent, type QueuedFileEvent, type StorageEventBuffer } from "./state";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 
@@ -285,5 +285,42 @@ describe("exported storage-event boundary decisions", () => {
         await handleStorageFileEvent(event, { processing: () => service, operation: () => undefined, updateStatus });
         expect(optional).toHaveBeenCalledExactlyOnceWith("new.md");
         expect(updateStatus).toHaveBeenCalledOnce();
+    });
+});
+
+describe("ordered event buffer appends", () => {
+    it("caps the yield after a ten-minute system-clock rewind", async () => {
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(600_000);
+            const append = vi.fn(async () => "buffer-key");
+            const state = createStorageEventState({
+                load: vi.fn(async () => []),
+                append,
+                remove: vi.fn(async () => {}),
+            });
+            const ordered = state.ordered!;
+
+            ordered.nextBuffer.push(retainFileEvent(state, intent()));
+            await appendPendingEventBuffer(state, ordered);
+            expect(append).toHaveBeenCalledOnce();
+            expect(ordered.appendFinishedAt).toBe(600_000);
+
+            vi.setSystemTime(0);
+            ordered.nextBuffer.push(retainFileEvent(state, intent()));
+            const nextAppend = appendPendingEventBuffer(state, ordered);
+
+            await vi.advanceTimersByTimeAsync(0);
+            expect(append).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(49);
+            expect(append).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(append).toHaveBeenCalledTimes(2);
+            await nextAppend;
+            expect(ordered.appendFinishedAt).toBe(50);
+        } finally {
+            vi.clearAllTimers();
+            vi.useRealTimers();
+        }
     });
 });
