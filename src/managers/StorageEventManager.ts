@@ -51,6 +51,7 @@ import {
 import {
     enqueueStorageEvent,
     flushStorageEvents,
+    publishCommittedStorageEvents,
     restoreOrderedStorageEvents,
     restoreStorageEvents,
     runBufferedStorageEvents,
@@ -66,7 +67,7 @@ import {
     acknowledgeOrderedEntry,
     appendPendingEventBuffer,
     persistFileEventSnapshot,
-    persistOrderedEntry,
+    type OrderedStorageEventAppendEffects,
     type StorageEventSnapshotIO,
 } from "./StorageEventManager/snapshot";
 import {
@@ -203,6 +204,17 @@ export abstract class StorageEventManagerBase<
         wait: (attempts) => this.waitForAttempts(attempts),
         fail: (operation, error, attempt) => this.failOperation(operation, error, attempt),
     };
+    private readonly orderedAppend: OrderedStorageEventAppendEffects = {
+        publish: (events) => publishCommittedStorageEvents(this.eventState, events, this.queue),
+        reportAppendFailure: (error) => {
+            this._log(
+                "Some local file changes could not be queued for sync. Once file activity settles, rescan the Vault to check the current files.",
+                LOG_LEVEL_NOTICE
+            );
+            this._log(error, LOG_LEVEL_VERBOSE);
+            this.updateStatus();
+        },
+    };
     private readonly admission: StorageEventAdmissionEffects = {
         settings: () => this.settings,
         isFolder: (file) => this.isFolder(file),
@@ -256,14 +268,8 @@ export abstract class StorageEventManagerBase<
         this.eventState = createStorageEventState(adapter.pendingEventStore);
         const ordered = this.eventState.ordered;
         if (ordered) {
-            const persistEntry: NonNullable<StorageEventQueueEffects["persistEntry"]> = (entry) =>
-                persistOrderedEntry(this.eventState, ordered, entry);
-            this.queue.persistEntry = persistEntry;
-            this.attempts.persistEntry = persistEntry;
-            this.queue.acknowledgeSentinel = async (entry) => {
-                await persistEntry(entry);
-                await acknowledgeOrderedEntry(this.eventState, ordered, entry, this.notifications.updateStatus);
-            };
+            this.queue.acknowledgeSentinel = (entry) =>
+                acknowledgeOrderedEntry(this.eventState, ordered, entry, this.notifications.updateStatus);
         }
         this.setting = dependencies.setting;
         this.vaultService = dependencies.vaultService;
@@ -441,7 +447,12 @@ export abstract class StorageEventManagerBase<
         try {
             await this.waitForIdle();
         } catch (error) {
-            this.reportOperationFailure(error);
+            if (!this.eventState.ordered) {
+                this.reportOperationFailure(error);
+            } else {
+                // Ordered append and handler failures are reported by their owners.
+                this._log(error, LOG_LEVEL_VERBOSE);
+            }
         }
         if (this.eventState.ordered) await this.runQueuedEvents().catch(this.notifications.reportFailure);
         await this._takeSnapshot();
@@ -616,7 +627,7 @@ export abstract class StorageEventManagerBase<
     private persistSnapshot(completion?: SnapshotCompletion): Promise<void> {
         const ordered = this.eventState.ordered;
         if (!ordered) return persistFileEventSnapshot(this.eventState, this.buffer, this.snapshotIO, completion);
-        if (!completion) return appendPendingEventBuffer(this.eventState, ordered);
+        if (!completion) return appendPendingEventBuffer(this.eventState, ordered, this.orderedAppend);
         return acknowledgeOrderedEntry(
             this.eventState,
             ordered,
@@ -688,7 +699,8 @@ export abstract class StorageEventManagerBase<
      * @returns Nothing; the write is deliberately not awaited by the caller.
      */
     private _triggerTakeSnapshot(): void {
-        fireAndForget(() => this._takeSnapshot().catch((error) => this.reportOperationFailure(error)));
+        const snapshot = this._takeSnapshot();
+        fireAndForget(this.eventState.ordered ? snapshot : snapshot.catch(this.notifications.reportFailure));
     }
     /**
      * Throttled callback for requesting a background snapshot write.

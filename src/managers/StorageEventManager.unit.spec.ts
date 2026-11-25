@@ -15,6 +15,7 @@ import type {
 } from "./adapters";
 import { isReconcileEvent } from "@lib/common/models/fileaccess.definition";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 import { pendingFileOperations } from "./StorageEventManager/state";
 import type { FileEventItem } from "@lib/common/types";
 import type { FilePath, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/types";
@@ -22,7 +23,7 @@ import type { IStorageAccessManager, StorageAccess } from "@lib/interfaces/Stora
 import type { IAPIService, IAppLifecycleService, ISettingService, IVaultService } from "@lib/services/base/IService";
 import type { SettingService } from "@lib/services/base/SettingService";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService";
-import { DEFAULT_SETTINGS, FlagFilesHumanReadable } from "@lib/common/types";
+import { DEFAULT_SETTINGS, FlagFilesHumanReadable, LOG_LEVEL_NOTICE } from "@lib/common/types";
 import { EntryManager } from "@lib/managers/EntryManager/EntryManager";
 import { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
 import { useTargetFilters } from "@lib/serviceFeatures/targetFilter";
@@ -833,31 +834,145 @@ describe("StorageEventManagerBase", () => {
             expect(pending.read()).toEqual([]);
         });
 
-        it("retires a delete buffer when a flush retries its first failed append", async () => {
+        it("drops an uncommitted delete after its captured snapshot and flush reject", async () => {
             const pending = createPendingBufferStore();
             Object.assign(adapter, { pendingEventStore: pending.store });
             manager = new TestStorageEventManager(adapter, dependencies);
             await manager.restoreState();
 
-            let rejectAppend!: (error: Error) => void;
-            const writing = new Promise<string>((_resolve, reject) => {
-                rejectAppend = reject;
-            });
-            pending.store.append.mockReturnValueOnce(writing);
+            const writing = promiseWithResolvers<string>();
+            pending.store.append.mockReturnValueOnce(writing.promise);
             const file = adapter.converter.toFileInfo(createMockFile("deleted.md", "deleted.md"));
             await manager.appendQueue([{ type: "DELETE", file }]);
             await vi.waitFor(() => expect(pending.store.append).toHaveBeenCalledOnce());
 
-            const failedFlush = expect(manager.waitForIdle()).rejects.toThrow("first append failed");
-            await new Promise((resolve) => setTimeout(resolve, 0));
-            rejectAppend(new Error("first append failed"));
-            await failedFlush;
-            expect(dependencies.fileProcessing.processFileEvent).not.toHaveBeenCalled();
+            const error = new DOMException("Storage quota exceeded", "QuotaExceededError");
+            const failedFlush = expect(manager.waitForIdle()).rejects.toBe(error);
+            const failedSnapshot = expect(manager._takeSnapshot()).rejects.toBe(error);
+            writing.reject(error);
+            await Promise.all([failedFlush, failedSnapshot]);
 
+            expect(manager.hasPendingFileEvent(file.path)).toBe(false);
+            expect(adapter.status.totalQueued).toBe(0);
+            await expect(manager._takeSnapshot()).resolves.toBeUndefined();
+            await expect(manager.waitForIdle()).resolves.toBeUndefined();
+            await expect(manager.stopWatching()).resolves.toBeUndefined();
+            expect(pending.store.append).toHaveBeenCalledOnce();
+            expect(pending.store.remove).not.toHaveBeenCalled();
+            expect(dependencies.fileProcessing.processFileEvent).not.toHaveBeenCalled();
+        });
+
+        it("reports a rejected array once and processes an overlapping arrival during shutdown", async () => {
+            const pending = createPendingBufferStore();
+            Object.assign(adapter, { pendingEventStore: pending.store });
+            manager = new TestStorageEventManager(adapter, dependencies);
+            await manager.restoreState();
+
+            const writing = promiseWithResolvers<void>();
+            const appendStarted = promiseWithResolvers<void>();
+            let appendFailure: unknown;
+            pending.store.append.mockImplementationOnce(async (events) => {
+                appendStarted.resolve();
+                await writing.promise;
+                try {
+                    return await pending.append(structuredClone(events));
+                } catch (error) {
+                    appendFailure = error;
+                    throw error;
+                }
+            });
+            const rename: FileEventItem = {
+                type: "RENAME",
+                key: "rename",
+                args: {
+                    file: adapter.converter.toFileInfo(createMockFile("new.md", "new.md")),
+                    oldPath: "old.md" as FilePath,
+                    ctx: { uncloneable: vi.fn() },
+                },
+            };
+            const changed: FileEventItem = {
+                type: "CHANGED",
+                key: "rejected-change",
+                args: { file: adapter.converter.toFileInfo(createMockFile("other.md", "other.md")) },
+            };
+            manager.enqueue(rename);
+            manager.enqueue(changed);
+            const renameResults = [rename, rename].map((event) =>
+                manager.processFileEvent(event).catch((error: unknown) => error)
+            );
+            const changeResult = manager.processFileEvent(changed).catch((error: unknown) => error);
+            expect(manager.isWaiting(changed.args.file.path)).toBe(false);
+            const concurrentFlush = manager.waitForIdle().catch((error: unknown) => error);
+            await appendStarted.promise;
+            const later: FileEventItem = {
+                type: "CHANGED",
+                key: "later",
+                args: { file: adapter.converter.toFileInfo(createMockFile("later.md", "later.md")) },
+            };
+            manager.enqueue(later);
+            const shutdown = manager.stopWatching();
+            writing.resolve();
+            try {
+                for (const result of await Promise.all(renameResults)) {
+                    expect(result).toBe(appendFailure);
+                }
+                expect(await changeResult).toBe(appendFailure);
+                expect(await concurrentFlush).toBe(appendFailure);
+                expect(appendFailure).toMatchObject({ name: "DataCloneError" });
+                await expect(shutdown).resolves.toBeUndefined();
+            } finally {
+                await shutdown.catch(() => {});
+            }
+
+            expect(pending.store.append.mock.calls.map(([events]) => events)).toEqual([
+                [{ type: "SENTINEL_FLUSH" }, rename, changed],
+                [later],
+            ]);
+            expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledExactlyOnceWith(later);
+            expect(pending.store.remove).toHaveBeenCalledExactlyOnceWith("buffer-1");
+            expect(pending.read()).toEqual([]);
+            expect(adapter.status.totalQueued).toBe(0);
+            expect(
+                vi
+                    .mocked(dependencies.APIService.addLog)
+                    .mock.calls.filter(([, level]) => level === LOG_LEVEL_NOTICE)
+                    .map(([message]) => message)
+            ).toEqual([
+                "Some local file changes could not be queued for sync. Once file activity settles, rescan the Vault to check the current files.",
+            ]);
+        });
+
+        it("retains and retries a durable same-path predecessor after rejecting a later append", async () => {
+            const file = adapter.converter.toFileInfo(createMockFile("shared.md", "shared.md"));
+            const durable: FileEventItem = { type: "CHANGED", key: "durable", args: { file } };
+            const pending = createPendingBufferStore([{ key: "prior-buffer", events: [durable] }]);
+            Object.assign(adapter, { pendingEventStore: pending.store });
+            manager = new TestStorageEventManager(adapter, dependencies);
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent);
+            process.mockResolvedValueOnce(false);
+            await manager.restoreState();
+            expect(pending.read()).toEqual([{ key: "prior-buffer", events: [durable] }]);
+            expect(pending.store.remove).not.toHaveBeenCalled();
+
+            const writing = promiseWithResolvers<string>();
+            pending.store.append.mockReturnValueOnce(writing.promise);
+            const failed: FileEventItem = { type: "CHANGED", key: "failed", args: { file } };
+            manager.enqueue(failed);
+            const rejected = manager.processFileEvent(failed).catch((error: unknown) => error);
+            await vi.waitFor(() => expect(pending.store.append).toHaveBeenCalledOnce());
+
+            const later: FileEventItem = { type: "CHANGED", key: "later", args: { file }, skipBatchWait: true };
+            manager.enqueue(later);
+            const error = new Error("Could not append the event array");
+            writing.reject(error);
+            expect(await rejected).toBe(error);
+            await vi.waitFor(() => {
+                expect(process.mock.calls.map(([event]) => event.key)).toEqual(["durable", "durable", "later"]);
+            });
             await manager.waitForIdle();
-            expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledOnce();
-            await vi.waitFor(() => expect(pending.read()).toEqual([]));
-            expect(pending.store.remove.mock.calls).toEqual([["buffer-1"]]);
+            expect(isReconcileEvent(process.mock.calls[1][0])).toBe(true);
+            expect(pending.store.append.mock.calls).toEqual([[[failed]], [[later]]]);
+            expect(pending.store.remove.mock.calls).toEqual([["prior-buffer"], ["buffer-1"]]);
         });
 
         it("should wait for restored event processing to finish", async () => {

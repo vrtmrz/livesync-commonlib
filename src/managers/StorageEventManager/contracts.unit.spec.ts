@@ -300,15 +300,16 @@ describe("ordered event buffer appends", () => {
                 remove: vi.fn(async () => {}),
             });
             const ordered = state.ordered!;
+            const effects = { publish: vi.fn(), reportAppendFailure: vi.fn() };
 
-            ordered.nextBuffer.push(retainFileEvent(state, intent()));
-            await appendPendingEventBuffer(state, ordered);
+            retainFileEvent(state, intent(), false);
+            await appendPendingEventBuffer(state, ordered, effects);
             expect(append).toHaveBeenCalledOnce();
             expect(ordered.appendFinishedAt).toBe(600_000);
 
             vi.setSystemTime(0);
-            ordered.nextBuffer.push(retainFileEvent(state, intent()));
-            const nextAppend = appendPendingEventBuffer(state, ordered);
+            retainFileEvent(state, intent(), false);
+            const nextAppend = appendPendingEventBuffer(state, ordered, effects);
 
             await vi.advanceTimersByTimeAsync(0);
             expect(append).toHaveBeenCalledOnce();

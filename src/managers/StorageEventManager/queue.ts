@@ -36,8 +36,6 @@ export interface StorageEventQueueEffects extends StorageEventNotifications {
     log: LogFunction;
     /** Persist the current intent snapshot. */
     takeSnapshot(): Promise<void>;
-    /** Wait for the append which owns this entry. An already committed entry resolves immediately. */
-    persistEntry?(entry: PendingSnapshotEntry): Promise<void>;
     /** Mark the sentinel complete after its predecessors settle. A partially completed array remains replayable. */
     acknowledgeSentinel?(entry: PendingSnapshotEntry): Promise<void>;
     /** Load the prior runtime's saved event intent, if any. */
@@ -57,35 +55,31 @@ export interface StorageEventQueueEffects extends StorageEventNotifications {
 }
 
 /**
- * Append an accepted event and schedule its snapshot and queue dispatch.
- * @param state - The manager state which owns the retained intent and operation attempt.
- * @param event - The accepted file event to enqueue.
- * @param effects - Host buffer, persistence, dispatch, status, and failure callbacks.
- * @returns Nothing; appends a sentinel before DELETE/RENAME, appends the event, and refreshes status synchronously.
- * @remarks Persistence and dispatch run in a background task whose failures are handled here rather than returned.
- * If that task fails while a handler is active, its error is recorded on that attempt and its operation is released
- * so the handler can settle before retry ownership changes; otherwise the attempt is failed immediately.
+ * Retain an accepted event and schedule persistence.
+ * @remarks Ordered storage stages the event and its marker together. The append owner publishes them to dispatch
+ * after commit and settles their attempts on failure. Legacy storage publishes before its background snapshot.
  */
 export function enqueueStorageEvent(
     state: StorageEventState,
     event: FileEventItem,
     effects: StorageEventQueueEffects
 ): void {
-    let barrierBefore: number | undefined;
-    if (event.type === "DELETE" || event.type === "RENAME") {
-        const sentinel = { type: TYPE_SENTINEL_FLUSH } as const;
-        barrierBefore = retainFileEvent(state, sentinel).sequence;
-        effects.buffer.append(sentinel);
+    const events: QueuedFileEvent[] =
+        event.type === "DELETE" || event.type === "RENAME" ? [{ type: TYPE_SENTINEL_FLUSH }, event] : [event];
+    if (state.ordered) {
+        for (const item of events) retainFileEvent(state, item, false);
+        effects.updateStatus();
+        fireAndForget(effects.takeSnapshot());
+        return;
     }
-    const entry = retainFileEvent(state, event);
-    const operation = entry.operation!;
-    operation.barrierBefore ??= barrierBefore;
-    effects.buffer.append(event);
+
+    publishBufferedEvents(state, events, effects.buffer);
+    const operation = state.operations.get(event)!;
     const attempt = operation.attempt;
     effects.updateStatus();
     fireAndForget(async () => {
         try {
-            await (effects.persistEntry?.(entry) ?? effects.takeSnapshot());
+            await effects.takeSnapshot();
             await effects.runQueuedEvents();
         } catch (error) {
             if (attempt.started && !attempt.result) {
@@ -94,6 +88,30 @@ export function enqueueStorageEvent(
             } else effects.fail(operation, error, attempt);
         }
     });
+}
+
+function publishBufferedEvents(
+    state: StorageEventState,
+    events: readonly QueuedFileEvent[],
+    buffer: StorageEventBuffer
+): void {
+    retainBufferedFileEvents(state, events);
+    for (const event of events) buffer.append(event);
+}
+
+/** Publish a committed array in arrival order and start dispatch. */
+export function publishCommittedStorageEvents(
+    state: StorageEventState,
+    events: readonly QueuedFileEvent[],
+    effects: StorageEventQueueEffects
+): void {
+    publishBufferedEvents(state, events, effects.buffer);
+    // Let a shared dispatcher that has just observed an empty queue finish before requesting another run.
+    fireAndForget(
+        Promise.resolve()
+            .then(() => effects.runQueuedEvents())
+            .catch(effects.reportFailure)
+    );
 }
 
 /**
@@ -163,8 +181,7 @@ export async function flushStorageEvents(
  * @remarks Ordinary handlers start in the background so later entries can be dispatched. A sentinel waits only
  * for earlier file operations to settle. Ordered storage then acknowledges the marker independently of those
  * outcomes. The legacy path requests a snapshot only after all captured predecessors succeeded. Errors during
- * acknowledgement or snapshotting are reported here. An ordered append failure leaves the marker in the queue
- * for retry and rejects dispatch.
+ * acknowledgement or snapshotting are reported here.
  */
 async function dispatchBufferedEvents(state: StorageEventState, effects: StorageEventQueueEffects): Promise<void> {
     while (true) {
@@ -173,11 +190,6 @@ async function dispatchBufferedEvents(state: StorageEventState, effects: Storage
             return;
         }
         const entry = retainFileEvent(state, event);
-        if (event.type === TYPE_SENTINEL_FLUSH && effects.persistEntry) {
-            // Leave the ordering marker pending if its append fails so dispatch can retry it.
-            await effects.persistEntry(entry);
-        }
-        // The head can change while persistence is pending. Check the replacement on its own iteration.
         if (!effects.buffer.takeHead(event)) {
             continue;
         }

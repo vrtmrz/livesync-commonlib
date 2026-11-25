@@ -38,8 +38,6 @@ export type PendingSnapshotEntry = {
     sequence: number;
     /** Buffer that durably holds this entry, once its append has committed. */
     savedBuffer?: SavedEventBuffer;
-    /** Shared write for the detached buffer currently being appended. */
-    bufferWrite?: Promise<void>;
     /** Provisional completion within a serial snapshot step; a failed save rolls it back. */
     completed: boolean;
     /** Durable operation for file events; sentinels have no operation. */
@@ -59,7 +57,7 @@ export interface OrderedStorageEventState {
     readonly store: PendingStorageEventStore;
     nextBuffer: PendingSnapshotEntry[];
     nextWrite?: Promise<void>;
-    appendTail: Promise<void>;
+    appendTail?: Promise<void>;
     appendFinishedAt?: number;
     pendingOperations: number;
 }
@@ -118,7 +116,7 @@ export interface StorageEventNotifications {
 export function createStorageEventState(store?: PendingStorageEventStore): StorageEventState {
     return {
         pendingSnapshot: new Map(),
-        ordered: store ? { store, nextBuffer: [], appendTail: Promise.resolve(), pendingOperations: 0 } : undefined,
+        ordered: store ? { store, nextBuffer: [], pendingOperations: 0 } : undefined,
         operations: new WeakMap(),
         latestByPath: new Map(),
         nextSequence: 0,

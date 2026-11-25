@@ -6,6 +6,7 @@ import type { FileEventItem } from "@lib/common/types";
 import { delay } from "@lib/common/utils";
 import { assertFileEventAdmission } from "./operations";
 import {
+    failFileEventAttempt,
     retainBufferedFileEvents,
     retainFileEvent,
     type OrderedStorageEventState,
@@ -120,53 +121,71 @@ function writeOrderedStore(state: StorageEventState, write: () => Promise<void>)
     return done;
 }
 
-/** Save the next buffer, coalescing requests until the writer detaches it. */
-export function appendPendingEventBuffer(state: StorageEventState, ordered: OrderedStorageEventState): Promise<void> {
-    if (ordered.nextWrite) return ordered.nextWrite;
-    if (ordered.nextBuffer.length === 0) return ordered.appendTail;
+/** Publish committed events and report an array that could not be queued. */
+export interface OrderedStorageEventAppendEffects {
+    publish(events: readonly QueuedFileEvent[]): void;
+    reportAppendFailure(error: unknown): void;
+}
 
-    const write = ordered.appendTail
-        .catch(() => {})
-        .then(async () => {
-            if (ordered.appendFinishedAt !== undefined) {
-                const elapsed = Math.max(0, Date.now() - ordered.appendFinishedAt);
-                const remainingYield = APPEND_YIELD_MS - elapsed;
-                if (remainingYield > 0) await delay(remainingYield);
+function discardStagedEntries(
+    state: StorageEventState,
+    ordered: OrderedStorageEventState,
+    entries: readonly PendingSnapshotEntry[],
+    error: unknown
+): void {
+    for (const { event, operation } of entries) {
+        state.pendingSnapshot.delete(event);
+        if (operation) {
+            state.operations.delete(operation.event);
+            ordered.pendingOperations--;
+            failFileEventAttempt(state, operation.attempt, error);
+        }
+    }
+}
+
+/** Save the next buffer, coalescing requests until the writer detaches it. */
+export function appendPendingEventBuffer(
+    state: StorageEventState,
+    ordered: OrderedStorageEventState,
+    effects: OrderedStorageEventAppendEffects
+): Promise<void> {
+    if (ordered.nextWrite) return ordered.nextWrite;
+    const previous = ordered.appendTail;
+    if (ordered.nextBuffer.length === 0) return previous ?? Promise.resolve();
+
+    const write = (previous?.catch(() => {}) ?? Promise.resolve()).then(async () => {
+        if (ordered.appendFinishedAt !== undefined) {
+            const elapsed = Math.max(0, Date.now() - ordered.appendFinishedAt);
+            const remainingYield = APPEND_YIELD_MS - elapsed;
+            if (remainingYield > 0) await delay(remainingYield);
+        }
+
+        await writeOrderedStore(state, async () => {
+            const entries = ordered.nextBuffer;
+            ordered.nextBuffer = [];
+            ordered.nextWrite = undefined;
+
+            const events = entries.map(({ event }) => event);
+            let key: string;
+            try {
+                key = await ordered.store.append(events);
+            } catch (error) {
+                discardStagedEntries(state, ordered, entries, error);
+                effects.reportAppendFailure(error);
+                throw error;
+            } finally {
+                if (ordered.appendTail === write) ordered.appendTail = undefined;
+                ordered.appendFinishedAt = Date.now();
             }
 
-            await writeOrderedStore(state, async () => {
-                const entries = ordered.nextBuffer;
-                ordered.nextBuffer = [];
-                ordered.nextWrite = undefined;
-                for (const entry of entries) entry.bufferWrite = write;
-
-                try {
-                    const key = await ordered.store.append(entries.map(({ event }) => event));
-                    const buffer = { key, remaining: entries.length };
-                    for (const entry of entries) entry.savedBuffer = buffer;
-                } catch (error) {
-                    // Keep the failed entries ahead of any arrivals during this write.
-                    ordered.nextBuffer = entries.concat(ordered.nextBuffer);
-                    throw error;
-                } finally {
-                    for (const entry of entries) entry.bufferWrite = undefined;
-                    ordered.appendFinishedAt = Date.now();
-                }
-            });
+            const buffer = { key, remaining: entries.length };
+            for (const entry of entries) entry.savedBuffer = buffer;
+            effects.publish(events);
         });
+    });
     ordered.nextWrite = write;
     ordered.appendTail = write;
     return write;
-}
-
-/** Wait only for the append that owns this entry. Restored entries are already durable. */
-export function persistOrderedEntry(
-    state: StorageEventState,
-    ordered: OrderedStorageEventState,
-    entry: PendingSnapshotEntry
-): Promise<void> {
-    if (entry.savedBuffer) return Promise.resolve();
-    return entry.bufferWrite ?? appendPendingEventBuffer(state, ordered);
 }
 
 /** Acknowledge one entry in memory, deleting its buffer only when the last entry completes. */

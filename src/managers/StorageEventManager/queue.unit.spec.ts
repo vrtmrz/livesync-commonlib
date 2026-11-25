@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import type { FileEventItem, FilePath } from "@lib/common/types";
-import { flushStorageEvents, runBufferedStorageEvents, type StorageEventQueueEffects } from "./queue";
+import {
+    enqueueStorageEvent,
+    flushStorageEvents,
+    publishCommittedStorageEvents,
+    runBufferedStorageEvents,
+    type StorageEventQueueEffects,
+} from "./queue";
+import { appendPendingEventBuffer } from "./snapshot";
 import {
     TYPE_SENTINEL_FLUSH,
     createStorageEventState,
@@ -10,12 +17,11 @@ import {
     type QueuedFileEvent,
     type StorageEventState,
 } from "./state";
-import type { PendingStorageEventStore } from "../adapters";
 import { createFileEventAttempt, type FileEventAttempt, type PendingFileEvent } from "./operations";
 
 /** Supply a retained event and minimal host effects while leaving queue selection and dispatch real. */
-function fixture(store?: PendingStorageEventStore) {
-    const state = createStorageEventState(store);
+function fixture() {
+    const state = createStorageEventState();
     const event: FileEventItem = {
         type: "CHANGED",
         key: "finite-boundary",
@@ -73,32 +79,48 @@ function admission(state: StorageEventState, operations: Map<PendingFileEvent, F
 }
 
 describe("ordered queue dispatch", () => {
-    it("checks the replacement head independently after an in-flight append", async () => {
-        const { state, effects } = fixture({ load: vi.fn(), append: vi.fn(), remove: vi.fn() });
-        const original = { type: TYPE_SENTINEL_FLUSH } as const;
-        const replacement = { type: TYPE_SENTINEL_FLUSH } as const;
+    it("does not expose an ordered sentinel to a dispatcher while the append is in flight", async () => {
+        const { effects, event } = fixture();
         const appendStarted = promiseWithResolvers<void>();
-        const appendCommitted = promiseWithResolvers<void>();
-        effects.persistEntry = vi.fn(async (entry) => {
-            if (entry.event === original) {
+        const appendCommitted = promiseWithResolvers<string>();
+        const state = createStorageEventState({
+            load: vi.fn(),
+            append: vi.fn(() => {
                 appendStarted.resolve();
-                await appendCommitted.promise;
-            }
+                return appendCommitted.promise;
+            }),
+            remove: vi.fn(),
         });
+        effects.takeSnapshot = () =>
+            appendPendingEventBuffer(state, state.ordered!, {
+                publish: (events) => publishCommittedStorageEvents(state, events, effects),
+                reportAppendFailure: vi.fn(),
+            });
+        effects.runQueuedEvents = () => runBufferedStorageEvents(state, effects);
         effects.acknowledgeSentinel = vi.fn(async () => {});
-        effects.buffer.append(original);
 
-        const dispatch = runBufferedStorageEvents(state, effects);
+        const removed: FileEventItem = { ...event, type: "DELETE" };
+        enqueueStorageEvent(state, removed, effects);
         await appendStarted.promise;
-        effects.buffer.replace([replacement]);
-        appendCommitted.resolve();
-        await dispatch;
+        const writing = effects.takeSnapshot();
+        try {
+            await effects.runQueuedEvents();
+            expect(effects.buffer.read()).toEqual([]);
+            expect(effects.acknowledgeSentinel).not.toHaveBeenCalled();
+            expect(effects.processFileEvent).not.toHaveBeenCalled();
+        } finally {
+            appendCommitted.resolve("committed-buffer");
+            await writing;
+        }
 
-        expect(effects.persistEntry).toHaveBeenNthCalledWith(1, expect.objectContaining({ event: original }));
-        expect(effects.persistEntry).toHaveBeenNthCalledWith(2, expect.objectContaining({ event: replacement }));
+        await effects.runQueuedEvents();
         expect(effects.acknowledgeSentinel).toHaveBeenCalledExactlyOnceWith(
-            expect.objectContaining({ event: replacement })
+            expect.objectContaining({
+                event: { type: TYPE_SENTINEL_FLUSH },
+                savedBuffer: { key: "committed-buffer", remaining: 2 },
+            })
         );
+        expect(effects.processFileEvent).toHaveBeenCalledExactlyOnceWith(removed);
         expect(effects.buffer.read()).toEqual([]);
     });
 });

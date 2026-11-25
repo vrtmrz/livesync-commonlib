@@ -19,7 +19,6 @@ import {
 import {
     completeFileEventAttempt,
     pendingFileOperations,
-    type PendingSnapshotEntry,
     type SnapshotCompletion,
     type StorageEventNotifications,
     type StorageEventState,
@@ -37,8 +36,6 @@ export interface StorageEventAttemptEffects extends StorageEventNotifications {
     initialise(operation: PendingFileEvent): Promise<boolean>;
     /** Persist current intent before handler execution. */
     takeSnapshot(): Promise<void>;
-    /** Wait for a specific intent when the store writes immutable buffers. */
-    persistEntry?(entry: PendingSnapshotEntry): Promise<void>;
     /** Persist the completion acknowledgement for this exact snapshot entry and attempt. */
     completeSnapshot(completion: SnapshotCompletion): Promise<void>;
     /** Obtain the host semaphore which limits concurrent file handling. */
@@ -127,8 +124,8 @@ async function executeAttempt(
  * @param effects - Host callbacks for snapshots, dependencies, processing, failure, and status.
  * @returns A promise which resolves after the attempt's completion-snapshot step and success settlement, or after
  * a joined attempt settles successfully; rejects with the attempt failure otherwise.
- * @remarks A new attempt is marked started before its initial intent snapshot. Admission is checked around awaited
- * gates and before completion; completion is settled only after completeSnapshot returns. On failure, its batch wait
+ * @remarks An ordered entry awaiting commit is observed through its current attempt. Dispatch starts that attempt
+ * after commit. For legacy entries, the new attempt starts before the initial intent snapshot. On failure, its batch wait
  * is cancelled, the attempt is failed, and the error is rethrown. Status is refreshed in either case.
  */
 export async function processStorageEventAttempt(
@@ -137,15 +134,15 @@ export async function processStorageEventAttempt(
     attempt: FileEventAttempt,
     effects: StorageEventAttemptEffects
 ): Promise<void> {
-    if (attempt.started || attempt.result) {
+    const entry = state.pendingSnapshot.get(operation.event)!;
+    if (attempt.started || attempt.result || (state.ordered && !entry.savedBuffer)) {
         assertSuccessfulFileEvents([await attempt.completion.promise]);
         return;
     }
     attempt.started = true;
-    const entry = state.pendingSnapshot.get(operation.event)!;
     try {
         const gate = prepareAttempt(state, operation, attempt, effects);
-        await (effects.persistEntry?.(entry) ?? effects.takeSnapshot());
+        if (!state.ordered) await effects.takeSnapshot();
         assertFileEventAdmission(attempt);
         const canProceed = await gate;
         assertFileEventAdmission(attempt);

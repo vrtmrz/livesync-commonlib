@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Improved
+
+- Hosts can store pending file changes in ordered buffers. If a buffer cannot
+  be saved, the manager reports the failure and continues accepting later
+  changes. Previously saved operations remain available for recovery.
+
 ## 0.7.0
 
 20th November, 2026

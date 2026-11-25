@@ -244,8 +244,8 @@ waiting, or already in a handler. It waits for each actual handler result and
 for the ordered snapshot update which records that result; releasing a timer is
 not completion. Later events do not extend that captured boundary. A newer
 coalesced operation satisfies an earlier one only when its successful result
-covers the earlier intent. A failed handler or snapshot update is reported to
-the caller and leaves unresolved work in the snapshot. This boundary covers
+covers the earlier intent. A failed handler or acknowledgement is reported to
+the caller and leaves the saved work pending. This boundary covers
 local completion under the selected handler contract only; it does not prove replication or receipt by another
 Vault.
 
@@ -265,7 +265,16 @@ A host can supply `pendingEventStore` on its storage-event manager adapter to
 store ordered arrays of new event intents. The store returns buffers in replay
 order, including any legacy snapshot as the first buffer. `append()` returns a
 distinct key after commit. The manager groups requests for the next buffer and
-waits for the append before handling its events.
+waits for the append before handling its events. If the append fails, the
+manager reports the failure once, discards that unsaved array, and lets later
+arrays proceed. Calls already waiting for that array receive the failure.
+Previously saved buffers remain available for replay.
+
+The next full Vault scan compares selected paths with the local database. It
+can recover the current contents of a renamed file. If the rename was never
+saved, the scan evaluates the old and new paths independently. Without
+sufficient evidence of an offline deletion, it may restore a live database
+entry at the old path.
 
 A saved array remains intact until every entry in it has completed. Each
 successful operation releases its in-process dependants as soon as its own
