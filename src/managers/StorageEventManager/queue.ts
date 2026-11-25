@@ -1,6 +1,6 @@
 /**
- * Coordinate buffer admission, finite flushes, sentinel dispatch, and snapshot restoration.
- * Attempt processing and persistence remain delegated through explicit host effects.
+ * Coordinate in-memory dispatch for both the legacy snapshot and the ordered buffer store.
+ * The in-memory queue advances dispatch. Persistence retains intent until acknowledgement.
  */
 import type { FileEventItem } from "@lib/common/types";
 import { LOG_LEVEL_VERBOSE } from "@lib/common/types";
@@ -36,9 +36,9 @@ export interface StorageEventQueueEffects extends StorageEventNotifications {
     log: LogFunction;
     /** Persist the current intent snapshot. */
     takeSnapshot(): Promise<void>;
-    /** Persist one intent before dispatch when using the ordered buffer store. */
+    /** Wait for the append which owns this entry. An already committed entry resolves immediately. */
     persistEntry?(entry: PendingSnapshotEntry): Promise<void>;
-    /** Acknowledge a sentinel after its predecessor barrier has run. */
+    /** Mark the sentinel complete after its predecessors settle. A partially completed array remains replayable. */
     acknowledgeSentinel?(entry: PendingSnapshotEntry): Promise<void>;
     /** Load the prior runtime's saved event intent, if any. */
     loadSnapshot(): Promise<QueuedFileEvent[] | null>;
@@ -123,8 +123,9 @@ function mergeAdmittedAttempts(
  * or, when admissions succeeded, the first failed operation result.
  * @remarks Flush intent is signalled before awaiting active admissions. Current buffered work is retained and batch
  * gates are released before the failure sequence is read for capture; attempts later registered by those admissions
- * are merged without replacing earlier captures. Dispatch is then started in the background. Work admitted after the
- * initial admission snapshot can remain outside this finite wait.
+ * are merged without replacing earlier captures. A load already in progress also contributes its restored
+ * operations. Dispatch is then started in the background. Work admitted after the initial capture can remain
+ * outside this finite wait.
  */
 export async function flushStorageEvents(
     state: StorageEventState,
@@ -138,6 +139,7 @@ export async function flushStorageEvents(
     effects.release(operations);
     const boundary = effects.capture(operations, state.nextFailureSequence);
     if (loading) {
+        // Include only the operations returned by this load. The shared queue may also contain later arrivals.
         for (const operation of await loading) {
             if (!boundary.has(operation)) boundary.set(operation, operation.attempt);
         }
@@ -158,9 +160,11 @@ export async function flushStorageEvents(
  * @param state - The manager state which retains entries and resolves each sentinel sequence.
  * @param effects - Queue and processing callbacks used to wait, snapshot, and report failures.
  * @returns A promise which resolves after the buffer has been shifted and each sentinel's predecessor wait settles.
- * @remarks Ordinary handlers start in the background so later buffer entries can be dispatched. A sentinel captures
- * only operations whose sequence is strictly earlier than its own; it snapshots only after all captured results
- * succeed, and reports rather than propagates a snapshot failure.
+ * @remarks Ordinary handlers start in the background so later entries can be dispatched. A sentinel waits only
+ * for earlier file operations to settle. Ordered storage then acknowledges the marker independently of those
+ * outcomes. The legacy path requests a snapshot only after all captured predecessors succeeded. Errors during
+ * acknowledgement or snapshotting are reported here. An ordered append failure leaves the marker in the queue
+ * for retry and rejects dispatch.
  */
 async function dispatchBufferedEvents(state: StorageEventState, effects: StorageEventQueueEffects): Promise<void> {
     while (effects.buffer.read().length > 0) {
@@ -207,7 +211,8 @@ export async function runBufferedStorageEvents(
     await shareRunningResult(state.dispatchKey, () => dispatchBufferedEvents(state, effects));
     if (!accepted) return;
     const results = await effects.wait(effects.capture(accepted));
-    if (state.ordered) return; // Failed attempts have already been reported.
+    // Ordered processing reports each failure when the attempt settles. Legacy replay reports at this boundary.
+    if (state.ordered) return;
     for (const result of results) {
         if (result.ok === false) effects.reportFailure(result.error);
     }
@@ -231,7 +236,12 @@ export async function restoreStorageEvents(effects: StorageEventQueueEffects): P
     await effects.runQueuedEvents({ waitForProcessing: true });
 }
 
-/** Retain the restored events in replay order, sharing acknowledgement ownership within each saved buffer. */
+/**
+ * Register already committed arrays in replay order before exposing their events to dispatch.
+ * @remarks Each array shares one remaining-entry count. The last acknowledgement removes its key. A partial
+ * failure leaves the original array available for reconciliation by the next runtime.
+ * @returns The restored file operations, which callers can include in a flush already in progress.
+ */
 export function restoreOrderedStorageEvents(
     state: StorageEventState,
     effects: StorageEventQueueEffects,
@@ -248,6 +258,7 @@ export function restoreOrderedStorageEvents(
             if (entry.operation) operations.push(entry.operation);
         }
     }
+    // Reattach each marker to its delete or rename in the combined replay order. Entries already own their saved arrays.
     retainBufferedFileEvents(state, events);
     replayStorageEvents(effects, events);
     return operations;
