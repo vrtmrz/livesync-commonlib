@@ -366,6 +366,20 @@ describe("DirectFileManipulator", () => {
         ]);
     });
 
+    it("fetches the replication salt through its own database", async () => {
+        const setting = { couchDB_URI: "https://example.com/couchdb", couchDB_DBNAME: "vault" } as RemoteDBSettings;
+        const salt = Uint8Array.from({ length: 32 }, (_, i) => i);
+        const closedGet = vi.fn().mockRejectedValue(new Error("database is closed"));
+        const currentGet = vi.fn().mockResolvedValue({ pbkdf2salt: btoa(String.fromCharCode(...salt)) });
+        const closed = { getSyncParameters: closedGet } as unknown as DirectFileManipulator;
+        const current = { getSyncParameters: currentGet } as unknown as DirectFileManipulator;
+        const getSalt = DirectFileManipulator.prototype.getReplicationPBKDF2Salt;
+
+        await expect(getSalt.call(closed, setting)).rejects.toThrow();
+        await expect(getSalt.call(current, setting)).resolves.toEqual(salt);
+        expect(closedGet).toHaveBeenCalledTimes(1);
+    });
+
     it("yields metadata entries when metadata-only enumeration is requested", async () => {
         const entries = [{ type: "plain", path: "note.md" }] as unknown as MetaEntry[];
         const getByMeta = vi.fn();

@@ -50,9 +50,11 @@ import {
 } from "octagonal-wheels/common/logger";
 import { createBlob, determineTypeFromBlob } from "@lib/common/utils.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
+import { withLock } from "octagonal-wheels/concurrency/lock";
 import {
-    createSyncParamsHanderForServer,
+    createSyncParamsHandler,
     SyncParamsFetchError,
+    type SyncParamsHandler,
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
 } from "@lib/replication/SyncParamsHandler.ts";
@@ -136,6 +138,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     readonly runtimeOptions: DirectFileManipulatorRuntimeOptions;
     ready = promiseWithResolvers<void>();
     services: HeadlessServiceHub<ServiceContext>;
+    private syncParamsHandler?: SyncParamsHandler;
     public async init() {
         try {
             await this.services.appLifecycle.onReady();
@@ -279,15 +282,18 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         }
     }
     async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
-        const server = `${setting.couchDB_URI.replace(/\/+$/, "")}/${setting.couchDB_DBNAME}`;
-        const manager = createSyncParamsHanderForServer(server, {
+        const handler = (this.syncParamsHandler ??= createSyncParamsHandler({
             put: (params: SyncParameters) => this.putSyncParameters(setting, params),
             get: () => this.getSyncParameters(setting),
             create: () => this.getInitialSyncParameters(setting),
-        });
-        return await manager.getPBKDF2Salt(refresh);
+        }));
+        const server = `${setting.couchDB_URI.replace(/\/+$/, "")}/${setting.couchDB_DBNAME}`;
+        // Lock per database: CouchDB accepts stale `_local` revisions, so concurrent first fetches could replace the salt.
+        return await withLock(`sync-parameters:${server}`, () => handler.getPBKDF2Salt(refresh));
     }
     $everyOnInitializeDatabase(db: LiveSyncLocalDB): Promise<boolean> {
+        // A reopened connection may point at another database, so drop the cached salt.
+        this.syncParamsHandler = undefined;
         replicationFilter(db.localDatabase, this.options.enableCompression ?? false);
         disableEncryption();
         if (this.options.passphrase && typeof this.options.passphrase === "string") {
