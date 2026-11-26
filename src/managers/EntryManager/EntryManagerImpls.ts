@@ -34,6 +34,9 @@ import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.co
 import type { GeneratedChunk } from "@lib/pouchdb/LiveSyncLocalDB";
 import { ContentReadError } from "@lib/common/LSError.ts";
 import type { LogFunction } from "@lib/services/lib/logUtils.ts";
+import { isOutOfBandCancellableIterator } from "@lib/worker/outOfBandCancelIterator.ts";
+
+const MAX_WRITE_SIZE = 2_048_000; // Buffered chunk data in UTF-16 code units.
 
 type Managers = {
     log?: LogFunction;
@@ -64,6 +67,63 @@ type PutDBEntryRevisionTarget =
     /** Preserve unknown ancestry as a fresh, parentless branch of the same document. */
     | { mode: "independent-root" };
 
+function createChunkWritePipeline(
+    pieces: AsyncIterator<string> | Iterator<string>,
+    flushBufferedChunks: () => Promise<boolean>,
+    onWriteError: (error: unknown) => void
+) {
+    let pendingWrite: Promise<boolean> | undefined;
+    let writeFailure = false;
+    let closing: Promise<void> | undefined;
+
+    function closePieces(): Promise<void> {
+        closing ??= (async () => {
+            try {
+                await pieces.return?.();
+            } catch {
+                // A read or write failure already prevents publishing this entry.
+            }
+        })();
+        return closing;
+    }
+
+    function failWrite(rejected: boolean, error?: unknown): false {
+        if (!writeFailure) {
+            writeFailure = true;
+            if (rejected) {
+                onWriteError(error);
+            }
+        }
+        void closePieces();
+        return false;
+    }
+
+    async function waitForWrite(): Promise<boolean> {
+        if (pendingWrite !== undefined) {
+            const ok = await pendingWrite;
+            pendingWrite = undefined;
+            return ok && !writeFailure;
+        }
+        return !writeFailure;
+    }
+
+    async function startWrite(): Promise<boolean> {
+        if (pendingWrite !== undefined && !(await waitForWrite())) {
+            return false;
+        }
+        if (writeFailure) {
+            return false;
+        }
+        pendingWrite = flushBufferedChunks().then(
+            (ok) => (ok ? true : failWrite(false)),
+            (error: unknown) => failWrite(true, error)
+        );
+        return true;
+    }
+
+    return { startWrite, waitForWrite, closePieces, failed: () => writeFailure };
+}
+
 export async function createChunks(
     managers: NecessaryManagers<"chunkManager" | "hashManager" | "splitter">,
     dispFilename: string,
@@ -80,8 +140,6 @@ export async function createChunks(
     let duplicatedCount = 0;
     let totalWritingCount = 0;
     let createChunkCount = 0;
-    // If total size of current buffered chunks exceeds this, they will be flushed to the database to avoid memory extravagance.
-    const MAX_WRITE_SIZE = 1000 * 1024 * 2; // 2MB
     const chunks: DocumentID[] = [];
 
     let writeChars = 0;
@@ -114,9 +172,18 @@ export async function createChunks(
         log(`Flushed ${writeBuf.length} (${writeChars}) chunks for ${dispFilename}`, LOG_LEVEL_VERBOSE);
         return true;
     };
+    const pieces = await splitter.splitContent(note);
+    const pipeline = isOutOfBandCancellableIterator(pieces)
+        ? createChunkWritePipeline(pieces, flushBufferedChunks, (error) => {
+              log(`Error processing pieces for ${dispFilename}`);
+              log(error, LOG_LEVEL_VERBOSE);
+          })
+        : undefined;
+
     const flushIfNeeded = async () => {
         if (bufferedSize > MAX_WRITE_SIZE) {
-            if (!(await flushBufferedChunks())) {
+            const ok = pipeline ? await pipeline.startWrite() : await flushBufferedChunks();
+            if (!ok) {
                 log(`Failed to flush buffered chunks for ${dispFilename}`, LOG_LEVEL_NOTICE);
                 return false;
             }
@@ -134,28 +201,50 @@ export async function createChunks(
         bufferedSize += chunk.data.length;
         return await flushIfNeeded();
     };
-    const pieces = await splitter.splitContent(note);
     let totalChunkCount = 0;
+    let complete = false;
     try {
         for await (const piece of pieces) {
+            if (pipeline?.failed()) {
+                break;
+            }
             totalChunkCount++;
             if (piece.length === 0) {
                 continue;
             }
             createChunkCount++;
             const chunk = await prepareChunk(managers, piece);
+            if (pipeline?.failed()) {
+                break;
+            }
+            // Preparation counters observe cache state before an overlapped write populates the cache;
+            // database write and duplicate counters settle per flush.
             cachedCount += chunk.isNew ? 0 : 1;
             newCount += chunk.isNew ? 1 : 0;
             if (!(await addBuffer(chunk.id, chunk.piece))) {
                 return false;
             }
         }
+        if (pipeline && (!(await pipeline.startWrite()) || !(await pipeline.waitForWrite()))) {
+            return false;
+        }
+        complete = true;
     } catch (ex) {
         log(`Error processing pieces for ${dispFilename}`);
         log(ex, LOG_LEVEL_VERBOSE);
         return false;
+    } finally {
+        if (pipeline) {
+            if (!complete) {
+                bufferedChunk = [];
+                bufferedSize = 0;
+                await pipeline.closePieces();
+            }
+            // The enclosing chunk transaction may stabilise as soon as this call settles.
+            await pipeline.waitForWrite();
+        }
     }
-    if (!(await flushBufferedChunks())) {
+    if (!pipeline && !(await flushBufferedChunks())) {
         return false;
     }
 

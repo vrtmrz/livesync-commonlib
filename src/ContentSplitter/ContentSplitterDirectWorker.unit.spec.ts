@@ -1,9 +1,24 @@
 import { describe, expect, it } from "vitest";
+import { splitPieces2Worker, splitPieces2WorkerV2, splitPieces2WorkerRabinKarp } from "#worker";
 
 import type { FilePathWithPrefix } from "@lib/common/types";
 import { ContentSplitterV1 } from "./ContentSplitterV1";
 import { ContentSplitterV2 } from "./ContentSplitterV2";
 import { ContentSplitterRabinKarp } from "./ContentSplitterRabinKarp";
+
+it.each([
+    ["V1", splitPieces2Worker],
+    ["V2", splitPieces2WorkerV2],
+    ["Rabin–Karp", splitPieces2WorkerRabinKarp],
+] as const)("exposes a synchronous direct splitter factory for %s", async (_name, split) => {
+    const factory = split(new Blob(["alpha"], { type: "text/plain" }), 100, true, 1);
+    expect(typeof factory).toBe("function");
+    const chunks = [];
+    for await (const chunk of factory()) {
+        chunks.push(chunk);
+    }
+    expect(chunks).toEqual(["alpha"]);
+});
 
 describe.each([
     ["V1", ContentSplitterV1],

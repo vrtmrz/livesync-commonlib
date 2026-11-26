@@ -73,6 +73,10 @@ const packed = JSON.parse(
 assert.equal(packed.name, packageName);
 assert.ok(packed.size > 0, "The packed package must not be empty.");
 const generatedManifest = JSON.parse(await readFile(resolve(packageDirectory, "package.json"), "utf8"));
+const workerRoutes = generatedManifest.exports["./compat/worker/bgWorker"];
+for (const condition of ["browser", "node", "default"]) {
+    assert.equal(generatedManifest.imports["#worker"][condition], workerRoutes[condition]);
+}
 assert.ok(
     Object.hasOwn(generatedManifest.exports, "./hashing"),
     "Chunk hashing must be available through the focused hashing entry."
@@ -257,7 +261,7 @@ import {
     createFileSystemAccessStorage,
     type CreateFileSystemAccessStorageOptions,
 } from "${packageName}/browser";
-import { splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
+import { cancelSplitTask, removeTask, splitPieces2Worker, splitPieces2WorkerV2, splitPieces2WorkerRabinKarp, startWorker, tasks } from "${packageName}/compat/worker/bgWorker";
 import { HashManager, computeFileContentHash, type HashManagerCoreOptions } from "${packageName}/hashing";
 import {
     analyseDatabaseUsage, type DatabaseUsageSource,
@@ -343,7 +347,17 @@ const options: ServiceContextOptions = { translate: (key) => \`translated:\${key
 const context = createServiceContext(options);
 const contextContract: ServiceContextContract = context;
 const untranslated: string = passthroughMessageTranslator("moduleLocalDatabase.logWaitingForReady");
-const split = splitPieces2Worker(new Blob(["content"], { type: "text/plain" }), 4, false, 1);
+for (const split of [splitPieces2Worker, splitPieces2WorkerV2, splitPieces2WorkerRabinKarp]) {
+    const splitFactory = split(new Blob(["content"], { type: "text/plain" }), 4, false, 1);
+    const directIterator: AsyncGenerator<string, void, unknown> = splitFactory();
+    void directIterator;
+}
+const directTask = startWorker({ type: "encrypt", input: "example", passphrase: "example", autoCalculateIterations: false });
+const directResult: Promise<string> = directTask.task.promise;
+const currentTask: typeof directTask | undefined = tasks.get(directTask.key)?.type === "encrypt" ? directTask : undefined;
+removeTask(directTask.key);
+cancelSplitTask(directTask.key);
+void [directResult, currentTask];
 const directOptions = {} as DirectFileManipulatorOptions;
 const directRuntimeOptions: DirectFileManipulatorRuntimeOptions = { fetch: globalThis.fetch };
 const directType: typeof DirectFileManipulator = DirectFileManipulator;
@@ -480,7 +494,6 @@ void fileHash;
 void context;
 void contextContract;
 void untranslated;
-void split;
 void directOptions;
 void directRuntimeOptions;
 void directType;
@@ -676,15 +689,21 @@ assert.equal(nodeRuntime.isBuiltin("stream"), true);
 assert.equal(nodeRuntime.isBuiltin("node:stream"), true);
 assert.equal(typeof p2pFeatureApi.useP2PReplicatorFeature, "function");
 
-const piecesFactory = await workerApi.splitPieces2Worker(
-    new Blob(["abcdef"], { type: "text/plain" }),
-    3,
-    false,
-    1
-);
-const pieces = [];
-for await (const piece of piecesFactory()) pieces.push(piece);
-assert.ok(pieces.length > 0);
+assert.ok(import.meta.resolve("${packageName}/compat/worker/bgWorker").endsWith("/dist/worker/bgWorker.direct.js"));
+for (const split of [workerApi.splitPieces2Worker, workerApi.splitPieces2WorkerV2, workerApi.splitPieces2WorkerRabinKarp]) {
+    const piecesFactory = split(new Blob(["abcdef"], { type: "text/plain" }), 3, false, 1);
+    const pieces = [];
+    for await (const piece of piecesFactory()) pieces.push(piece);
+    assert.equal(pieces.join(""), "abcdef");
+}
+const stub = workerApi.startWorker({ type: "encrypt", input: "fixture", passphrase: "fixture", autoCalculateIterations: false });
+assert.equal(await stub.task.promise, "");
+stub.finalize();
+workerApi.removeTask(stub.key);
+workerApi.cancelSplitTask(stub.key);
+assert.equal(workerApi.tasks.size, 0);
+const encrypted = await workerApi.encryptWorker("fixture", "example passphrase", false);
+assert.equal(await workerApi.decryptWorker(encrypted, "example passphrase", false), "fixture");
 
 assert.deepEqual(
     {
@@ -741,7 +760,8 @@ await writeConsumerFile(
 );
 await writeConsumerFile(
     "browser-worker.ts",
-    `export { initialiseWorkerModule, splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
+    `export { initialiseWorkerModule, splitPieces2Worker, splitPieces2WorkerV2, splitPieces2WorkerRabinKarp } from "${packageName}/compat/worker/bgWorker";
+export { encryptHKDF } from "./node_modules/${packageName}/dist/encryption/encryptHKDF.js";
 `
 );
 
@@ -960,6 +980,8 @@ assert.ok(
     workerInputs.every((path) => !path.includes("bgWorker.direct")),
     "Browser builds must not use the direct worker."
 );
+assert.equal(workerInputs.filter((path) => path.endsWith("/dist/worker/bgWorker.js")).length, 1);
+assert.ok(workerInputs.some((path) => path.endsWith("/@vrtmrz/rpc/dist/worker.js")));
 assert.match(workerSource, /new Blob\(/u);
 assert.match(workerSource, /new Worker\(/u);
 

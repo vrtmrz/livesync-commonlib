@@ -69,9 +69,11 @@ async function bundleInlineWorker() {
 export default function createWorker() {
     const blob = new Blob([workerSource], { type: "text/javascript" });
     const url = URL.createObjectURL(blob);
-    const worker = new Worker(url);
-    URL.revokeObjectURL(url);
-    return worker;
+    try {
+        return new Worker(url);
+    } finally {
+        URL.revokeObjectURL(url);
+    }
 }`,
                 loader: "js",
             }));
