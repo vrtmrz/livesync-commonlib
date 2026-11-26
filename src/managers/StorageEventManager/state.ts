@@ -3,12 +3,8 @@
  * Snapshot writes are delegated to the snapshot module; these state transitions do not commit them.
  */
 import type { FileEventItem, FilePath } from "@lib/common/types";
-import {
-    createFileEventAttempt,
-    getFileEventPaths,
-    type FileEventAttempt,
-    type PendingFileEvent,
-} from "./operations";
+import type { PendingStorageEventStore } from "../adapters";
+import { createFileEventAttempt, getFileEventPaths, type FileEventAttempt, type PendingFileEvent } from "./operations";
 
 /** Queue marker which closes the ordered boundary before a delete or rename. */
 export const TYPE_SENTINEL_FLUSH = "SENTINEL_FLUSH";
@@ -31,12 +27,17 @@ export type EventAdmission = {
     flushRequested: boolean;
 };
 
+/** Completion ownership shared by entries from one durable buffer. */
+export type SavedEventBuffer = { key: string; remaining: number };
+
 /** Queue and persistence view of one event, optionally linked to its durable operation. */
 export type PendingSnapshotEntry = {
     /** Event intent written to or restored from the existing snapshot format. */
     event: QueuedFileEvent;
     /** Stable insertion order within this manager's pending snapshot. */
     sequence: number;
+    /** Buffer that durably holds this entry, once its append has committed. */
+    savedBuffer?: SavedEventBuffer;
     /** Provisional completion within a serial snapshot step; a failed save rolls it back. */
     completed: boolean;
     /** Durable operation for file events; sentinels have no operation. */
@@ -50,6 +51,16 @@ export type SnapshotCompletion = { entry: PendingSnapshotEntry; attempt: FileEve
 
 /** Optional wait policy for a queue dispatch request. */
 export type RunQueuedEventsOptions = { waitForProcessing?: boolean };
+
+/** State for the ordered buffer store's append writer. */
+export interface OrderedStorageEventState {
+    readonly store: PendingStorageEventStore;
+    nextBuffer: PendingSnapshotEntry[];
+    nextWrite?: Promise<void>;
+    appendTail?: Promise<void>;
+    appendFinishedAt?: number;
+    pendingOperations: number;
+}
 
 /** Mutable ownership, admission, and persistence state for one manager. */
 export interface StorageEventState {
@@ -67,7 +78,9 @@ export interface StorageEventState {
     acceptingEvents: boolean;
     /** Admissions in progress which a finite flush must account for. */
     admissions: Set<EventAdmission>;
-    /** Serial tail for completion marking, snapshot saving, and rollback. */
+    /** Ordered buffer persistence, when supplied by this host. */
+    readonly ordered?: OrderedStorageEventState;
+    /** Serial tail for persistence mutations and completion bookkeeping. */
     snapshotTail: Promise<void>;
     /** Stable key so concurrent dispatch calls for this manager share one run. */
     readonly dispatchKey: symbol;
@@ -81,8 +94,10 @@ export interface StorageEventBuffer {
     replace(events: QueuedFileEvent[]): void;
     /** Append one event or sentinel at the current tail. */
     append(event: QueuedFileEvent): void;
-    /** Remove and return the next queued item. */
-    shift(): QueuedFileEvent | undefined;
+    /** Return the current head, if any, without removing it. */
+    peek(): QueuedFileEvent | undefined;
+    /** Remove the expected item only if it is still the head. */
+    takeHead(expected: QueuedFileEvent): boolean;
 }
 
 /** Host notifications kept outside the state owner. */
@@ -98,9 +113,10 @@ export interface StorageEventNotifications {
  * @returns Fresh maps, counters, admission tracking, and a resolved initial snapshot tail.
  * @remarks The state is isolated to one manager; no host callbacks or persistence are invoked here.
  */
-export function createStorageEventState(): StorageEventState {
+export function createStorageEventState(store?: PendingStorageEventStore): StorageEventState {
     return {
         pendingSnapshot: new Map(),
+        ordered: store ? { store, nextBuffer: [], pendingOperations: 0 } : undefined,
         operations: new WeakMap(),
         latestByPath: new Map(),
         nextSequence: 0,
@@ -136,6 +152,7 @@ function registerOperation(state: StorageEventState, operation: PendingFileEvent
  * @param state - The manager state which owns the snapshot entry and event-to-operation identity map.
  * @param event - A file event or ordering sentinel to retain.
  * @param register - Whether a file operation should also enter the per-path ordering index.
+ * @param savedBuffer - The existing durable buffer when this event was restored.
  * @returns The existing entry for this event object, or the newly created entry.
  * @remarks Snapshot collection passes register as false for events surfaced by batch gates, so persistence
  * discovery cannot become their first path-indexing moment and change path ownership or ordering. The registered
@@ -145,14 +162,15 @@ function registerOperation(state: StorageEventState, operation: PendingFileEvent
 export function retainFileEvent(
     state: StorageEventState,
     event: QueuedFileEvent,
-    register = true
+    register = true,
+    savedBuffer?: SavedEventBuffer
 ): PendingSnapshotEntry {
     const existing = state.pendingSnapshot.get(event);
     if (existing) {
         if (register && existing.operation) registerOperation(state, existing.operation);
         return existing;
     }
-    const entry: PendingSnapshotEntry = { event, sequence: ++state.nextSequence, completed: false };
+    const entry: PendingSnapshotEntry = { event, sequence: ++state.nextSequence, completed: false, savedBuffer };
     if (event.type !== TYPE_SENTINEL_FLUSH) {
         const operation = state.operations.get(event) ?? {
             event,
@@ -171,6 +189,10 @@ export function retainFileEvent(
         state.operations.set(event, operation);
     }
     state.pendingSnapshot.set(event, entry);
+    if (state.ordered) {
+        if (entry.operation) state.ordered.pendingOperations++;
+        if (!savedBuffer) state.ordered.nextBuffer.push(entry);
+    }
     return entry;
 }
 

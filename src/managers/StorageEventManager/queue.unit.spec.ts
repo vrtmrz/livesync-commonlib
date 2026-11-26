@@ -1,8 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import type { FileEventItem, FilePath } from "@lib/common/types";
-import { flushStorageEvents, runBufferedStorageEvents, type StorageEventQueueEffects } from "./queue";
-import { createStorageEventState, retainFileEvent, type EventAdmission, type StorageEventState } from "./state";
+import {
+    enqueueStorageEvent,
+    flushStorageEvents,
+    publishCommittedStorageEvents,
+    runBufferedStorageEvents,
+    type StorageEventQueueEffects,
+} from "./queue";
+import { appendPendingEventBuffer } from "./snapshot";
+import {
+    TYPE_SENTINEL_FLUSH,
+    createStorageEventState,
+    retainFileEvent,
+    type EventAdmission,
+    type QueuedFileEvent,
+    type StorageEventState,
+} from "./state";
 import { createFileEventAttempt, type FileEventAttempt, type PendingFileEvent } from "./operations";
 
 /** Supply a retained event and minimal host effects while leaving queue selection and dispatch real. */
@@ -16,8 +30,25 @@ function fixture() {
         },
     };
     const operation = retainFileEvent(state, event).operation!;
+    let events: QueuedFileEvent[] = [];
     const effects: StorageEventQueueEffects = {
-        buffer: { read: () => [], replace: vi.fn(), append: vi.fn(), shift: () => undefined },
+        buffer: {
+            read: () => events,
+            replace: (next) => {
+                events = next;
+            },
+            append: (event) => {
+                events.push(event);
+            },
+            peek: () => events[0],
+            takeHead: (expected) => {
+                if (events[0] !== expected) {
+                    return false;
+                }
+                events.shift();
+                return true;
+            },
+        },
         log: vi.fn(),
         takeSnapshot: vi.fn(async () => {}),
         loadSnapshot: vi.fn(async () => []),
@@ -46,6 +77,53 @@ function admission(state: StorageEventState, operations: Map<PendingFileEvent, F
     state.admissions.add(record);
     return { record, completion };
 }
+
+describe("ordered queue dispatch", () => {
+    it("does not expose an ordered sentinel to a dispatcher while the append is in flight", async () => {
+        const { effects, event } = fixture();
+        const appendStarted = promiseWithResolvers<void>();
+        const appendCommitted = promiseWithResolvers<string>();
+        const state = createStorageEventState({
+            load: vi.fn(),
+            append: vi.fn(() => {
+                appendStarted.resolve();
+                return appendCommitted.promise;
+            }),
+            remove: vi.fn(),
+        });
+        effects.takeSnapshot = () =>
+            appendPendingEventBuffer(state, state.ordered!, {
+                publish: (events) => publishCommittedStorageEvents(state, events, effects),
+                reportAppendFailure: vi.fn(),
+            });
+        effects.runQueuedEvents = () => runBufferedStorageEvents(state, effects);
+        effects.acknowledgeSentinel = vi.fn(async () => {});
+
+        const removed: FileEventItem = { ...event, type: "DELETE" };
+        enqueueStorageEvent(state, removed, effects);
+        await appendStarted.promise;
+        const writing = effects.takeSnapshot();
+        try {
+            await effects.runQueuedEvents();
+            expect(effects.buffer.read()).toEqual([]);
+            expect(effects.acknowledgeSentinel).not.toHaveBeenCalled();
+            expect(effects.processFileEvent).not.toHaveBeenCalled();
+        } finally {
+            appendCommitted.resolve("committed-buffer");
+            await writing;
+        }
+
+        await effects.runQueuedEvents();
+        expect(effects.acknowledgeSentinel).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({
+                event: { type: TYPE_SENTINEL_FLUSH },
+                savedBuffer: { key: "committed-buffer", remaining: 2 },
+            })
+        );
+        expect(effects.processFileEvent).toHaveBeenCalledExactlyOnceWith(removed);
+        expect(effects.buffer.read()).toEqual([]);
+    });
+});
 
 describe("exported queue completion boundaries", () => {
     it("retains the originally captured attempt when an in-flight admission reports a replacement", async () => {

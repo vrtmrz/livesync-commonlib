@@ -5,7 +5,7 @@ import type { FileProcessingService } from "@lib/services/base/FileProcessingSer
 import { admitStorageEvents, selectRenameFileEvent, type StorageEventAdmissionEffects } from "./admission";
 import { createFileEventAttempt } from "./operations";
 import { handleStorageFileEvent, processStorageEventAttempt, type StorageEventAttemptEffects } from "./processing";
-import { persistFileEventSnapshot } from "./snapshot";
+import { appendPendingEventBuffer, persistFileEventSnapshot } from "./snapshot";
 import { createStorageEventState, retainFileEvent, type QueuedFileEvent, type StorageEventBuffer } from "./state";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 
@@ -34,7 +34,14 @@ function buffer(initial: QueuedFileEvent[] = []): StorageEventBuffer {
         append: (event) => {
             events.push(event);
         },
-        shift: () => events.shift(),
+        peek: () => events[0],
+        takeHead: (expected) => {
+            if (events[0] !== expected) {
+                return false;
+            }
+            events.shift();
+            return true;
+        },
     };
 }
 
@@ -278,5 +285,43 @@ describe("exported storage-event boundary decisions", () => {
         await handleStorageFileEvent(event, { processing: () => service, operation: () => undefined, updateStatus });
         expect(optional).toHaveBeenCalledExactlyOnceWith("new.md");
         expect(updateStatus).toHaveBeenCalledOnce();
+    });
+});
+
+describe("ordered event buffer appends", () => {
+    it("caps the yield after a ten-minute system-clock rewind", async () => {
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(600_000);
+            const append = vi.fn(async () => "buffer-key");
+            const state = createStorageEventState({
+                load: vi.fn(async () => []),
+                append,
+                remove: vi.fn(async () => {}),
+            });
+            const ordered = state.ordered!;
+            const effects = { publish: vi.fn(), reportAppendFailure: vi.fn() };
+
+            retainFileEvent(state, intent(), false);
+            await appendPendingEventBuffer(state, ordered, effects);
+            expect(append).toHaveBeenCalledOnce();
+            expect(ordered.appendFinishedAt).toBe(600_000);
+
+            vi.setSystemTime(0);
+            retainFileEvent(state, intent(), false);
+            const nextAppend = appendPendingEventBuffer(state, ordered, effects);
+
+            await vi.advanceTimersByTimeAsync(0);
+            expect(append).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(49);
+            expect(append).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(append).toHaveBeenCalledTimes(2);
+            await nextAppend;
+            expect(ordered.appendFinishedAt).toBe(50);
+        } finally {
+            vi.clearAllTimers();
+            vi.useRealTimers();
+        }
     });
 });

@@ -22,8 +22,18 @@ import type { SettingService } from "@lib/services/base/SettingService";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import type { IStorageEventManagerAdapter } from "./adapters";
-import type { FileEventAttempt, OperationResult, PendingFileEvent } from "./StorageEventManager/operations";
-import { admitStorageEvents, type StorageEventAdmissionEffects } from "./StorageEventManager/admission";
+import {
+    assertSuccessfulFileEvents,
+    type FileEventAttempt,
+    type OperationResult,
+    type PendingFileEvent,
+} from "./StorageEventManager/operations";
+import {
+    admitStorageEvents,
+    registerAdmission,
+    trackStorageEventAdmission,
+    type StorageEventAdmissionEffects,
+} from "./StorageEventManager/admission";
 import {
     forwardVaultEvent,
     hasEditorChangePath,
@@ -41,6 +51,8 @@ import {
 import {
     enqueueStorageEvent,
     flushStorageEvents,
+    publishCommittedStorageEvents,
+    restoreOrderedStorageEvents,
     restoreStorageEvents,
     runBufferedStorageEvents,
     type StorageEventQueueEffects,
@@ -50,7 +62,14 @@ import {
     waitForFileEventAttempts,
     type StorageEventRetryEffects,
 } from "./StorageEventManager/retry";
-import { persistFileEventSnapshot, type StorageEventSnapshotIO } from "./StorageEventManager/snapshot";
+import {
+    acknowledgeEmptyOrderedBuffer,
+    acknowledgeOrderedEntry,
+    appendPendingEventBuffer,
+    persistFileEventSnapshot,
+    type OrderedStorageEventAppendEffects,
+    type StorageEventSnapshotIO,
+} from "./StorageEventManager/snapshot";
 import {
     handleStorageFileEvent,
     processStorageEventAttempt,
@@ -121,7 +140,9 @@ export abstract class StorageEventManagerBase<
     protected concurrentProcessing = Semaphore(5);
     protected _waitingMap = new Map<string, WaitInfo>();
     protected processingCount = 0;
-    private readonly eventState = createStorageEventState();
+    private readonly eventState: ReturnType<typeof createStorageEventState>;
+    private orderedStoreLoaded = false;
+    private orderedStoreLoad?: Promise<readonly PendingFileEvent[]>;
     private dispatchPaused = false;
     private dispatchResumeSignal: PromiseWithResolvers<void> | undefined;
     private readonly activeDispatches = new Set<Promise<void>>();
@@ -133,7 +154,14 @@ export abstract class StorageEventManagerBase<
         append: (event) => {
             this.bufferedQueuedItems.push(event);
         },
-        shift: () => this.bufferedQueuedItems.shift(),
+        peek: () => this.bufferedQueuedItems[0],
+        takeHead: (expected) => {
+            if (this.bufferedQueuedItems[0] !== expected) {
+                return false;
+            }
+            this.bufferedQueuedItems.shift();
+            return true;
+        },
     };
     private readonly notifications: StorageEventNotifications = {
         updateStatus: () => this.updateStatus(),
@@ -175,6 +203,17 @@ export abstract class StorageEventManagerBase<
         release: (operations) => this.releaseOperations(operations),
         wait: (attempts) => this.waitForAttempts(attempts),
         fail: (operation, error, attempt) => this.failOperation(operation, error, attempt),
+    };
+    private readonly orderedAppend: OrderedStorageEventAppendEffects = {
+        publish: (events) => publishCommittedStorageEvents(this.eventState, events, this.queue),
+        reportAppendFailure: (error) => {
+            this._log(
+                "Some local file changes could not be queued for sync. Once file activity settles, rescan the Vault to check the current files.",
+                LOG_LEVEL_NOTICE
+            );
+            this._log(error, LOG_LEVEL_VERBOSE);
+            this.updateStatus();
+        },
     };
     private readonly admission: StorageEventAdmissionEffects = {
         settings: () => this.settings,
@@ -226,6 +265,12 @@ export abstract class StorageEventManagerBase<
     constructor(adapter: TAdapter, dependencies: StorageEventManagerBaseDependencies) {
         super();
         this.adapter = adapter;
+        this.eventState = createStorageEventState(adapter.pendingEventStore);
+        const ordered = this.eventState.ordered;
+        if (ordered) {
+            this.queue.acknowledgeSentinel = (entry) =>
+                acknowledgeOrderedEntry(this.eventState, ordered, entry, this.notifications.updateStatus);
+        }
         this.setting = dependencies.setting;
         this.vaultService = dependencies.vaultService;
         this.admission.isTargetInternal = dependencies.isTargetInternalFile?.bind(dependencies);
@@ -315,9 +360,10 @@ export abstract class StorageEventManagerBase<
         this.adapter.status.updateStatus({
             batched: this._waitingMap.size,
             processing: this.processingCount,
-            totalQueued: [...this.eventState.pendingSnapshot.values()].filter(
-                (entry) => entry.operation && !entry.completed
-            ).length,
+            totalQueued:
+                this.eventState.ordered?.pendingOperations ??
+                [...this.eventState.pendingSnapshot.values()].filter((entry) => entry.operation && !entry.completed)
+                    .length,
         });
     }
 
@@ -328,8 +374,16 @@ export abstract class StorageEventManagerBase<
      * @returns A promise fulfilled after restoration and replay attempts settle; snapshot or dispatch errors reject it, while failed operation results are reported and retained.
      */
     restoreState(): Promise<void> {
-        this.snapShotRestored = this._restoreFromSnapshot();
-        return this.snapShotRestored;
+        if (this.eventState.ordered && this.snapShotRestored) return this.snapShotRestored;
+        const restore = this._restoreFromSnapshot();
+        this.snapShotRestored = restore;
+        if (this.eventState.ordered) {
+            const clear = () => {
+                this.snapShotRestored = null;
+            };
+            void restore.then(clear, clear);
+        }
+        return restore;
     }
     /**
      * Filter and admit host watcher events into the operation queue.
@@ -339,14 +393,18 @@ export abstract class StorageEventManagerBase<
      * @remarks The promise may resolve while admitted handlers are still pending. Use `waitForIdle` for the captured processing boundary.
      */
     appendQueue(params: FileEvent[], ctx?: unknown): Promise<void> {
-        return admitStorageEvents(this.eventState, params, ctx, this.admission);
+        return admitStorageEvents(this.eventState, params, ctx, this.admission, () => this.loadOrderedEvents());
     }
     /**
      * Add an already selected event to the buffer and start background snapshotting and dispatch.
      * @param event - The event which has already passed host admission checks.
      * @returns Nothing; processing and persistence failures are reported through manager effects.
+     * @remarks Ordered stores must have completed their initial load. Append watcher events through `appendQueue`.
      */
     enqueue(event: FileEventItem): void {
+        if (this.eventState.ordered && !this.orderedStoreLoaded) {
+            throw new Error("Load the pending storage events before enqueueing an event");
+        }
         enqueueStorageEvent(this.eventState, event, this.queue);
     }
     /**
@@ -355,7 +413,7 @@ export abstract class StorageEventManagerBase<
      * @remarks Later admissions are outside this flush boundary. Batch gates in the captured work are released before waiting.
      */
     async waitForIdle(): Promise<void> {
-        await flushStorageEvents(this.eventState, this.queue);
+        await flushStorageEvents(this.eventState, this.queue, this.orderedStoreLoad);
     }
     /**
      * Pause new file-handler dispatch and wait for dispatches already in progress.
@@ -389,8 +447,14 @@ export abstract class StorageEventManagerBase<
         try {
             await this.waitForIdle();
         } catch (error) {
-            this.reportOperationFailure(error);
+            if (!this.eventState.ordered) {
+                this.reportOperationFailure(error);
+            } else {
+                // Ordered append and handler failures are reported by their owners.
+                this._log(error, LOG_LEVEL_VERBOSE);
+            }
         }
+        if (this.eventState.ordered) await this.runQueuedEvents().catch(this.notifications.reportFailure);
         await this._takeSnapshot();
     }
     /**
@@ -535,8 +599,25 @@ export abstract class StorageEventManagerBase<
      * @returns A promise fulfilled when the attempt completes; a failed attempt rejects it.
      */
     async processFileEvent(event: FileEventItem) {
-        const operation = this.retainEvent(event).operation!;
-        await this.processOperation(operation, operation.attempt);
+        if (!this.eventState.ordered) {
+            const operation = this.retainEvent(event).operation!;
+            await this.processOperation(operation, operation.attempt);
+            return;
+        }
+        const existing = this.operations.get(event);
+        if (existing) {
+            await this.processOperation(existing, existing.attempt);
+            return;
+        }
+
+        let attempt: FileEventAttempt | undefined;
+        await trackStorageEventAdmission(this.eventState, this.admission, async (admission) => {
+            await this.loadOrderedEvents();
+            attempt =
+                this.operations.get(event)?.attempt ??
+                registerAdmission(this.eventState, admission, event, this.admission);
+        });
+        if (attempt) assertSuccessfulFileEvents([await attempt.completion.promise]);
     }
     /**
      * Persist the manager snapshot and optionally acknowledge one attempt in that snapshot.
@@ -544,7 +625,16 @@ export abstract class StorageEventManagerBase<
      * @returns A promise for the serialised save; snapshot I/O failures reject it.
      */
     private persistSnapshot(completion?: SnapshotCompletion): Promise<void> {
-        return persistFileEventSnapshot(this.eventState, this.buffer, this.snapshotIO, completion);
+        const ordered = this.eventState.ordered;
+        if (!ordered) return persistFileEventSnapshot(this.eventState, this.buffer, this.snapshotIO, completion);
+        if (!completion) return appendPendingEventBuffer(this.eventState, ordered, this.orderedAppend);
+        return acknowledgeOrderedEntry(
+            this.eventState,
+            ordered,
+            completion.entry,
+            this.notifications.updateStatus,
+            completion
+        );
     }
     /**
      * Wait for the next serialised snapshot write.
@@ -558,7 +648,43 @@ export abstract class StorageEventManagerBase<
      * @returns A promise for restoration; storage or dispatch errors reject it, while failed attempt results are reported and retained.
      */
     async _restoreFromSnapshot() {
-        await restoreStorageEvents(this.queue);
+        if (!this.eventState.ordered) {
+            await restoreStorageEvents(this.queue);
+            return;
+        }
+        if (!this.eventState.acceptingEvents) return;
+        await this.loadOrderedEvents();
+        await this.runQueuedEvents({ waitForProcessing: true });
+    }
+
+    /** Join the initial load without waiting for restored handlers. */
+    private loadOrderedEvents(): Promise<readonly PendingFileEvent[]> | undefined {
+        const ordered = this.eventState.ordered;
+        if (!ordered || this.orderedStoreLoaded) return;
+        if (this.orderedStoreLoad) return this.orderedStoreLoad;
+
+        const load = Promise.resolve().then(async () => {
+            const buffers = await ordered.store.load();
+            for (const { key, events } of buffers) {
+                if (events.length === 0) {
+                    await acknowledgeEmptyOrderedBuffer(this.eventState, ordered, key).catch(
+                        this.notifications.reportFailure
+                    );
+                }
+            }
+            const operations = restoreOrderedStorageEvents(this.eventState, this.queue, buffers);
+            this.orderedStoreLoaded = true;
+            if (this.eventState.acceptingEvents) {
+                fireAndForget(this.runQueuedEvents().catch(this.notifications.reportFailure));
+            }
+            return operations;
+        });
+        this.orderedStoreLoad = load;
+        const clear = () => {
+            this.orderedStoreLoad = undefined;
+        };
+        void load.then(clear, clear);
+        return load;
     }
     /**
      * Dispatch events in the buffer and optionally wait for captured processing attempts.
@@ -573,7 +699,8 @@ export abstract class StorageEventManagerBase<
      * @returns Nothing; the write is deliberately not awaited by the caller.
      */
     private _triggerTakeSnapshot(): void {
-        fireAndForget(() => this._takeSnapshot().catch((error) => this.reportOperationFailure(error)));
+        const snapshot = this._takeSnapshot();
+        fireAndForget(this.eventState.ordered ? snapshot : snapshot.catch(this.notifications.reportFailure));
     }
     /**
      * Throttled callback for requesting a background snapshot write.
@@ -618,7 +745,12 @@ export abstract class StorageEventManagerBase<
      * @returns A promise fulfilled when watcher registration finishes; a restoration failure prevents registration and rejects it.
      */
     async beginWatch(): Promise<void> {
-        await this.snapShotRestored;
+        if (this.eventState.ordered) {
+            await this.restoreState();
+        } else {
+            await this.snapShotRestored;
+        }
+        if (this.eventState.ordered && !this.eventState.acceptingEvents) return;
 
         await this.adapter.watch.beginWatch({
             onCreate: (file, ctx) => this.watchVaultCreate(file, ctx),

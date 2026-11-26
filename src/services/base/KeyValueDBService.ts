@@ -8,8 +8,11 @@ import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import type { InjectableDatabaseEventService } from "@lib/services/implements/injectable/InjectableDatabaseEventService";
 import type { AppLifecycleServiceBase } from "@lib/services/implements/injectable/InjectableAppLifecycleService";
 
-export interface KeyValueDBDependencies<T extends ServiceContext = ServiceContext> {
-    openKeyValueDatabase: KeyValueDatabaseFactory;
+export interface KeyValueDBDependencies<
+    T extends ServiceContext = ServiceContext,
+    TDatabase extends KeyValueDatabase = KeyValueDatabase,
+> {
+    openKeyValueDatabase: KeyValueDatabaseFactory<TDatabase>;
     databaseEvents: InjectableDatabaseEventService<T>;
     vault: IVaultService;
     appLifecycle: AppLifecycleServiceBase<T>;
@@ -19,11 +22,14 @@ export interface KeyValueDBDependencies<T extends ServiceContext = ServiceContex
  * The KeyValueDBService provides methods for managing the local key-value database.
  * Please note that each event of database lifecycle is handled in DatabaseEventService.
  */
-export abstract class KeyValueDBService<T extends ServiceContext = ServiceContext>
+export abstract class KeyValueDBService<
+    T extends ServiceContext = ServiceContext,
+    TDatabase extends KeyValueDatabase = KeyValueDatabase,
+>
     extends ServiceBase<T>
     implements IKeyValueDBService
 {
-    private _kvDB: KeyValueDatabase | undefined;
+    private _kvDB: TDatabase | undefined;
     private databaseKey: string | undefined;
     private readonly lifecycleLock = Symbol("key-value-database-lifecycle");
     private _simpleStore: SimpleStore<unknown> | undefined;
@@ -43,7 +49,7 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
     private databaseEvents: InjectableDatabaseEventService<T>;
     private vault: IVaultService;
     private appLifecycle: AppLifecycleServiceBase<T>;
-    private openKeyValueDatabase: KeyValueDatabaseFactory;
+    private openKeyValueDatabase: KeyValueDatabaseFactory<TDatabase>;
     private _log = createInstanceLogFunction("KeyValueDBService");
 
     private selectedDatabaseKey() {
@@ -113,7 +119,7 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
         return Promise.resolve(true);
     }
 
-    constructor(context: T, dependencies: KeyValueDBDependencies<T>) {
+    constructor(context: T, dependencies: KeyValueDBDependencies<T, TDatabase>) {
         super(context);
         this.databaseEvents = dependencies.databaseEvents;
         this.vault = dependencies.vault;
