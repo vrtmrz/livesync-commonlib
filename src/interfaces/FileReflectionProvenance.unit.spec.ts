@@ -46,6 +46,19 @@ describe("StoredFileReflectionProvenance", () => {
         await expect(provenance.get(newPath)).resolves.toEqual(record);
     });
 
+    it("keeps a record intact when move receives identical source and destination paths", async () => {
+        const { store, values } = createStore();
+        const provenance = new StoredFileReflectionProvenance(store);
+        const samePath = "Same.md" as FilePathWithPrefix;
+        const record = { revision: "4-same", observedStorageMtime: 42 };
+        values.set(samePath, record);
+
+        await provenance.move(samePath, samePath);
+
+        await expect(provenance.get(samePath)).resolves.toEqual(record);
+        expect(store.delete).not.toHaveBeenCalled();
+    });
+
     it("keeps path enumeration disabled by default", () => {
         const { store } = createStore();
         const provenance = new StoredFileReflectionProvenance(store);

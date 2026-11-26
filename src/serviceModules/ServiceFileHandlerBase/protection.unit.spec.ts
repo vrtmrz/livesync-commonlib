@@ -135,4 +135,48 @@ describe("incoming storage protection", () => {
         expect(conflict.queueCheckForIfOpen).toHaveBeenCalledExactlyOnceWith(path);
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
     });
+
+    it("rejects preservation when readStubContent resolves a different file path", async () => {
+        const { ctx, db, storage, files } = createFileHandlerFixture();
+        const otherPath = "Note.md" as FilePathWithPrefix;
+        files.set(path, makeFile(path, "original bytes"));
+        storage.readStubContent.mockResolvedValue(makeFile(otherPath, "substituted bytes"));
+
+        await expect(
+            preserveUnsyncedStorageAsConflict(ctx, path, makeFileStub(path), makeMetaEntry(path, "2-incoming"), "incoming")
+        ).resolves.toEqual({ preserved: false });
+
+        expect(db.findLiveContentRevisions).not.toHaveBeenCalled();
+        expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+        expect(db.storeWithBaseRevision).not.toHaveBeenCalled();
+    });
+
+    it("refuses recheck when alias lookup returns a distinct document ID", async () => {
+        const { ctx, db, storage, files } = createFileHandlerFixture();
+        const otherPath = "Note.md" as FilePathWithPrefix;
+        files.set(otherPath, makeFile(otherPath, "different document"));
+        storage.getStub.mockResolvedValue(makeFileStub(otherPath));
+
+        await expect(
+            recheckIncomingStorage(ctx, path, makeMetaEntry(path, "2-incoming"), undefined, false)
+        ).resolves.toEqual({ preserved: false });
+
+        expect(storage.readStubContent).not.toHaveBeenCalled();
+        expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+    });
+
+    it("defers live-write recheck when the observed file has a different provenance key", async () => {
+        const { ctx, db, storage, path: pathService, files } = createFileHandlerFixture();
+        const otherCase = "Note.md" as FilePathWithPrefix;
+        files.set(otherCase, makeFile(otherCase, "same id other case"));
+        storage.getStub.mockResolvedValue(makeFileStub(otherCase));
+        pathService.path2id.mockImplementation(async (value) => String(value).toLowerCase() as never);
+
+        await expect(
+            recheckIncomingStorage(ctx, path, makeMetaEntry(path, "2-incoming"), "incoming bytes", false)
+        ).resolves.toEqual({ preserved: false });
+
+        expect(storage.readStubContent).not.toHaveBeenCalled();
+        expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+    });
 });

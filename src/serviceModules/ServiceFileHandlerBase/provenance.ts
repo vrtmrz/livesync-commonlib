@@ -139,6 +139,94 @@ export async function deleteProvenance(ctx: FileHandlerContext, path: FilePathWi
     }
 }
 
+/** Pre-rename provenance snapshot for source and target spellings under the same document lock. */
+export interface RenameProvenanceSnapshot {
+    readonly oldPath: FilePathWithPrefix;
+    readonly oldKey: FilePathWithPrefix;
+    readonly expectedNewKey: FilePathWithPrefix;
+    readonly sourceRecord: FileReflectionProvenanceRecord | undefined;
+    readonly destinationBefore: FileReflectionProvenanceRecord | undefined;
+}
+
+/**
+ * Capture source and destination provenance strictly before a physical case-only rename.
+ *
+ * @param ctx - The captured services, per-instance state, and dynamic host seams.
+ * @param oldPath - The physical path observed before renaming.
+ * @param targetPath - The incoming canonical path requested for the rename.
+ * @returns The captured snapshot, or undefined when provenance is disabled or keys already match; returns false on a read or pre-rename stale-destination cleanup failure.
+ * @remarks When the source has no provenance and a stale record already occupies the destination key, that stale record is removed before mutating storage so a post-rename retry cannot inherit it.
+ */
+export async function captureRenameProvenance(
+    ctx: FileHandlerContext,
+    oldPath: FilePathWithPrefix,
+    targetPath: FilePathWithPrefix
+): Promise<RenameProvenanceSnapshot | undefined | false> {
+    if (!ctx.provenance) return undefined;
+    const oldKey = getProvenancePath(ctx, oldPath);
+    const expectedNewKey = getProvenancePath(ctx, targetPath);
+    if (oldKey === expectedNewKey) return undefined;
+    try {
+        const sourceRecord = await readProvenanceSnapshot(ctx, oldPath, true);
+        let destinationBefore = await readProvenanceSnapshot(ctx, targetPath, true);
+        if (!sourceRecord && destinationBefore !== undefined) {
+            await ctx.provenance.delete(expectedNewKey);
+            destinationBefore = undefined;
+        }
+        return { oldPath, oldKey, expectedNewKey, sourceRecord, destinationBefore };
+    } catch (ex) {
+        ctx.host.log(
+            `Could not prepare file reflection provenance before renaming ${oldPath} -> ${targetPath}`,
+            LOG_LEVEL_VERBOSE
+        );
+        ctx.host.log(ex, LOG_LEVEL_VERBOSE);
+        return false;
+    }
+}
+
+/**
+ * Transfer or reconcile destination provenance after a verified physical case-only rename.
+ *
+ * @param ctx - The captured services, per-instance state, and dynamic host seams.
+ * @param snapshot - The pre-rename source and destination provenance observations.
+ * @param newPath - The physical path returned by the storage rename.
+ * @returns True if provenance is now consistent with the renamed file; false if an intervening host update or store error prevents safe continuation.
+ * @remarks Performs an optimistic check against the pre-rename destination snapshot (read and write are separate operations) to preserve concurrent out-of-lock destination updates. Deletes the old key best-effort only after the new key write succeeds.
+ */
+export async function commitRenamedProvenance(
+    ctx: FileHandlerContext,
+    snapshot: RenameProvenanceSnapshot,
+    newPath: FilePathWithPrefix
+): Promise<boolean> {
+    if (!ctx.provenance) return true;
+    const newKey = getProvenancePath(ctx, newPath);
+    if (newKey !== snapshot.expectedNewKey) return false;
+    if (snapshot.oldKey === newKey) return true;
+    try {
+        const destinationAfter = await readProvenanceSnapshot(ctx, newPath, true);
+        if (!sameProvenance(destinationAfter, snapshot.destinationBefore)) {
+            ctx.host.log(
+                `Preserving concurrent file reflection provenance update for ${newPath} after rename from ${snapshot.oldPath}`,
+                LOG_LEVEL_VERBOSE
+            );
+            return false;
+        }
+        if (snapshot.sourceRecord) {
+            await ctx.provenance.set(newKey, snapshot.sourceRecord);
+            await deleteProvenance(ctx, snapshot.oldPath);
+            return true;
+        }
+        return true;
+    } catch (ex) {
+        ctx.host.log(
+            `Could not update file reflection provenance after renaming ${snapshot.oldPath} -> ${newPath}`,
+            LOG_LEVEL_VERBOSE
+        );
+        ctx.host.log(ex, LOG_LEVEL_VERBOSE);
+        return false;
+    }
+}
+
 /**
  * Find one unambiguous database revision containing the observed storage bytes.
  *

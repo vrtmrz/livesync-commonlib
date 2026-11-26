@@ -443,3 +443,744 @@ describe("selected-revision Boolean compatibility", () => {
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
     });
 });
+
+describe("case-only rename provenance preservation (#1378)", () => {
+    function createCaseAwareFixture(options: {
+        pathNormalizationVersion?: 0 | 1;
+        handleFilenameCaseSensitive?: boolean;
+        insensitiveStorageLookup?: boolean;
+        preserveRenamedPath?: (oldPath: FilePathWithPrefix, targetPath: FilePathWithPrefix) => FilePathWithPrefix;
+    } = {}) {
+        const version = options.pathNormalizationVersion ?? 0;
+        const caseSensitive = options.handleFilenameCaseSensitive ?? false;
+        const insensitiveLookup = options.insensitiveStorageLookup ?? !caseSensitive;
+        const fixture = createFileHandlerFixture();
+        fixture.setting.currentSettings.mockReturnValue({
+            ...DEFAULT_SETTINGS,
+            handleFilenameCaseSensitive: caseSensitive,
+            pathNormalizationVersion: version,
+        });
+        const normaliseKey = (value: string) => (version === 1 ? value.normalize("NFC") : value);
+        const lookupKey = (value: string) => {
+            const norm = normaliseKey(value);
+            return insensitiveLookup ? norm.toLowerCase() : norm;
+        };
+        const findStoredFile = (requested: string): UXFileInfo | undefined => {
+            const exact = fixture.files.get(requested as FilePathWithPrefix);
+            if (exact) return exact;
+            const target = lookupKey(requested);
+            for (const file of fixture.files.values()) {
+                if (lookupKey(file.path) === target) return file;
+            }
+            return undefined;
+        };
+        fixture.path.path2id.mockImplementation(async (value) => {
+            const norm = normaliseKey(String(value));
+            return (caseSensitive ? norm : norm.toLowerCase()) as never;
+        });
+        fixture.path.compareFileFreshness.mockReturnValue(TARGET_IS_NEW);
+        fixture.storage.getStub.mockImplementation(async (requested) => {
+            const found = findStoredFile(String(requested));
+            return found ? { name: found.name, path: found.path, stat: found.stat } : null;
+        });
+        fixture.storage.getFileStub.mockImplementation(async (requested) => {
+            const found = findStoredFile(String(requested));
+            return found ? { name: found.name, path: found.path, stat: found.stat } : null;
+        });
+        fixture.storage.stat.mockImplementation(async (requested) => findStoredFile(String(requested))?.stat ?? null);
+        fixture.storage.readStubContent.mockImplementation(async (stub) => findStoredFile(stub.path) ?? false);
+        fixture.storage.renameFile.mockImplementation(async (file, targetPath) => {
+            const oldPath = (typeof file === "string" ? file : file.path) as FilePathWithPrefix;
+            const existing = findStoredFile(oldPath);
+            if (!existing) return null;
+            const finalPath = options.preserveRenamedPath ? options.preserveRenamedPath(existing.path, targetPath) : targetPath;
+            const bodyText = await existing.body.text();
+            const moved = makeFile(finalPath, bodyText, { ctime: existing.stat.ctime, mtime: existing.stat.mtime });
+            fixture.files.delete(existing.path);
+            fixture.files.set(finalPath, moved);
+            return { name: moved.name, path: moved.path, stat: moved.stat };
+        });
+        fixture.storage.writeFileAuto.mockImplementation(async (targetPath, data, opt) => {
+            const existing = findStoredFile(targetPath);
+            const finalPath = (existing?.path ?? targetPath) as FilePathWithPrefix;
+            const body = Array.isArray(data) ? data.join("") : data;
+            const written = makeFile(finalPath, body, { ctime: opt?.ctime, mtime: opt?.mtime });
+            fixture.files.set(finalPath, written);
+            return true;
+        });
+        fixture.storage.deleteVaultItem.mockImplementation(async (item) => {
+            const target = typeof item === "string" ? item : item.path;
+            const existing = findStoredFile(target);
+            if (existing) fixture.files.delete(existing.path);
+        });
+        return fixture;
+    }
+
+    it.each(
+        ([0, 1] as const).flatMap((pathNormalizationVersion) =>
+            ([false, true] as const).map((basePruned) => ({ pathNormalizationVersion, basePruned }))
+        )
+    )(
+        "applies a case-only rename with changed content without creating a false conflict (v=$pathNormalizationVersion, basePruned=$basePruned)",
+        async ({ pathNormalizationVersion, basePruned }) => {
+            const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+            const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
+            const oldBody = '---\ntitle: "[[example note]]"\n---\nold body\n';
+            const newBody = '---\ntitle: "[[Example note]]"\n---\nnew body\n';
+            const { ctx, db, storage, provenanceRecords, files, conflict } = createCaseAwareFixture({
+                pathNormalizationVersion,
+            });
+            const localFile = makeFile(oldPath, oldBody, { mtime: 1_000 });
+            files.set(oldPath, localFile);
+            const record = basePruned
+                ? await makeProvenanceRecord(localFile, "1-base")
+                : { revision: "1-base", observedStorageMtime: localFile.stat.mtime };
+            provenanceRecords.set(oldPath, record);
+            const incoming = makeMetaEntry(newPath, "2-renamed", { mtime: 2_000, size: new Blob([newBody]).size });
+            db.fetchEntryMeta.mockImplementation(async (_target, rev) => {
+                if (rev === "1-base") return basePruned ? false : makeMetaEntry(oldPath, "1-base");
+                return incoming;
+            });
+            db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, newBody));
+            db.fetchEntry.mockImplementation(async (_target, rev) => {
+                if (rev === "1-base") return basePruned ? false : loaded(makeMetaEntry(oldPath, "1-base"), oldBody);
+                return false;
+            });
+
+            await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "completed" });
+
+            expect(storage.renameFile).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ path: oldPath }), newPath);
+            expect(storage.writeFileAuto).toHaveBeenCalledExactlyOnceWith(newPath, newBody, {
+                ctime: incoming.ctime,
+                mtime: incoming.mtime,
+            });
+            expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+            expect(db.storeWithBaseRevision).not.toHaveBeenCalled();
+            expect(conflict.queueCheckFor).not.toHaveBeenCalled();
+            expect([...files.keys()]).toEqual([newPath]);
+            expect(await files.get(newPath)?.body.text()).toBe(newBody);
+            expect(provenanceRecords.has(oldPath)).toBe(false);
+            expect(provenanceRecords.get(newPath)?.revision).toBe("2-renamed");
+        }
+    );
+
+    it("preserves a real local edit as a child of the displayed revision across a case-only rename", async () => {
+        const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+        const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
+        const baseBody = "original body\n";
+        const editedBody = "locally edited body\n";
+        const incomingBody = "remote renamed body\n";
+        const { ctx, db, storage, provenanceRecords, files, conflict } = createCaseAwareFixture();
+        const baseFile = makeFile(oldPath, baseBody, { mtime: 1_000 });
+        const editedFile = makeFile(oldPath, editedBody, { mtime: 1_500 });
+        files.set(oldPath, editedFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(baseFile, "1-base"));
+        const incoming = makeMetaEntry(newPath, "2-renamed", { mtime: 2_000, size: new Blob([incomingBody]).size });
+        db.fetchEntryMeta.mockResolvedValue(incoming);
+        db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, incomingBody));
+        db.fetchEntry.mockImplementation(async (_target, rev) =>
+            rev === "1-base" ? loaded(makeMetaEntry(oldPath, "1-base"), baseBody) : false
+        );
+        db.storeWithBaseRevision.mockResolvedValue("2-local-edit");
+
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "policy" });
+
+        expect(db.storeWithBaseRevision).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ path: newPath }),
+            "1-base",
+            true
+        );
+        expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith(newPath);
+        expect(await files.get(newPath)?.body.text()).toBe(editedBody);
+        expect(provenanceRecords.has(oldPath)).toBe(false);
+        expect(provenanceRecords.get(newPath)?.revision).toBe("2-local-edit");
+    });
+
+    it.each(["read-error", "size-mismatch", "cancelled"] as const)(
+        "remains retry-safe when %s occurs after the physical case-only rename",
+        async (failureKind) => {
+            const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+            const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
+            const oldBody = "old body\n";
+            const newBody = "new body\n";
+            const { ctx, db, storage, provenanceRecords, files } = createCaseAwareFixture();
+            const localFile = makeFile(oldPath, oldBody, { mtime: 1_000 });
+            files.set(oldPath, localFile);
+            provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
+            const incoming = makeMetaEntry(newPath, "2-renamed", {
+                mtime: 2_000,
+                size: failureKind === "size-mismatch" ? 999 : new Blob([newBody]).size,
+            });
+            db.fetchEntryMeta.mockResolvedValue(incoming);
+            if (failureKind === "read-error") {
+                db.fetchEntryFromMeta
+                    .mockRejectedValueOnce(
+                        new ContentReadError({
+                            documentId: incoming._id,
+                            revision: incoming._rev,
+                            resources: ["remote"],
+                            cause: new Error("chunk missing"),
+                        })
+                    )
+                    .mockResolvedValue(loaded(incoming, newBody));
+            } else {
+                db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, newBody));
+            }
+
+            if (failureKind === "cancelled") {
+                await expect(
+                    applyDatabaseEntryToStorage(ctx, incoming, null, false, false, 0, {
+                        target: { documentId: incoming._id, revision: incoming._rev! },
+                        source: "received",
+                        checkpoint: () => false,
+                    })
+                ).resolves.toEqual({ status: "cancelled" });
+            } else {
+                await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).rejects.toThrow();
+            }
+
+            expect(provenanceRecords.has(oldPath)).toBe(false);
+            expect(provenanceRecords.get(newPath)?.revision).toBe("1-base");
+            expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+
+            const fixedIncoming = makeMetaEntry(newPath, "2-renamed", {
+                mtime: 2_000,
+                size: new Blob([newBody]).size,
+            });
+            db.fetchEntryMeta.mockResolvedValue(fixedIncoming);
+            db.fetchEntryFromMeta.mockResolvedValue(loaded(fixedIncoming, newBody));
+
+            await expect(applyDatabaseEntryToStorage(ctx, fixedIncoming, null)).resolves.toEqual({
+                status: "completed",
+            });
+            expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+            expect(storage.writeFileAuto).toHaveBeenCalledExactlyOnceWith(newPath, newBody, {
+                ctime: fixedIncoming.ctime,
+                mtime: fixedIncoming.mtime,
+            });
+            expect(await files.get(newPath)?.body.text()).toBe(newBody);
+            expect(provenanceRecords.get(newPath)?.revision).toBe("2-renamed");
+        }
+    );
+
+    it("aborts before renaming when reading old provenance fails", async () => {
+        const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+        const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenance, provenanceRecords, files } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, "old body\n");
+        files.set(oldPath, localFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
+        provenance.get.mockRejectedValueOnce(new Error("kv unavailable"));
+        const incoming = makeMetaEntry(newPath, "2-renamed", { size: 9 });
+
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).rejects.toThrow();
+
+        expect(storage.renameFile).not.toHaveBeenCalled();
+        expect(db.fetchEntryFromMeta).not.toHaveBeenCalled();
+        expect(provenanceRecords.get(oldPath)?.revision).toBe("1-base");
+    });
+
+    it("preserves old provenance and avoids false conflict if writing destination provenance fails", async () => {
+        const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+        const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenance, provenanceRecords, files } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, "old body\n");
+        files.set(oldPath, localFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
+        provenance.set.mockRejectedValueOnce(new Error("kv write failed"));
+        const incoming = makeMetaEntry(newPath, "2-renamed", { size: 9 });
+
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).rejects.toThrow();
+
+        expect(provenanceRecords.get(oldPath)?.revision).toBe("1-base");
+        expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
+    });
+
+    it("clears stale destination provenance when the renamed source has no provenance", async () => {
+        const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+        const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
+        const localBody = "unknown local content\n";
+        const incomingBody = "remote body\n";
+        const { ctx, db, storage, provenanceRecords, files } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, localBody);
+        files.set(oldPath, localFile);
+        // Stale record at destination matches local bytes by coincidence or old history; must not be inherited.
+        provenanceRecords.set(newPath, await makeProvenanceRecord(localFile, "9-stale"));
+        const incoming = makeMetaEntry(newPath, "2-renamed", { size: new Blob([incomingBody]).size });
+        db.fetchEntryMeta.mockResolvedValue(incoming);
+        db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, incomingBody));
+
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "policy" });
+
+        expect(db.storeIndependentRevision).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ path: newPath }),
+            true
+        );
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
+        expect(provenanceRecords.get(newPath)?.revision).toBe("1-independent");
+    });
+
+    it("preserves a newer out-of-lock destination provenance written while renameFile is awaiting", async () => {
+        const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+        const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenanceRecords, files } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, "old body\n");
+        files.set(oldPath, localFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
+        const originalRename = storage.renameFile.getMockImplementation()!;
+        storage.renameFile.mockImplementationOnce(async (file, targetPath) => {
+            const renamed = await originalRename(file, targetPath);
+            provenanceRecords.set(newPath, { revision: "4-concurrent-host", observedStorageMtime: 9_999 });
+            return renamed;
+        });
+        const incoming = makeMetaEntry(newPath, "2-renamed", { size: 9 });
+
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).rejects.toThrow();
+
+        expect(provenanceRecords.get(newPath)?.revision).toBe("4-concurrent-host");
+        expect(db.fetchEntryFromMeta).not.toHaveBeenCalled();
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
+    });
+
+    it("refuses to proceed when renameFile returns a path with a different provenance key", async () => {
+        const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+        const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
+        const weirdPath = "Tasks/EXAMPLE NOTE.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenanceRecords, files } = createCaseAwareFixture({
+            preserveRenamedPath: () => weirdPath,
+        });
+        const localFile = makeFile(oldPath, "old body\n");
+        files.set(oldPath, localFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
+        const incoming = makeMetaEntry(newPath, "2-renamed", { size: 9 });
+
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).rejects.toThrow();
+
+        expect(db.fetchEntryFromMeta).not.toHaveBeenCalled();
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
+    });
+
+    it("handles simultaneous NFD parent and filename case change in NFC mode without conflict", async () => {
+        const nfdParent = "Cafe\u0301";
+        const nfcParent = "Caf\u00e9";
+        const oldPhysical = `${nfdParent}/Note.md` as FilePathWithPrefix;
+        const oldCanonical = `${nfcParent}/Note.md` as FilePathWithPrefix;
+        const newCanonical = `${nfcParent}/note.md` as FilePathWithPrefix;
+        const newPhysical = `${nfdParent}/note.md` as FilePathWithPrefix;
+        const oldBody = "old unicode body\n";
+        const newBody = "new unicode body\n";
+        const { ctx, db, storage, provenanceRecords, files } = createCaseAwareFixture({
+            pathNormalizationVersion: 1,
+            preserveRenamedPath: () => newPhysical,
+        });
+        const localFile = makeFile(oldPhysical, oldBody);
+        files.set(oldPhysical, localFile);
+        provenanceRecords.set(oldCanonical, await makeProvenanceRecord(localFile, "1-base"));
+        const incoming = makeMetaEntry(newCanonical, "2-renamed", {
+            mtime: 2_000,
+            size: new Blob([newBody]).size,
+        });
+        db.fetchEntryMeta.mockResolvedValue(incoming);
+        db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, newBody));
+
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "completed" });
+
+        expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+        expect(storage.writeFileAuto).toHaveBeenCalledWith(newCanonical, newBody, {
+            ctime: incoming.ctime,
+            mtime: incoming.mtime,
+        });
+        expect(provenanceRecords.has(oldCanonical)).toBe(false);
+        expect(provenanceRecords.get(newCanonical)?.revision).toBe("2-renamed");
+    });
+
+    it("applies incoming deletion to an unchanged differently-cased file and clears old-case provenance", async () => {
+        const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+        const incomingPath = "Tasks/Example note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenanceRecords, files } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, "unchanged body\n");
+        files.set(oldPath, localFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
+        const deletion = makeMetaEntry(incomingPath, "2-deleted", { deleted: true });
+        db.fetchEntryMeta.mockResolvedValue(deletion);
+
+        await expect(applyDatabaseEntryToStorage(ctx, deletion, null)).resolves.toEqual({ status: "completed" });
+
+        expect(storage.deleteVaultItem).toHaveBeenCalledExactlyOnceWith(incomingPath);
+        expect(files.size).toBe(0);
+        expect(provenanceRecords.size).toBe(0);
+        expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+    });
+
+    it("preserves a locally edited differently-cased file as a child of its displayed revision on incoming deletion", async () => {
+        const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+        const incomingPath = "Tasks/Example note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenanceRecords, files, conflict } = createCaseAwareFixture();
+        const baseFile = makeFile(oldPath, "base body\n");
+        const editedFile = makeFile(oldPath, "local edit\n", { mtime: 1_500 });
+        files.set(oldPath, editedFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(baseFile, "1-base"));
+        const deletion = makeMetaEntry(incomingPath, "2-deleted", { deleted: true });
+        db.fetchEntryMeta.mockResolvedValue(deletion);
+        db.fetchEntry.mockResolvedValue(loaded(makeMetaEntry(oldPath, "1-base"), "base body\n"));
+        db.storeWithBaseRevision.mockResolvedValue("2-preserved-edit");
+
+        await expect(applyDatabaseEntryToStorage(ctx, deletion, null)).resolves.toEqual({ status: "policy" });
+
+        expect(storage.deleteVaultItem).not.toHaveBeenCalled();
+        expect(db.storeWithBaseRevision).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ path: oldPath }),
+            "1-base",
+            true
+        );
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith(incomingPath);
+        expect(provenanceRecords.get(oldPath)?.revision).toBe("2-preserved-edit");
+    });
+
+    it.each([
+        { label: "ordinary", force: false, writeDocumentsIfConflicted: false },
+        { label: "forced", force: true, writeDocumentsIfConflicted: false },
+        { label: "writeDocumentsIfConflicted", force: false, writeDocumentsIfConflicted: true },
+    ])(
+        "refuses $label incoming deletion when insensitive storage resolves a distinct document ID",
+        async ({ force, writeDocumentsIfConflicted }) => {
+            const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+            const incomingPath = "Tasks/Example note.md" as FilePathWithPrefix;
+            const { ctx, setting, storage, provenanceRecords, files } = createCaseAwareFixture({
+                handleFilenameCaseSensitive: true,
+                insensitiveStorageLookup: true,
+            });
+            setting.currentSettings.mockReturnValue({
+                ...DEFAULT_SETTINGS,
+                handleFilenameCaseSensitive: true,
+                writeDocumentsIfConflicted,
+            });
+            const localFile = makeFile(oldPath, "distinct document\n");
+            files.set(oldPath, localFile);
+            provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-distinct"));
+            const deletion = makeMetaEntry(incomingPath, "2-deleted", { deleted: true });
+
+            await expect(applyDatabaseEntryToStorage(ctx, deletion, null, force)).rejects.toThrow();
+
+            expect(storage.deleteVaultItem).not.toHaveBeenCalled();
+            expect(files.has(oldPath)).toBe(true);
+            expect(provenanceRecords.get(oldPath)?.revision).toBe("1-distinct");
+        }
+    );
+
+    it("clears both old-case and incoming provenance keys after a forced same-ID deletion", async () => {
+        const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+        const incomingPath = "Tasks/Example note.md" as FilePathWithPrefix;
+        const { ctx, storage, provenanceRecords, files } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, "stale body\n");
+        files.set(oldPath, localFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-old"));
+        provenanceRecords.set(incomingPath, await makeProvenanceRecord(localFile, "1-incoming"));
+        const deletion = makeMetaEntry(incomingPath, "2-deleted", { deleted: true });
+
+        await expect(applyDatabaseEntryToStorage(ctx, deletion, null, true)).resolves.toEqual({ status: "completed" });
+
+        expect(storage.deleteVaultItem).toHaveBeenCalledExactlyOnceWith(incomingPath);
+        expect(provenanceRecords.size).toBe(0);
+    });
+
+    it("refuses incoming deletion when the incoming lookup resolves to a newly created folder instead of the validated file", async () => {
+        const oldPath = "Tasks/note.md" as FilePathWithPrefix;
+        const incomingPath = "Tasks/Note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenanceRecords, files } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, "unchanged body\n");
+        files.set(oldPath, localFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
+        const deletion = makeMetaEntry(incomingPath, "2-deleted", { deleted: true });
+        let substituted = false;
+        db.fetchEntryMeta.mockImplementation(async () => {
+            substituted = true;
+            return deletion;
+        });
+        const originalGetStub = storage.getStub.getMockImplementation()!;
+        storage.getStub.mockImplementation(async (requested) => {
+            if (substituted && requested === incomingPath) {
+                return makeFolder(incomingPath);
+            }
+            return await originalGetStub(requested);
+        });
+
+        await expect(applyDatabaseEntryToStorage(ctx, deletion, null)).rejects.toThrow(
+            "Reflection could not establish a safe current result"
+        );
+
+        expect(storage.deleteVaultItem).not.toHaveBeenCalled();
+        expect(files.has(oldPath)).toBe(true);
+        expect(provenanceRecords.get(oldPath)?.revision).toBe("1-base");
+    });
+
+    it("aborts before renaming if stale destination provenance cleanup fails so retry cannot trust stale evidence", async () => {
+        const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+        const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
+        const localBody = "unknown local content\n";
+        const incomingBody = "remote body\n";
+        const { ctx, db, storage, provenance, provenanceRecords, files } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, localBody);
+        files.set(oldPath, localFile);
+        provenanceRecords.set(newPath, await makeProvenanceRecord(localFile, "9-stale"));
+        provenance.delete.mockRejectedValueOnce(new Error("kv delete failed"));
+        const incoming = makeMetaEntry(newPath, "2-renamed", { size: new Blob([incomingBody]).size });
+        db.fetchEntryMeta.mockResolvedValue(incoming);
+        db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, incomingBody));
+
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).rejects.toThrow(
+            "Reflection could not establish a safe current result"
+        );
+
+        expect(storage.renameFile).not.toHaveBeenCalled();
+        expect(files.has(oldPath)).toBe(true);
+        expect(await files.get(oldPath)?.body.text()).toBe(localBody);
+
+        // Retry succeeds in removing stale destination provenance and preserves unknown local content safely.
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "policy" });
+
+        expect(db.storeIndependentRevision).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ path: newPath }),
+            true
+        );
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
+        expect(await files.get(newPath)?.body.text()).toBe(localBody);
+        expect(provenanceRecords.get(newPath)?.revision).toBe("1-independent");
+    });
+
+    it("does not create a duplicate revision when both local and renamed incoming notes are empty", async () => {
+        const oldPath = "Tasks/empty note.md" as FilePathWithPrefix;
+        const newPath = "Tasks/Empty note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenanceRecords, files, conflict } = createCaseAwareFixture();
+        const oldNonEmpty = makeFile(oldPath, "previous non-empty body\n");
+        const localEmpty = makeFile(oldPath, "", { mtime: 1_500 });
+        files.set(oldPath, localEmpty);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(oldNonEmpty, "1-nonempty"));
+        const incoming = makeMetaEntry(newPath, "2-empty-renamed", { mtime: 2_000, size: 0 });
+        db.fetchEntryMeta.mockResolvedValue(incoming);
+        db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, ""));
+        db.fetchEntry.mockResolvedValue(loaded(makeMetaEntry(oldPath, "1-nonempty"), "previous non-empty body\n"));
+
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "completed" });
+
+        expect(db.storeWithBaseRevision).not.toHaveBeenCalled();
+        expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+        expect(conflict.queueCheckFor).not.toHaveBeenCalled();
+        expect(await files.get(newPath)?.body.text()).toBe("");
+        expect(provenanceRecords.has(oldPath)).toBe(false);
+        expect(provenanceRecords.get(newPath)?.revision).toBe("2-empty-renamed");
+    });
+
+    it("clears initial, rechecked, and incoming provenance keys when recheck validates a third same-ID spelling on deletion", async () => {
+        const initialPath = "Tasks/note.md" as FilePathWithPrefix;
+        const recheckedPath = "Tasks/nOTE.md" as FilePathWithPrefix;
+        const incomingPath = "Tasks/Note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenanceRecords, files } = createCaseAwareFixture();
+        const initialFile = makeFile(initialPath, "unchanged body\n", { mtime: 1_000 });
+        const recheckedFile = makeFile(recheckedPath, "unchanged body\n", { mtime: 1_000 });
+        files.set(initialPath, initialFile);
+        provenanceRecords.set(initialPath, await makeProvenanceRecord(initialFile, "1-base"));
+        provenanceRecords.set(recheckedPath, await makeProvenanceRecord(recheckedFile, "1-base"));
+        provenanceRecords.set(incomingPath, await makeProvenanceRecord(initialFile, "1-base"));
+        const deletion = makeMetaEntry(incomingPath, "2-deleted", { deleted: true });
+        let movedOnce = false;
+        db.fetchEntryMeta.mockImplementation(async () => {
+            if (!movedOnce) {
+                movedOnce = true;
+                files.delete(initialPath);
+                files.set(recheckedPath, recheckedFile);
+            }
+            return deletion;
+        });
+
+        await expect(applyDatabaseEntryToStorage(ctx, deletion, null)).resolves.toEqual({ status: "completed" });
+
+        expect(storage.deleteVaultItem).toHaveBeenCalledExactlyOnceWith(incomingPath);
+        expect(files.size).toBe(0);
+        expect(provenanceRecords.size).toBe(0);
+    });
+
+    it("records matching-leaf provenance under the observed spelling and queues conflict review under incoming path on deletion", async () => {
+        const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+        const incomingPath = "Tasks/Example note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenanceRecords, files, conflict } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, "matching live leaf body\n");
+        files.set(oldPath, localFile);
+        const deletion = makeMetaEntry(incomingPath, "3-deleted", { deleted: true });
+        db.fetchEntryMeta.mockResolvedValue(deletion);
+        db.findLiveContentRevisions.mockResolvedValue(["2-live-leaf"]);
+
+        await expect(applyDatabaseEntryToStorage(ctx, deletion, null)).resolves.toEqual({ status: "policy" });
+
+        expect(storage.deleteVaultItem).not.toHaveBeenCalled();
+        expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+        expect(provenanceRecords.get(oldPath)?.revision).toBe("2-live-leaf");
+        expect(provenanceRecords.has(incomingPath)).toBe(false);
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith(incomingPath);
+    });
+
+    it("clears NFC/NFD shared provenance exactly once on incoming deletion", async () => {
+        const nfcPath = "Caf\u00e9.md" as FilePathWithPrefix;
+        const nfdPath = nfcPath.normalize("NFD") as FilePathWithPrefix;
+        const { ctx, db, storage, provenance, provenanceRecords, files } = createCaseAwareFixture({
+            pathNormalizationVersion: 1,
+            handleFilenameCaseSensitive: true,
+        });
+        const localFile = makeFile(nfdPath, "unchanged unicode body\n");
+        files.set(nfdPath, localFile);
+        provenanceRecords.set(nfcPath, await makeProvenanceRecord(localFile, "1-base"));
+        const deletion = makeMetaEntry(nfcPath, "2-deleted", { deleted: true });
+        db.fetchEntryMeta.mockResolvedValue(deletion);
+
+        await expect(applyDatabaseEntryToStorage(ctx, deletion, null)).resolves.toEqual({ status: "completed" });
+
+        expect(storage.deleteVaultItem).toHaveBeenCalledExactlyOnceWith(nfcPath);
+        expect(provenance.delete).toHaveBeenCalledExactlyOnceWith(nfcPath);
+        expect(files.size).toBe(0);
+        expect(provenanceRecords.size).toBe(0);
+    });
+
+    it("honours cancellation occurring while the pre-delete incoming target lookup is awaiting", async () => {
+        const oldPath = "Tasks/note.md" as FilePathWithPrefix;
+        const incomingPath = "Tasks/Note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenanceRecords, files } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, "unchanged body\n");
+        files.set(oldPath, localFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
+        const deletion = makeMetaEntry(incomingPath, "2-deleted", { deleted: true });
+        let dbChecked = false;
+        let active = true;
+        db.fetchEntryMeta.mockImplementation(async () => {
+            dbChecked = true;
+            return deletion;
+        });
+        const originalGetStub = storage.getStub.getMockImplementation()!;
+        storage.getStub.mockImplementation(async (requested) => {
+            const result = await originalGetStub(requested);
+            if (dbChecked && requested === incomingPath) {
+                active = false;
+            }
+            return result;
+        });
+
+        await expect(
+            applyDatabaseEntryToStorage(ctx, deletion, null, false, false, 0, {
+                target: { documentId: deletion._id, revision: deletion._rev! },
+                source: "received",
+                checkpoint: () => active,
+            })
+        ).resolves.toEqual({ status: "cancelled" });
+
+        expect(storage.deleteVaultItem).not.toHaveBeenCalled();
+        expect(files.has(oldPath)).toBe(true);
+        expect(provenanceRecords.get(oldPath)?.revision).toBe("1-base");
+    });
+
+    it("refuses deletion when local bytes change while the pre-delete incoming target lookup is awaiting", async () => {
+        const oldPath = "Tasks/note.md" as FilePathWithPrefix;
+        const incomingPath = "Tasks/Note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenanceRecords, files } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, "unchanged body\n", { mtime: 1_000 });
+        files.set(oldPath, localFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
+        const deletion = makeMetaEntry(incomingPath, "2-deleted", { deleted: true });
+        let dbChecked = false;
+        db.fetchEntryMeta.mockImplementation(async () => {
+            dbChecked = true;
+            return deletion;
+        });
+        const originalGetStub = storage.getStub.getMockImplementation()!;
+        storage.getStub.mockImplementation(async (requested) => {
+            if (dbChecked && requested === incomingPath) {
+                files.set(oldPath, makeFile(oldPath, "local edit during target lookup\n", { mtime: 2_500 }));
+            }
+            return await originalGetStub(requested);
+        });
+
+        await expect(applyDatabaseEntryToStorage(ctx, deletion, null)).rejects.toThrow(
+            "Reflection could not establish a safe current result"
+        );
+
+        expect(storage.deleteVaultItem).not.toHaveBeenCalled();
+        expect(await files.get(oldPath)?.body.text()).toBe("local edit during target lookup\n");
+        expect(provenanceRecords.get(oldPath)?.revision).toBe("1-base");
+    });
+
+    it("refuses deletion when same-mtime bytes change during the final pre-delete provenance read", async () => {
+        const oldPath = "Tasks/note.md" as FilePathWithPrefix;
+        const incomingPath = "Tasks/Note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenance, provenanceRecords, files } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, "aaaa\n", { mtime: 1_000 });
+        files.set(oldPath, localFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
+        const deletion = makeMetaEntry(incomingPath, "2-deleted", { deleted: true });
+        let dbChecked = false;
+        let postValidationReads = 0;
+        db.fetchEntryMeta.mockImplementation(async () => {
+            dbChecked = true;
+            return deletion;
+        });
+        const originalGet = provenance.get.getMockImplementation()!;
+        provenance.get.mockImplementation(async (key) => {
+            const result = await originalGet(key);
+            if (dbChecked && key === oldPath) {
+                postValidationReads += 1;
+                // 1st post-validation read is currentStorageSnapshotMatches; 2nd is the final pre-delete provenance read.
+                if (postValidationReads === 2) {
+                    files.set(oldPath, makeFile(oldPath, "bbbb\n", { mtime: 1_000 }));
+                }
+            }
+            return result;
+        });
+
+        await expect(applyDatabaseEntryToStorage(ctx, deletion, null)).rejects.toThrow(
+            "Reflection could not establish a safe current result"
+        );
+
+        expect(postValidationReads).toBe(2);
+        expect(storage.deleteVaultItem).not.toHaveBeenCalled();
+        expect(await files.get(oldPath)?.body.text()).toBe("bbbb\n");
+        expect(provenanceRecords.get(oldPath)?.revision).toBe("1-base");
+    });
+
+    it("refuses deletion when an exact-spelling file appears during the final pre-delete provenance read", async () => {
+        const oldPath = "Tasks/note.md" as FilePathWithPrefix;
+        const incomingPath = "Tasks/Note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, provenance, provenanceRecords, files } = createCaseAwareFixture();
+        const localFile = makeFile(oldPath, "unchanged body\n", { mtime: 1_000 });
+        files.set(oldPath, localFile);
+        provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
+        const deletion = makeMetaEntry(incomingPath, "2-deleted", { deleted: true });
+        let dbChecked = false;
+        let postValidationReads = 0;
+        db.fetchEntryMeta.mockImplementation(async () => {
+            dbChecked = true;
+            return deletion;
+        });
+        const originalGet = provenance.get.getMockImplementation()!;
+        provenance.get.mockImplementation(async (key) => {
+            const result = await originalGet(key);
+            if (dbChecked && key === oldPath) {
+                postValidationReads += 1;
+                // 1st post-validation read is currentStorageSnapshotMatches; 2nd is the final pre-delete provenance read.
+                if (postValidationReads === 2) {
+                    files.set(incomingPath, makeFile(incomingPath, "newly created exact-case file\n", { mtime: 2_000 }));
+                }
+            }
+            return result;
+        });
+
+        await expect(applyDatabaseEntryToStorage(ctx, deletion, null)).rejects.toThrow(
+            "Reflection could not establish a safe current result"
+        );
+
+        expect(postValidationReads).toBe(2);
+        expect(storage.deleteVaultItem).not.toHaveBeenCalled();
+        expect(await files.get(oldPath)?.body.text()).toBe("unchanged body\n");
+        expect(await files.get(incomingPath)?.body.text()).toBe("newly created exact-case file\n");
+        expect(provenanceRecords.get(oldPath)?.revision).toBe("1-base");
+    });
+});
