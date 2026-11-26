@@ -1,12 +1,35 @@
 # Updates
 
-## Unreleased
+## 0.8.0
+
+26th November, 2026
+
+### Fixed
+
+- With case-insensitive path comparison, a case-only rename that arrives with
+  a content update retains the record of the revision already reflected
+  locally. This avoids an unnecessary conflict when the local file is
+  unchanged. ([Self-hosted LiveSync #1378](https://github.com/vrtmrz/obsidian-livesync/issues/1378),
+  [Commonlib #235](https://github.com/vrtmrz/livesync-commonlib/pull/235))
 
 ### Improved
 
-- Hosts can store pending file changes in ordered buffers. If a buffer cannot
-  be saved, the manager reports the failure and continues accepting later
-  changes. Previously saved operations remain available for recovery.
+- Browser hosts can write eligible Chunk batches while the next chunks are
+  being split. Chunk splitting, encryption, and decryption share a background
+  Worker pool. ([Commonlib #236](https://github.com/vrtmrz/livesync-commonlib/pull/236))
+- Hosts can supply `pendingEventStore` to save pending file events in ordered
+  buffers for replay. Each buffer is committed before its events are handled.
+  If saving fails, the manager reports the failure and continues accepting
+  later changes. Previously saved operations remain available for recovery.
+  ([Self-hosted LiveSync #1380](https://github.com/vrtmrz/obsidian-livesync/issues/1380),
+  [Commonlib #238](https://github.com/vrtmrz/livesync-commonlib/pull/238))
+
+### Compatibility
+
+- On Node, `splitPieces2Worker` and `splitPieces2WorkerV2` in
+  `compat/worker/bgWorker` return an async generator factory directly, matching
+  their published types. Existing `await` calls continue to work. Replace
+  `.then()` calls on the return value with `await`.
 
 ## 0.7.0
 

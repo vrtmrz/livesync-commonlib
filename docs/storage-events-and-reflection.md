@@ -259,7 +259,9 @@ timers do not occupy a processing slot, and time spent waiting for a slot does
 not restart the maximum delay. Once due, the operation acquires a slot and reads
 current content for processing.
 
-### Ordered pending buffers (unreleased)
+### Ordered pending buffers
+
+This option is available in Commonlib 0.8.0.
 
 A host can supply `pendingEventStore` on its storage-event manager adapter to
 store ordered arrays of new event intents. The store returns buffers in replay
