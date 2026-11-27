@@ -93,7 +93,7 @@ function upsertRow(value: StoredRow): ReplicationResultQueueWrite {
     return { kind: "upsert", key: rowKey(value.id), value };
 }
 
-function rowsFromLegacySnapshot(snapshot: unknown): StoredRow[] {
+export function rowsFromLegacyReplicationResultSnapshot(snapshot: unknown): StoredRow[] {
     if (!isRecord(snapshot)) {
         throw new Error("Invalid legacy replication result queue snapshot.");
     }
@@ -124,12 +124,64 @@ function rowsFromLegacySnapshot(snapshot: unknown): StoredRow[] {
     return rows;
 }
 
-function compareRows(left: StoredRow, right: StoredRow): number {
+export function compareReplicationResultQueueRows(left: StoredRow, right: StoredRow): number {
     const order = ROW_KINDS.indexOf(left.kind) - ROW_KINDS.indexOf(right.kind) || left.order - right.order;
     if (order !== 0 || left.id === right.id) {
         return order;
     }
     return left.id < right.id ? -1 : 1;
+}
+
+async function listQueueKeys(backing: Pick<ReplicationResultQueueBacking, "listKeys">): Promise<readonly string[]> {
+    const keys = await backing.listKeys(QUEUE_PREFIX);
+    if (keys.some((key) => !key.startsWith(QUEUE_PREFIX))) {
+        throw new Error("The replication result queue backing returned keys outside the queue namespace.");
+    }
+    return keys;
+}
+
+export async function loadReplicationResultQueueRows(backing: ReplicationResultQueueBacking): Promise<StoredRow[]> {
+    const keys = await listQueueKeys(backing);
+    const legacySnapshot = await backing.read(LEGACY_KEY);
+    if (legacySnapshot !== undefined) {
+        if (keys.length > 0) {
+            throw new Error("The replication result queue contains both a legacy snapshot and queue rows.");
+        }
+        const rows = rowsFromLegacyReplicationResultSnapshot(legacySnapshot);
+        await backing.writeBatch([...rows.map(upsertRow), { kind: "delete", key: LEGACY_KEY }]);
+        return rows;
+    }
+
+    const rows: StoredRow[] = [];
+    for (const key of keys) {
+        if (!key.startsWith(ROW_PREFIX)) {
+            throw new Error("Unsupported replication result queue row version.");
+        }
+        const value = await backing.read(key);
+        if (!isStoredRow(value) || key !== rowKey(value.id)) {
+            throw new Error("Invalid replication result queue row or missing listed value.");
+        }
+        rows.push(value);
+    }
+    return rows.sort(compareReplicationResultQueueRows);
+}
+
+export function toReplicationResultQueueWrites(
+    delta: readonly ReplicationResultQueueDelta<unknown, unknown, unknown>[]
+): ReplicationResultQueueWrite[] {
+    return delta.map<ReplicationResultQueueWrite>((change) => {
+        switch (change.kind) {
+            case "upsert":
+                if (!isStoredRow(change.row)) {
+                    throw new TypeError("Invalid replication result queue row.");
+                }
+                return upsertRow(change.row);
+            case "delete":
+                return { kind: "delete", key: rowKey(change.id) };
+            default:
+                throw new TypeError("Invalid replication result queue change.");
+        }
+    });
 }
 
 /** Create a queue store with no I/O until an operation is called. */
@@ -138,44 +190,10 @@ export function createReplicationResultQueueStore<D, P, A>(
 ): ReplicationResultQueueStore<D, P, A> {
     let ready = false;
 
-    async function listQueueKeys(): Promise<readonly string[]> {
-        const keys = await backing.listKeys(QUEUE_PREFIX);
-        if (keys.some((key) => !key.startsWith(QUEUE_PREFIX))) {
-            throw new Error("The replication result queue backing returned keys outside the queue namespace.");
-        }
-        return keys;
-    }
-
-    async function loadRows(): Promise<StoredRow[]> {
-        const keys = await listQueueKeys();
-        const legacySnapshot = await backing.read(LEGACY_KEY);
-        if (legacySnapshot !== undefined) {
-            if (keys.length > 0) {
-                throw new Error("The replication result queue contains both a legacy snapshot and queue rows.");
-            }
-            const rows = rowsFromLegacySnapshot(legacySnapshot);
-            await backing.writeBatch([...rows.map(upsertRow), { kind: "delete", key: LEGACY_KEY }]);
-            return rows;
-        }
-
-        const rows: StoredRow[] = [];
-        for (const key of keys) {
-            if (!key.startsWith(ROW_PREFIX)) {
-                throw new Error("Unsupported replication result queue row version.");
-            }
-            const value = await backing.read(key);
-            if (!isStoredRow(value) || key !== rowKey(value.id)) {
-                throw new Error("Invalid replication result queue row or missing listed value.");
-            }
-            rows.push(value);
-        }
-        return rows.sort(compareRows);
-    }
-
     return {
         async load() {
             ready = false;
-            const rows = await loadRows();
+            const rows = await loadReplicationResultQueueRows(backing);
             ready = true;
             return rows;
         },
@@ -186,24 +204,11 @@ export function createReplicationResultQueueStore<D, P, A>(
             if (delta.length === 0) {
                 return;
             }
-            const operations = delta.map<ReplicationResultQueueWrite>((change) => {
-                switch (change.kind) {
-                    case "upsert":
-                        if (!isStoredRow(change.row)) {
-                            throw new TypeError("Invalid replication result queue row.");
-                        }
-                        return upsertRow(change.row);
-                    case "delete":
-                        return { kind: "delete", key: rowKey(change.id) };
-                    default:
-                        throw new TypeError("Invalid replication result queue change.");
-                }
-            });
-            await backing.writeBatch(operations);
+            await backing.writeBatch(toReplicationResultQueueWrites(delta));
         },
         async discard() {
             ready = false;
-            const keys = await listQueueKeys();
+            const keys = await listQueueKeys(backing);
             const operations = [...keys, LEGACY_KEY].map<ReplicationResultQueueWrite>((key) => ({
                 kind: "delete",
                 key,

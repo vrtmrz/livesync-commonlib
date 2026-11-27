@@ -1,7 +1,12 @@
 import { Buffer } from "node:buffer";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
+    compareReplicationResultQueueRows,
     createReplicationResultQueueStore,
+    loadReplicationResultQueueRows,
+    rowsFromLegacyReplicationResultSnapshot,
+    toReplicationResultQueueWrites,
+    type ReplicationResultQueueDelta,
     type ReplicationResultQueueBacking,
     type ReplicationResultQueueRow,
     type ReplicationResultQueueWrite,
@@ -96,6 +101,94 @@ function queueRow(id: string, order = 0): QueueRow {
     return { kind: "queued", id, order, payload: duplicateDoc };
 }
 
+describe("replication result queue rows", () => {
+    it("maps each legacy array index to an occurrence ID and order", () => {
+        const snapshot = {
+            queued: [duplicateDoc, duplicateDoc],
+            processing: [duplicateDoc],
+        };
+
+        expect(rowsFromLegacyReplicationResultSnapshot(snapshot)).toEqual([
+            {
+                kind: "processing",
+                id: "legacy:processing:0",
+                order: 0,
+                payload: duplicateDoc,
+            },
+            {
+                kind: "queued",
+                id: "legacy:queued:0",
+                order: 0,
+                payload: duplicateDoc,
+            },
+            {
+                kind: "queued",
+                id: "legacy:queued:1",
+                order: 1,
+                payload: duplicateDoc,
+            },
+        ]);
+    });
+
+    it("orders rows by phase, order, and then ID", () => {
+        const first = queueRow("b");
+        const tie = queueRow("a");
+        const later = queueRow("0", 1);
+        const active = { ...later, id: "z", kind: "processing" } as const;
+
+        expect([later, first, tie, active].sort(compareReplicationResultQueueRows)).toEqual([
+            active,
+            tie,
+            first,
+            later,
+        ]);
+        expect(compareReplicationResultQueueRows(first, tie)).toBeGreaterThan(0);
+        expect(compareReplicationResultQueueRows(first, { ...first })).toBe(0);
+    });
+
+    it("translates ordered changes to writes for the same occurrence key", () => {
+        const row = queueRow("item");
+        const processing = { ...row, kind: "processing" } as const;
+        const key = `${rowPrefix}item`;
+
+        expect(
+            toReplicationResultQueueWrites([
+                { kind: "upsert", row },
+                { kind: "upsert", row: processing },
+                { kind: "delete", id: row.id },
+            ])
+        ).toEqual([
+            { kind: "upsert", key, value: row },
+            { kind: "upsert", key, value: processing },
+            { kind: "delete", key },
+        ]);
+    });
+
+    it.each([
+        [{ kind: "upsert", row: queueRow("item", -1) }, "Invalid replication result queue row"],
+        [{ kind: "delete", id: "" }, "requires a non-empty ID"],
+        // JavaScript callers can violate the TypeScript discriminant.
+        [
+            { kind: "replace" } as unknown as ReplicationResultQueueDelta<Document, Pending, Attempt>,
+            "Invalid replication result queue change",
+        ],
+    ] satisfies [ReplicationResultQueueDelta<Document, Pending, Attempt>, string][])(
+        "rejects a malformed change before the backing can write",
+        (change, message) => {
+            expect(() => toReplicationResultQueueWrites([change])).toThrow(message);
+        }
+    );
+
+    it("rejects listings that contain another namespace's keys", async () => {
+        const backing = new RecordingBacking();
+        vi.spyOn(backing, "listKeys").mockResolvedValue(["other-setting"]);
+
+        await expect(loadReplicationResultQueueRows(backing)).rejects.toThrow("outside the queue namespace");
+        expect(backing.reads).toEqual([]);
+        expect(backing.batches).toEqual([]);
+    });
+});
+
 describe("replication result queue store", () => {
     it("exposes unvalidated payloads on load and keeps upserts typed", () => {
         type Store = ReturnType<typeof openStore>;
@@ -142,6 +235,15 @@ describe("replication result queue store", () => {
         for (const [unchangedKey, value] of originalValues) {
             expect(backing.values.get(unchangedKey)).toBe(value);
         }
+    });
+
+    it("does not open a write batch when the delta is empty", async () => {
+        const backing = new RecordingBacking();
+        const store = openStore(backing);
+        await store.load();
+
+        await store.commit([]);
+        expect(backing.batches).toEqual([]);
     });
 
     it("migrates all legacy kinds in their original order and restores them after reopening", async () => {
