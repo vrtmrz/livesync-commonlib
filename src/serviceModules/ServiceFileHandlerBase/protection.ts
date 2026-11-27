@@ -102,7 +102,7 @@ export async function preserveUntrackedFilename(
     if (file.path !== observed.path) return false;
     // An explicitly selected revision can be retried while other leaves are still live.
     const classification = hasConflicts
-        ? await findMatchingFilenameLeaf(ctx, file, path)
+        ? await findMatchingFilenameLeaf(ctx, file, path, { requireStoredPath: true })
         : { kind: "unknown" } as const;
     const result = await preserveStorageSnapshot(ctx, path, { file, revision: observedProvenance }, classification);
     return result !== false && result.preserved;

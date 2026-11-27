@@ -36,7 +36,7 @@ import type { StoreFileOptions } from "@lib/interfaces/FileHandler";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
 import { EVEN } from "@lib/common/models/shared.const.symbols";
 import { tryGetFilePath } from "@lib/common/utils.doc";
-import { getPathNormalizationVersion, normalisePathForIdentity } from "@lib/common/pathNormalization";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
 
 import type { FileReflectionProvenanceRecord } from "@lib/interfaces/FileReflectionProvenance";
 import type { FileHandlerContext } from "./context";
@@ -326,7 +326,8 @@ async function saveClassifiedStorage(
     const filenameAlias =
         save.inspectStoredFilename &&
         currentIsLive &&
-        getProvenancePath(ctx, currentEntry.path) !== getProvenancePath(ctx, save.file.path);
+        !!currentEntry.storedPath &&
+        getProvenancePath(ctx, currentEntry.storedPath) !== getProvenancePath(ctx, save.file.path);
     if (filenameAlias && !(await canPreserveFilenameAlias(ctx, save, currentEntry))) {
         return false;
     }
@@ -364,9 +365,7 @@ async function canPreserveFilenameAlias(
         return false;
     }
     const version = getPathNormalizationVersion(ctx.setting.currentSettings());
-    const localParent = normalisePathForIdentity(getParentPath(file.path), version);
-    const storedParent = normalisePathForIdentity(getParentPath(entry.path), version);
-    if (localParent !== storedParent) {
+    if (getParentPath(file.path, version) !== getParentPath(entry.path, version)) {
         ctx.host.log(
             `Refusing to save a filename case change across differently cased parent directories: ${entry.path} -> ${file.path}`,
             LOG_LEVEL_NOTICE
@@ -563,7 +562,10 @@ async function observeClassifiedStorage(
     );
     const classification =
         filenameMatchEntry && content.kind === "unknown"
-            ? await findMatchingFilenameLeaf(ctx, readFile, filenameMatchEntry.path, filenameMatchEntry)
+            ? await findMatchingFilenameLeaf(ctx, readFile, filenameMatchEntry.path, {
+                  current: filenameMatchEntry,
+                  requireStoredPath: filenameAlias,
+              })
             : content;
     const upgradeCurrentRecord = shouldUpgradeSavedRecord(save, classification);
     const evidence =

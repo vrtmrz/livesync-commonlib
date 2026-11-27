@@ -256,12 +256,20 @@ describe("EntryManagerImpls", () => {
                     path: right,
                     _rev: "2-left",
                 });
-                await expect(
-                    entryManager.getDBEntryMeta(right, { rev: "2-left" }, true, "stored")
-                ).resolves.toMatchObject({
+                const leftMetadata = await entryManager.getDBEntryMeta(right, { rev: "2-left" }, true, "stored");
+                expect(leftMetadata).toMatchObject({
                     path: left,
                     storedPath: left,
                     _rev: "2-left",
+                });
+                if (leftMetadata === false) {
+                    throw new Error("Expected metadata for the left revision");
+                }
+                await expect(entryManager.getDBEntryFromMeta({ ...leftMetadata, path: right })).resolves.toMatchObject({
+                    path: right,
+                    storedPath: left,
+                    _rev: "2-left",
+                    data: [leftData],
                 });
                 await expect(entryManager.getDBEntryMeta(left, undefined, true, "stored")).resolves.toMatchObject({
                     path: right,
@@ -319,6 +327,12 @@ describe("EntryManagerImpls", () => {
             const metadata = await entryManager.getDBEntryMeta(path, { rev: result.rev }, true, "stored");
             expect(metadata).toMatchObject({ path });
             expect(metadata).not.toHaveProperty("storedPath");
+            if (metadata === false) {
+                throw new Error("Expected metadata for the legacy revision");
+            }
+            const loaded = await entryManager.getDBEntryFromMeta(metadata);
+            expect(loaded).toMatchObject({ path, data: [] });
+            expect(loaded).not.toHaveProperty("storedPath");
             const leaf = await merger.getConflictedDoc(path, result.rev);
             expect(leaf).toMatchObject({ rev: result.rev, data: "" });
             expect(leaf).not.toHaveProperty("path");

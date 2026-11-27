@@ -148,6 +148,24 @@ export interface RenameProvenanceSnapshot {
     readonly destinationBefore: FileReflectionProvenanceRecord | undefined;
 }
 
+type FilenameRevision = Pick<MetaEntry, "_rev" | "storedPath" | "deleted" | "_deleted">;
+
+/** Compare only the spelling recorded by a verified live revision. */
+function compareRevisionFilename(
+    ctx: FileHandlerContext,
+    entry: FilenameRevision | false,
+    revision: string,
+    observedFilename: FilePathWithPrefix
+): "unavailable" | "unrecorded" | "same" | "different" {
+    if (!entry || entry._rev !== revision || entry.deleted || entry._deleted) {
+        return "unavailable";
+    }
+    if (!entry.storedPath) {
+        return "unrecorded";
+    }
+    return getProvenancePath(ctx, entry.storedPath) === observedFilename ? "same" : "different";
+}
+
 /** Check the stored spelling of the revision recorded at the observed path before moving it. */
 export async function hasRecordedFilename(
     ctx: FileHandlerContext,
@@ -158,13 +176,7 @@ export async function hasRecordedFilename(
     if (!record) return false;
     // Older clients could record matching bytes under a lookup alias. Only the revision carries its spelling.
     const entry = await ctx.host.db().readEntryMeta(databasePath, record.revision, true, "stored");
-    return (
-        !!entry &&
-        entry._rev === record.revision &&
-        !entry.deleted &&
-        !entry._deleted &&
-        getProvenancePath(ctx, entry.path) === getProvenancePath(ctx, observedPath)
-    );
+    return compareRevisionFilename(ctx, entry, record.revision, getProvenancePath(ctx, observedPath)) === "same";
 }
 
 /**
@@ -570,41 +582,51 @@ async function classifyLiveStorageContent(
 }
 
 /**
- * Find a live content match at the observed physical spelling.
+ * Find a live content match for the observed storage file.
  *
  * @param ctx - The captured file-handler context.
  * @param file - The observed storage path and bytes.
- * @param databasePath - The stored or incoming spelling used to look up each leaf.
- * @param current - The already observed current Metadata, when available.
- * @returns A same-spelling match, with a revision only when the match is unique.
+ * @param databasePath - The lookup path for each leaf's Metadata.
+ * @param options - Reuse the current Metadata when available. Require a stored spelling for a known name change.
+ * @returns Exact-name matches take priority. Body-only matches with unrecorded names can deduplicate an ordinary
+ * save when no verified spelling differs. An unavailable candidate prevents inferring a unique revision.
  */
 export async function findMatchingFilenameLeaf(
     ctx: FileHandlerContext,
     file: UXFileInfo,
     databasePath: FilePathWithPrefix,
-    current?: Pick<MetaEntry, "_rev" | "path" | "deleted" | "_deleted">
+    options: { current?: FilenameRevision; requireStoredPath: boolean }
 ): Promise<Extract<StorageContentClassification, { kind: "matching-leaf" | "unknown" }>> {
     const revisions = await ctx.host.db().readLiveContentRevisions(file, file.body);
     const filename = getProvenancePath(ctx, file.path);
-    const matches: string[] = [];
+    const { current } = options;
+    const matchingNames: string[] = [];
+    const unrecordedNames: string[] = [];
+    let requiresStoredMatch = options.requireStoredPath;
+    let hasUnavailableRevision = false;
     for (const revision of revisions) {
-        // Missing legacy filenames fall back to the database spelling, which can differ from storage.
         const leaf =
             current?._rev === revision
                 ? current
                 : await ctx.host.db().readEntryMeta(databasePath, revision, true, "stored");
-        if (
-            leaf &&
-            leaf._rev === revision &&
-            !leaf.deleted &&
-            !leaf._deleted &&
-            getProvenancePath(ctx, leaf.path) === filename
-        ) {
-            matches.push(revision);
+        switch (compareRevisionFilename(ctx, leaf, revision, filename)) {
+            case "same":
+                matchingNames.push(revision);
+                break;
+            case "unrecorded":
+                unrecordedNames.push(revision);
+                break;
+            case "different":
+                requiresStoredMatch = true;
+                break;
+            case "unavailable":
+                hasUnavailableRevision = true;
+                break;
         }
     }
+    const matches = requiresStoredMatch || matchingNames.length > 0 ? matchingNames : unrecordedNames;
     if (matches.length > 0) {
-        return { kind: "matching-leaf", revision: matches.length === 1 ? matches[0] : undefined };
+        return { kind: "matching-leaf", revision: matches.length === 1 && !hasUnavailableRevision ? matches[0] : undefined };
     }
     return { kind: "unknown" };
 }

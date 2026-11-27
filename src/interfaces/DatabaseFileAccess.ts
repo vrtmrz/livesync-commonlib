@@ -121,7 +121,8 @@ export interface DatabaseFileAccess {
      * Load a revision's content, or return `false` when it cannot be loaded.
      * `localOnly` overrides `waitForReady`: missing Chunks cause failure without remote requests
      * or waiting for delivery, so provenance checks can use only content already available locally.
-     * Select `"stored"` to return the revision's stored path after loading the same content.
+     * With `"stored"`, keep the Metadata's optional `storedPath` and use it as `path` when present.
+     * Content selection still uses the lookup path.
      */
     fetchEntry: (
         file: UXFileInfoStub | FilePathWithPrefix,

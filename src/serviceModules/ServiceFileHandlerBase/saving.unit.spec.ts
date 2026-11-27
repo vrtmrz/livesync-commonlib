@@ -1,7 +1,15 @@
 import { ContentReadError } from "@lib/common/LSError.ts";
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_SETTINGS, EntryTypes, type DocumentID, type FileEventItem, type FilePathWithPrefix, type LoadedEntry } from "@lib/common/types";
+import {
+    DEFAULT_SETTINGS,
+    EntryTypes,
+    type DocumentID,
+    type FileEventItem,
+    type FilePathWithPrefix,
+    type LoadedEntry,
+    type MetaEntry,
+} from "@lib/common/types";
 
 import {
     createFileHandlerFixture,
@@ -15,7 +23,7 @@ import { storeFileToDBFromRevision, storeFileToDBWithBaseRevision } from "./savi
 const filePath = "notes/saving.md" as FilePathWithPrefix;
 
 /** Build a decoded Metadata revision for database-boundary responses. */
-function makeLoadedEntry(path: FilePathWithPrefix, revision: string, data: string): LoadedEntry {
+function makeLoadedEntry(path: FilePathWithPrefix, revision: string, data: string): LoadedEntry & MetaEntry {
     return {
         ...makeMetaEntry(path, revision),
         data,
@@ -301,7 +309,13 @@ describe("ordinary save content fallback", () => {
 });
 
 describe("ordinary filename-case saves", () => {
-    function setup(localBytes: string, databasePath = "notes/Saving.md" as FilePathWithPrefix) {
+    const alternateSpelling = "notes/Saving.md" as FilePathWithPrefix;
+
+    function makeStoredEntry(path: FilePathWithPrefix, revision: string, body: string) {
+        return { ...makeLoadedEntry(path, revision, body), storedPath: path };
+    }
+
+    function setup(localBytes: string, databasePath: FilePathWithPrefix | null = alternateSpelling) {
         const fixture = createFileHandlerFixture();
         fixture.setting.currentSettings.mockImplementation(() => ({
             ...DEFAULT_SETTINGS,
@@ -309,20 +323,33 @@ describe("ordinary filename-case saves", () => {
         }));
         fixture.path.path2id.mockImplementation(async (path) => String(path).toLowerCase() as DocumentID);
         const file = makeFile(filePath, localBytes);
-        const current = {
-            ...makeLoadedEntry(databasePath, "2-current", "same bytes"),
-            _id: String(filePath) as DocumentID,
-        };
-        const leaves = new Map<string | undefined, LoadedEntry>([[undefined, current], ["2-current", current]]);
+        const current = databasePath
+            ? makeStoredEntry(databasePath, "2-current", "same bytes")
+            : makeLoadedEntry(filePath, "2-current", "");
+        current._id = String(filePath) as DocumentID;
+        const leaves = new Map<string | undefined, LoadedEntry & MetaEntry>([[undefined, current], ["2-current", current]]);
         fixture.files.set(filePath, file);
-        fixture.db.fetchEntry.mockImplementation(async (_file, revision, _wait, _skip, _local, pathSource) => {
+        const readEntry = (
+            input: Parameters<typeof fixture.db.fetchEntryMeta>[0],
+            revision: string | undefined,
+            pathSource: "stored" | undefined
+        ): (LoadedEntry & MetaEntry) | false => {
             const leaf = leaves.get(revision);
-            return leaf ? { ...leaf, path: pathSource === "stored" ? leaf.path : filePath } : false;
-        });
-        fixture.db.fetchEntryMeta.mockImplementation(async (_file, revision, _skip, pathSource) => {
-            const leaf = leaves.get(revision);
-            return leaf ? { ...leaf, path: pathSource === "stored" ? leaf.path : filePath } : false;
-        });
+            if (!leaf) {
+                return false;
+            }
+            if (pathSource === "stored" && leaf.storedPath) {
+                return leaf;
+            }
+            const { storedPath: _storedPath, ...entry } = leaf;
+            return { ...entry, path: typeof input === "string" ? input : input.path };
+        };
+        fixture.db.fetchEntry.mockImplementation(async (input, revision, _wait, _skip, _local, pathSource) =>
+            readEntry(input, revision, pathSource)
+        );
+        fixture.db.fetchEntryMeta.mockImplementation(async (input, revision, _skip, pathSource) =>
+            readEntry(input, revision, pathSource)
+        );
         fixture.db.findLiveContentRevisions.mockResolvedValue(localBytes === "same bytes" ? ["2-current"] : []);
         const process = (type: FileEventItem["type"] = "CHANGED") =>
             processFileEvent(fixture.ctx, { type, key: filePath, args: { file } });
@@ -369,6 +396,7 @@ describe("ordinary filename-case saves", () => {
         fixture.leaves.set(legacyRevision, makeLoadedEntry(filePath, legacyRevision, "legacy bytes"));
         fixture.provenanceRecords.set(filePath, { revision: legacyRevision });
         fixture.db.getConflictedRevs.mockResolvedValue(["3-other"]);
+        fixture.db.findLiveContentRevisions.mockResolvedValue([legacyRevision]);
 
         await expect(fixture.process()).resolves.toBe(true);
 
@@ -378,7 +406,7 @@ describe("ordinary filename-case saves", () => {
 
     it("deduplicates a previously preserved same-spelling leaf when other matches have a different spelling", async () => {
         const fixture = setup("same bytes");
-        fixture.leaves.set("1-preserved", makeLoadedEntry(filePath, "1-preserved", "same bytes"));
+        fixture.leaves.set("1-preserved", makeStoredEntry(filePath, "1-preserved", "same bytes"));
         fixture.db.getConflictedRevs.mockResolvedValue(["1-preserved"]);
         fixture.db.findLiveContentRevisions.mockResolvedValue(["2-current", "1-preserved"]);
 
@@ -391,7 +419,7 @@ describe("ordinary filename-case saves", () => {
 
     it("stores a known edit below its recorded same-spelling base", async () => {
         const fixture = setup("edited bytes");
-        fixture.leaves.set("1-displayed", makeLoadedEntry(filePath, "1-displayed", "old local bytes"));
+        fixture.leaves.set("1-displayed", makeStoredEntry(filePath, "1-displayed", "old local bytes"));
         fixture.db.getConflictedRevs.mockResolvedValue(["1-displayed"]);
         fixture.provenanceRecords.set(filePath, { revision: "1-displayed" });
 
@@ -443,7 +471,7 @@ describe("ordinary filename-case saves", () => {
         const localContent = "losing leaf bytes";
         const fixture = setup(localContent, filePath);
         for (const revision of matchingRevisions) {
-            fixture.leaves.set(revision, makeLoadedEntry("notes/Saving.md" as FilePathWithPrefix, revision, localContent));
+            fixture.leaves.set(revision, makeStoredEntry(alternateSpelling, revision, localContent));
         }
         fixture.db.getConflictedRevs.mockResolvedValue([...matchingRevisions]);
         fixture.db.findLiveContentRevisions.mockResolvedValue([...matchingRevisions]);
@@ -458,7 +486,7 @@ describe("ordinary filename-case saves", () => {
     it("reuses the current Metadata when conflicting byte matches already include the local spelling", async () => {
         const localContent = "same bytes";
         const fixture = setup(localContent, filePath);
-        fixture.leaves.set("1-other", makeLoadedEntry("notes/Saving.md" as FilePathWithPrefix, "1-other", localContent));
+        fixture.leaves.set("1-other", makeStoredEntry(alternateSpelling, "1-other", localContent));
         fixture.db.getConflictedRevs.mockResolvedValue(["1-other"]);
         fixture.db.findLiveContentRevisions.mockResolvedValue(["2-current", "1-other"]);
 
@@ -468,6 +496,93 @@ describe("ordinary filename-case saves", () => {
         expect(fixture.provenanceRecords.get(filePath)?.revision).toBe("2-current");
         expect(fixture.db.findLiveContentRevisions).toHaveBeenCalledExactlyOnceWith(fixture.file, fixture.file.body);
         expect(fixture.db.fetchEntryMeta).toHaveBeenCalledExactlyOnceWith(filePath, "1-other", true, "stored");
+    });
+
+    it.each([
+        { localBytes: "", matchingRevisions: ["2-current", "1-other"] },
+        { localBytes: "only the named revision matches", matchingRevisions: ["1-other"] },
+    ])("preserves a local spelling with a pathless winner and a differently named byte match ($matchingRevisions)", async ({
+        localBytes,
+        matchingRevisions,
+    }) => {
+        const fixture = setup(localBytes, null);
+        fixture.leaves.set("1-other", makeStoredEntry(alternateSpelling, "1-other", localBytes));
+        fixture.db.getConflictedRevs.mockResolvedValue(["1-other"]);
+        fixture.db.findLiveContentRevisions.mockResolvedValue(matchingRevisions);
+
+        await expect(fixture.process()).resolves.toBe(true);
+
+        expect(fixture.db.storeIndependentRevision).toHaveBeenCalledExactlyOnceWith(fixture.file, true);
+        expect(fixture.db.storeWithBaseRevision).not.toHaveBeenCalled();
+        expect(fixture.provenanceRecords.get(filePath)?.revision).toBe("1-independent");
+    });
+
+    it.each([
+        { matchingRevisions: ["2-current"], expectedRevision: "2-current" },
+        { matchingRevisions: ["2-current", "1-other"], expectedRevision: undefined },
+    ])("keeps byte-only deduplication when matching live revisions are pathless ($matchingRevisions)", async ({
+        matchingRevisions,
+        expectedRevision,
+    }) => {
+        const fixture = setup("", null);
+        fixture.leaves.set("1-other", makeLoadedEntry(filePath, "1-other", matchingRevisions.length === 1 ? "different bytes" : ""));
+        fixture.db.getConflictedRevs.mockResolvedValue(["1-other"]);
+        fixture.db.findLiveContentRevisions.mockResolvedValue(matchingRevisions);
+
+        await expect(fixture.process()).resolves.toBe(true);
+
+        expect(fixture.db.storeIndependentRevision).not.toHaveBeenCalled();
+        expect(fixture.db.storeWithBaseRevision).not.toHaveBeenCalled();
+        expect(fixture.provenanceRecords.get(filePath)?.revision).toBe(expectedRevision);
+        expect(fixture.conflict.queueCheckFor).toHaveBeenCalledExactlyOnceWith(filePath);
+    });
+
+    it("keeps the displayed base when an edit matches a differently named revision", async () => {
+        const fixture = setup("edited bytes", filePath);
+        fixture.leaves.set("1-other", makeStoredEntry(alternateSpelling, "1-other", "edited bytes"));
+        fixture.db.getConflictedRevs.mockResolvedValue(["1-other"]);
+        fixture.db.findLiveContentRevisions.mockResolvedValue(["1-other"]);
+        fixture.provenanceRecords.set(filePath, { revision: "2-current" });
+
+        await expect(fixture.process()).resolves.toBe(true);
+
+        expect(fixture.db.storeWithBaseRevision).toHaveBeenCalledExactlyOnceWith(fixture.file, "2-current", true);
+        expect(fixture.db.storeIndependentRevision).not.toHaveBeenCalled();
+        expect(fixture.db.findLiveContentRevisions).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])("counts only verified spellings when an equal-byte revision is pathless (second spelling %s)", async (
+        hasSecondStoredMatch
+    ) => {
+        const fixture = setup("same bytes", filePath);
+        fixture.leaves.set("1-legacy", makeLoadedEntry(filePath, "1-legacy", "same bytes"));
+        const conflicts = ["1-legacy"];
+        if (hasSecondStoredMatch) {
+            fixture.leaves.set("1-modern", makeStoredEntry(filePath, "1-modern", "same bytes"));
+            conflicts.push("1-modern");
+        }
+        fixture.db.getConflictedRevs.mockResolvedValue(conflicts);
+        fixture.db.findLiveContentRevisions.mockResolvedValue(["2-current", ...conflicts]);
+
+        await expect(fixture.process()).resolves.toBe(true);
+
+        expect(fixture.db.storeIndependentRevision).not.toHaveBeenCalled();
+        expect(fixture.provenanceRecords.get(filePath)?.revision).toBe(hasSecondStoredMatch ? undefined : "2-current");
+        expect(fixture.db.fetchEntryMeta).toHaveBeenNthCalledWith(1, filePath, "1-legacy", true, "stored");
+        expect(fixture.db.fetchEntryMeta).toHaveBeenCalledTimes(conflicts.length);
+    });
+
+    it("does not infer provenance when another matching revision's spelling cannot be read", async () => {
+        const fixture = setup("", null);
+        fixture.db.getConflictedRevs.mockResolvedValue(["1-unavailable"]);
+        fixture.db.findLiveContentRevisions.mockResolvedValue(["2-current", "1-unavailable"]);
+
+        await expect(fixture.process()).resolves.toBe(true);
+
+        expect(fixture.db.storeIndependentRevision).not.toHaveBeenCalled();
+        expect(fixture.db.storeWithBaseRevision).not.toHaveBeenCalled();
+        expect(fixture.provenanceRecords.has(filePath)).toBe(false);
+        expect(fixture.db.fetchEntryMeta).toHaveBeenCalledExactlyOnceWith(filePath, "1-unavailable", true, "stored");
     });
 
     it("refuses a filename alias when the two spellings resolve to different document IDs", async () => {

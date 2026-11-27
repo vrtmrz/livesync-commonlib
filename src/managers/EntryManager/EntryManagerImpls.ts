@@ -678,7 +678,7 @@ async function respondEntryFromMeta(
     { localDatabase, readScope, chunkManager, log = Logger }: NecessaryManagers<"localDatabase" | "chunkManager">,
     settings: ObsidianLiveSyncSettings,
     filename: FilePathWithPrefix | FilePath,
-    meta: NewEntry | PlainEntry,
+    meta: MetaEntry & (NewEntry | PlainEntry),
     dump: boolean,
     waitForReady: boolean,
     localOnly = false
@@ -756,6 +756,7 @@ async function respondEntryFromMeta(
         const doc: LoadedEntry & PouchDB.Core.IdMeta = {
             data: (chunks as EntryLeaf[]).map((e) => e.data),
             path: meta.path,
+            ...(meta.storedPath ? { storedPath: meta.storedPath } : {}),
             _id: meta._id,
             ctime: meta.ctime,
             mtime: meta.mtime,

@@ -582,13 +582,7 @@ async function reconcileStoragePath(
         normalisePathForIdentity(existDoc.path, pathNormalizationVersion) ===
             normalisePathForIdentity(path, pathNormalizationVersion);
     if (!sameNormalisedPath) {
-        const existingParent = getParentPath(existDoc.path);
-        const targetParent = getParentPath(path);
-        const sameNormalisedParent =
-            pathNormalizationVersion === 1 &&
-            normalisePathForIdentity(existingParent, pathNormalizationVersion) ===
-                normalisePathForIdentity(targetParent, pathNormalizationVersion);
-        if (existingParent !== targetParent && !sameNormalisedParent) {
+        if (getParentPath(existDoc.path, pathNormalizationVersion) !== getParentPath(path, pathNormalizationVersion)) {
             ctx.host.log(
                 `Refusing to apply a filename case change across differently cased parent directories: ${existDoc.path} -> ${path}`,
                 LOG_LEVEL_NOTICE
