@@ -675,6 +675,7 @@ uiCommands.dispose();
 assert.equal(replicationApi.CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK, "lock");
 assert.equal(replicationApi.CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS.POSTCONDITION_MISMATCH, "postcondition-mismatch");
 assert.equal(typeof replicationApi.isReplicationCompleted, "function");
+assert.equal(typeof replicationApi.createReplicationResultQueueStore, "function");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
 assert.equal(typeof nodeRuntime.fs.readFileSync, "function");
 assert.equal(typeof nodeRuntime.fsPromises.readFile, "function");

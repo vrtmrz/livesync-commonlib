@@ -59,6 +59,10 @@ remote objects remain available and readable. See the
 [Journal receive failures and recovery](docs/journal-receive-recovery.md) for
 the receive, skip, and replay boundaries.
 
+The `/replication` entry includes an unreleased host-backed result queue store.
+See [saving replication results in a CLI host](docs/storage-events-and-reflection.md#saving-replication-results-in-a-cli-host)
+for SQLite integration, legacy queue migration, and reset handling.
+
 ## Package entry points
 
 | Entry point                                        | Intended use                                                                      | Current contract status                                                                     |

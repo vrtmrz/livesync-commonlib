@@ -407,6 +407,147 @@ policy. The storage lookup may be a host index rather than an operating-system
 existence check: the observation is made under the application lock, not in
 an atomic filesystem transaction.
 
+## Saving replication results in a CLI host
+
+The unreleased `createReplicationResultQueueStore()` API in
+`@vrtmrz/livesync-commonlib/replication` stores each queued or processing item
+under its own key. It also stores retained reflection failures and retry
+reservations as individual records. Commonlib owns the versioned row format,
+ordered reads, the legacy queue migration, and atomic delta submission. The
+host owns the database connection, the value codec, and the processor's events
+and recovery policy.
+
+### Convert an existing CLI JSON file
+
+When a scoped `keyvalue-db.json` needs importing, run the conversion on its
+own for that database and Vault. Preserve the existing tagged JSON encoding,
+including `Set`, `Uint8Array`, and `ArrayBuffer`. Use the file whose owner is
+known to match the selected scope. Preserve older files of unknown ownership
+for inspection.
+
+Commit the imported KV values and the import receipt in one SQLite transaction.
+Rename the source JSON after that commit. If a prior invocation committed the
+receipt, finish the rename without copying the values again. If the commit
+result is uncertain, close the connection, report failure, and check the
+receipt on the next conversion attempt. Close the connection and exit when
+conversion completes. On the next normal invocation, Commonlib can migrate
+the legacy queue key from SQLite to individual rows.
+
+### Connect the CLI-owned SQLite database
+
+In LiveSync's `NodeKeyValueDBService`, open the SQLite database selected for the
+current database and Vault. Use the same Fancy-kit 0.2.0 SQLite namespace and
+prefix for the existing `replicationResultProcessorSnapshot` key and the new
+queue prefix.
+
+The following bridge uses the CLI's existing tagged JSON encoding for both the
+imported legacy value and new rows. Each `setValue` writes one row.
+
+```ts
+import {
+    createReplicationResultQueueStore,
+    type ReplicationResultQueueBacking,
+} from '@vrtmrz/livesync-commonlib/replication';
+import { createSqliteValueStore } from '@vrtmrz/value-store/node-sqlite';
+import type { DatabaseSync } from 'node:sqlite';
+
+declare const connection: DatabaseSync;
+declare const cliKvScope: { namespace: string; prefix: string };
+declare function encodeCliValue(value: unknown): string;
+declare function decodeCliValue(value: string): unknown;
+
+const kv = createSqliteValueStore(connection, cliKvScope);
+const backing: ReplicationResultQueueBacking = {
+    async read(key) {
+        const value = await kv.getValue(key);
+        return value === null ? undefined : decodeCliValue(value);
+    },
+    listKeys: (prefix) => kv.listKeys({ prefix }),
+    writeBatch: (operations) =>
+        kv.writeBatch(
+            operations.map((operation) =>
+                operation.kind === 'delete'
+                    ? { type: 'delete', key: operation.key }
+                    : { type: 'setValue', key: operation.key, value: encodeCliValue(operation.value) }
+            )
+        ),
+};
+const results = createReplicationResultQueueStore(backing);
+```
+
+Use one writer for the scope. Exclude other writers while `load()` or
+`discard()` reads and changes that scope, and serialise those operations with
+`commit()`. The backing `writeBatch()` must apply the whole batch atomically and
+resolve after commit. The borrowed SQLite adapter starts its own transaction.
+Call it outside any CLI-managed SQL transaction. Settle the submitted writes
+and dispose the value store before closing. Put native connection closure in
+a `finally` block that covers both steps. The CLI selects the SQLite durability
+settings. See the
+[Fancy-kit SQLite contract](https://github.com/vrtmrz/fancy-kit/blob/7bf325dddd6c7000d0ae2990146a538594a67f3b/docs/design/value-store-sqlite.md).
+
+### Connect the result processor
+
+1. Pass a getter for the current scoped store into `ReplicateResultProcessor`
+   from `createReplicationFeature` when the CLI opts in. Use `load()` at the
+   existing restore point. It commits any legacy rows and removes the old key in
+   the same transaction. The store validates the rows' storage format and returns
+   their payloads as `unknown`. Interpret them using the processor's existing
+   document and recovery validation. Restore recovery records and reservations
+   first. Then pass processing items followed by queued items through the current
+   recovery filter and replay rules, ahead of arrivals held during restore. If
+   loading fails, keep saves blocked until a load or explicit reset succeeds.
+2. Give every queue occurrence a stable ID and store its order explicitly. Keep
+   the ID when a row moves from `queued` to `processing` and use it to delete the
+   row on completion. Preserve separate IDs for multiple occurrences even when
+   `_id` and `_rev` match. Reserve `legacy:` for migrated IDs. Track changed
+   rows at each mutation and submit them at the processor's existing save points.
+   Submit a replacement's deletes and insert in the same batch. Commit a retry
+   reservation with its changed allowance before dispatch, and commit retirement
+   of that reservation with the corresponding result updates. Retain a reflection
+   failure before or in the same batch as removal of its processing row.
+3. Record the changes made by replay itself. Carry the loaded ID into each
+   surviving occurrence and record its resulting order and phase. Include
+   deletions for occurrences dropped by recovery filtering or duplicate
+   handling, and for reservations consumed by recovery. Include changes to
+   pending records moved to review. For hosts with recovery retries, a saved
+   reservation can filter out every runnable item. If replay changed rows,
+   request a save even when no work is runnable. Schedule that save after
+   restore completes, because the existing save path waits for restore.
+4. Capture the pending delta when a serialised write begins. Mark those changes
+   saved only after `commit()` succeeds and keep newer or failed changes pending.
+   Preserve the current response timing for ordinary arrivals. A Fancy-kit
+   error code can cover both a failed statement and an uncertain commit. If a
+   write's outcome remains unclear, check the durable state after reopening the
+   same scope before acknowledging or resubmitting the delta. Initialise a new
+   store with `load()` before accepting writes. During an in-process reconnect,
+   use that read to reconcile the durable state with the existing in-memory queue.
+5. In the pinned LiveSync CLI, `databaseEvents.onResetDatabase` runs before
+   database replacement. The `NodeServiceHub` and `NodeKeyValueDBService`
+   handlers can remove the runtime directory and the KV file at that point.
+   When wiring SQLite, keep the queue rows and legacy key through those early
+   handlers, including when the selected database's runtime directory contains
+   the SQLite file. Defer retiring that queue until the success event
+   `database.onDatabaseReset`. For a `fetch` or `rebuild` startup reset, resolve
+   the current scoped store there and await `discard()` before admitting new
+   work. Preserve the CLI's existing physical reset scope by retiring old queues
+   for every runtime Vault scope of the selected database. While reconstruction
+   is incomplete, let read-only commands inspect the database without migrating
+   or replaying the result queue. For a live logical reset, commit the delta
+   that retains the ordinary items selected by the processor. Use the database
+   scope and generation to drop stale mutations. A late completion may delete
+   only its own retained row. Keep occurrence IDs unique across reset while old
+   callbacks can finish.
+
+Validate the CLI wiring by restarting after the first replay delta commits,
+interrupting a write, and failing database replacement after the early reset
+event. For legacy JSON conversion, interrupt the process after commit and
+before renaming the JSON, then verify that the next attempt reuses the receipt.
+Check that a later successful reset lets a new occurrence with the same document
+and revision survive the old occurrence's completion. Compare system write
+bytes on the same Vault and workload to measure SQLite and WAL overhead. The
+Commonlib contract tests measure row operations and the bytes passed through the
+test adapter's encoder.
+
 ## Verification and scope
 
 Focused unit tests cover a current canonical file, absence, lookup failure,
