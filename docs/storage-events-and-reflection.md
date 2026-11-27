@@ -407,6 +407,107 @@ policy. The storage lookup may be a host index rather than an operating-system
 existence check: the observation is made under the application lock, not in
 an atomic filesystem transaction.
 
+## Saving replication results in a CLI host
+
+The unreleased `createReplicationResultQueueStore()` API in
+`@vrtmrz/livesync-commonlib/replication` stores each queued or processing item
+under its own key. It also stores retained reflection failures and retry
+reservations as individual records. Commonlib owns the versioned row format,
+ordered reads, the legacy queue migration, and atomic delta submission. The
+host owns the database connection, the value codec, and the processor's events
+and recovery policy.
+
+### Connect the CLI-owned SQLite database
+
+In LiveSync's `NodeKeyValueDBService`, open the SQLite database selected for the
+current database and Vault. Use the same Fancy-kit 0.2.0 SQLite namespace and
+prefix for the existing `replicationResultProcessorSnapshot` key and the new
+queue prefix. Finish the CLI's `keyvalue-db.json` import before opening the
+queue. The CLI owns file import, the import receipt, and the existing value
+encoding, including its handling of `Set`, `Uint8Array`, and `ArrayBuffer`.
+
+The following bridge uses the CLI's existing tagged JSON encoding for both the
+imported legacy value and new rows. Each `setValue` writes one row.
+
+```ts
+import {
+    createReplicationResultQueueStore,
+    type ReplicationResultQueueBacking,
+} from '@vrtmrz/livesync-commonlib/replication';
+import { createSqliteValueStore } from '@vrtmrz/value-store/node-sqlite';
+import type { DatabaseSync } from 'node:sqlite';
+
+declare const connection: DatabaseSync;
+declare const cliKvScope: { namespace: string; prefix: string };
+declare function encodeCliValue(value: unknown): string;
+declare function decodeCliValue(value: string): unknown;
+
+const kv = createSqliteValueStore(connection, cliKvScope);
+const backing: ReplicationResultQueueBacking = {
+    async read(key) {
+        const value = await kv.getValue(key);
+        return value === null ? undefined : decodeCliValue(value);
+    },
+    listKeys: (prefix) => kv.listKeys({ prefix }),
+    writeBatch: (operations) =>
+        kv.writeBatch(
+            operations.map((operation) =>
+                operation.kind === 'delete'
+                    ? { type: 'delete', key: operation.key }
+                    : { type: 'setValue', key: operation.key, value: encodeCliValue(operation.value) }
+            )
+        ),
+};
+const results = createReplicationResultQueueStore(backing);
+```
+
+Use one writer for the scope. Exclude other writers while `load()` or
+`discard()` reads and changes that scope, and serialise those operations with
+`commit()`. The backing `writeBatch()` must apply the whole batch atomically and
+resolve after commit. The borrowed SQLite adapter starts its own transaction.
+Call it outside any CLI-managed SQL transaction. Await submitted writes and
+dispose the value store before closing the connection. The CLI selects the
+SQLite durability settings. See the
+[Fancy-kit SQLite contract](https://github.com/vrtmrz/fancy-kit/blob/7bf325dddd6c7000d0ae2990146a538594a67f3b/docs/design/value-store-sqlite.md).
+
+### Connect the result processor
+
+1. Pass the store into `ReplicateResultProcessor` from `createReplicationFeature`
+   when the CLI opts in. Use `load()` at the existing restore point. It commits
+   any legacy rows and removes the old key in the same transaction. Restore
+   recovery records and reservations first, then pass the returned processing
+   items and queued items through the current replay rules, ahead of arrivals
+   held during restore. Apply the existing recovery filter before ordinary replay.
+   If loading fails, keep saves blocked until the queue can be read or an explicit
+   reset succeeds.
+2. Give every queue occurrence a stable ID and store its order explicitly. Keep
+   the ID when a row moves from `queued` to `processing` and use it to delete the
+   row on completion. Preserve separate IDs for multiple occurrences even when
+   `_id` and `_rev` match. Reserve `legacy:` for migrated IDs. Track changed
+   rows at each mutation and submit them at the processor's existing save points.
+   Submit a replacement's deletes and insert in the same batch. Commit a retry
+   reservation with its changed allowance before dispatch, and commit retirement
+   of that reservation with the corresponding result updates. Retain a reflection
+   failure before or in the same batch as removal of its processing row.
+3. Capture the pending delta when a serialised write begins. Mark those changes
+   saved only after `commit()` succeeds and keep newer or failed changes pending.
+   Preserve the current response timing for ordinary arrivals. If SQLite reports
+   an uncertain commit, reopen the connection and check the durable state before
+   acknowledging the write or retrying it.
+4. For `fetch` or `rebuild` startup reset, wait for successful database
+   replacement, then call `discard()` before admitting new work. It atomically
+   clears the queue keys and legacy key for that scope. A live logical reset
+   uses a delta to retain the ordinary items selected by the processor. Use the
+   processor's database scope and generation to drop stale mutations. A late
+   completion may delete only its own retained row. Keep IDs unique across a reset
+   while callbacks from the old generation can still finish.
+
+Validate the CLI wiring by restarting after migration, interrupting a write,
+and finishing an old item after reset while a new occurrence with the same
+document and revision is queued. Compare system write bytes on the same Vault
+and workload to measure SQLite and WAL overhead. The Commonlib contract tests
+measure row operations and the bytes passed through the test adapter's encoder.
+
 ## Verification and scope
 
 Focused unit tests cover a current canonical file, absence, lookup failure,

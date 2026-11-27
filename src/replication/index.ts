@@ -152,3 +152,11 @@ export type {
 
 export { inspectDatabasePathIdentity } from "../pouchdb/pathIdentityCompatibility.ts";
 export type { PathIdentityInspection } from "../pouchdb/pathIdentityCompatibility.ts";
+export { createReplicationResultQueueStore } from "./replicationResultQueueStore.ts";
+export type {
+    ReplicationResultQueueBacking,
+    ReplicationResultQueueDelta,
+    ReplicationResultQueueRow,
+    ReplicationResultQueueStore,
+    ReplicationResultQueueWrite,
+} from "./replicationResultQueueStore.ts";
