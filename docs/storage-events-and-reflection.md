@@ -417,14 +417,28 @@ ordered reads, the legacy queue migration, and atomic delta submission. The
 host owns the database connection, the value codec, and the processor's events
 and recovery policy.
 
+### Convert an existing CLI JSON file
+
+When a scoped `keyvalue-db.json` needs importing, run the conversion on its
+own for that database and Vault. Preserve the existing tagged JSON encoding,
+including `Set`, `Uint8Array`, and `ArrayBuffer`. Use the file whose owner is
+known to match the selected scope. Preserve older files of unknown ownership
+for inspection.
+
+Commit the imported KV values and the import receipt in one SQLite transaction.
+Rename the source JSON after that commit. If a prior invocation committed the
+receipt, finish the rename without copying the values again. If the commit
+result is uncertain, close the connection, report failure, and check the
+receipt on the next conversion attempt. Close the connection and exit when
+conversion completes. On the next normal invocation, Commonlib can migrate
+the legacy queue key from SQLite to individual rows.
+
 ### Connect the CLI-owned SQLite database
 
 In LiveSync's `NodeKeyValueDBService`, open the SQLite database selected for the
 current database and Vault. Use the same Fancy-kit 0.2.0 SQLite namespace and
 prefix for the existing `replicationResultProcessorSnapshot` key and the new
-queue prefix. Finish the CLI's `keyvalue-db.json` import before opening the
-queue. The CLI owns file import, the import receipt, and the existing value
-encoding, including its handling of `Set`, `Uint8Array`, and `ArrayBuffer`.
+queue prefix.
 
 The following bridge uses the CLI's existing tagged JSON encoding for both the
 imported legacy value and new rows. Each `setValue` writes one row.
@@ -465,9 +479,10 @@ Use one writer for the scope. Exclude other writers while `load()` or
 `discard()` reads and changes that scope, and serialise those operations with
 `commit()`. The backing `writeBatch()` must apply the whole batch atomically and
 resolve after commit. The borrowed SQLite adapter starts its own transaction.
-Call it outside any CLI-managed SQL transaction. Await submitted writes and
-dispose the value store before closing the connection. The CLI selects the
-SQLite durability settings. See the
+Call it outside any CLI-managed SQL transaction. Settle the submitted writes
+and dispose the value store before closing. Put native connection closure in
+a `finally` block that covers both steps. The CLI selects the SQLite durability
+settings. See the
 [Fancy-kit SQLite contract](https://github.com/vrtmrz/fancy-kit/blob/7bf325dddd6c7000d0ae2990146a538594a67f3b/docs/design/value-store-sqlite.md).
 
 ### Connect the result processor
@@ -494,13 +509,18 @@ SQLite durability settings. See the
    surviving occurrence and record its resulting order and phase. Include
    deletions for occurrences dropped by recovery filtering or duplicate
    handling, and for reservations consumed by recovery. Include changes to
-   pending records moved to review. Submit this reconciliation at the existing
-   save point so a restart after commit reads the reconciled queue.
+   pending records moved to review. For hosts with recovery retries, a saved
+   reservation can filter out every runnable item. If replay changed rows,
+   request a save even when no work is runnable. Schedule that save after
+   restore completes, because the existing save path waits for restore.
 4. Capture the pending delta when a serialised write begins. Mark those changes
    saved only after `commit()` succeeds and keep newer or failed changes pending.
-   Preserve the current response timing for ordinary arrivals. If SQLite reports
-   an uncertain commit, reopen the connection and check the durable state before
-   acknowledging the write or retrying it.
+   Preserve the current response timing for ordinary arrivals. A Fancy-kit
+   error code can cover both a failed statement and an uncertain commit. If a
+   write's outcome remains unclear, check the durable state after reopening the
+   same scope before acknowledging or resubmitting the delta. Initialise a new
+   store with `load()` before accepting writes. During an in-process reconnect,
+   use that read to reconcile the durable state with the existing in-memory queue.
 5. In the pinned LiveSync CLI, `databaseEvents.onResetDatabase` runs before
    database replacement. The `NodeServiceHub` and `NodeKeyValueDBService`
    handlers can remove the runtime directory and the KV file at that point.
@@ -509,18 +529,24 @@ SQLite durability settings. See the
    the SQLite file. Defer retiring that queue until the success event
    `database.onDatabaseReset`. For a `fetch` or `rebuild` startup reset, resolve
    the current scoped store there and await `discard()` before admitting new
-   work. For a live logical reset, commit the delta that retains the ordinary
-   items selected by the processor. Use the database scope and generation to
-   drop stale mutations. A late completion may delete only its own retained
-   row. Keep occurrence IDs unique across reset while old callbacks can finish.
+   work. Preserve the CLI's existing physical reset scope by retiring old queues
+   for every runtime Vault scope of the selected database. While reconstruction
+   is incomplete, let read-only commands inspect the database without migrating
+   or replaying the result queue. For a live logical reset, commit the delta
+   that retains the ordinary items selected by the processor. Use the database
+   scope and generation to drop stale mutations. A late completion may delete
+   only its own retained row. Keep occurrence IDs unique across reset while old
+   callbacks can finish.
 
 Validate the CLI wiring by restarting after the first replay delta commits,
 interrupting a write, and failing database replacement after the early reset
-event. Check that a later successful reset lets a new occurrence with the same
-document and revision survive the old occurrence's completion. Compare system
-write bytes on the same Vault and workload to measure SQLite and WAL overhead.
-The Commonlib contract tests measure row operations and the bytes passed through
-the test adapter's encoder.
+event. For legacy JSON conversion, interrupt the process after commit and
+before renaming the JSON, then verify that the next attempt reuses the receipt.
+Check that a later successful reset lets a new occurrence with the same document
+and revision survive the old occurrence's completion. Compare system write
+bytes on the same Vault and workload to measure SQLite and WAL overhead. The
+Commonlib contract tests measure row operations and the bytes passed through the
+test adapter's encoder.
 
 ## Verification and scope
 
