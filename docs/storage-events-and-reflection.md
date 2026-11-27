@@ -472,14 +472,15 @@ SQLite durability settings. See the
 
 ### Connect the result processor
 
-1. Pass the store into `ReplicateResultProcessor` from `createReplicationFeature`
-   when the CLI opts in. Use `load()` at the existing restore point. It commits
-   any legacy rows and removes the old key in the same transaction. Restore
-   recovery records and reservations first, then pass the returned processing
-   items and queued items through the current replay rules, ahead of arrivals
-   held during restore. Apply the existing recovery filter before ordinary replay.
-   If loading fails, keep saves blocked until the queue can be read or an explicit
-   reset succeeds.
+1. Pass a getter for the current scoped store into `ReplicateResultProcessor`
+   from `createReplicationFeature` when the CLI opts in. Use `load()` at the
+   existing restore point. It commits any legacy rows and removes the old key in
+   the same transaction. The store validates the rows' storage format and returns
+   their payloads as `unknown`. Interpret them using the processor's existing
+   document and recovery validation. Restore recovery records and reservations
+   first. Then pass processing items followed by queued items through the current
+   recovery filter and replay rules, ahead of arrivals held during restore. If
+   loading fails, keep saves blocked until a load or explicit reset succeeds.
 2. Give every queue occurrence a stable ID and store its order explicitly. Keep
    the ID when a row moves from `queued` to `processing` and use it to delete the
    row on completion. Preserve separate IDs for multiple occurrences even when
@@ -489,24 +490,37 @@ SQLite durability settings. See the
    reservation with its changed allowance before dispatch, and commit retirement
    of that reservation with the corresponding result updates. Retain a reflection
    failure before or in the same batch as removal of its processing row.
-3. Capture the pending delta when a serialised write begins. Mark those changes
+3. Record the changes made by replay itself. Carry the loaded ID into each
+   surviving occurrence and record its resulting order and phase. Include
+   deletions for occurrences dropped by recovery filtering or duplicate
+   handling, and for reservations consumed by recovery. Include changes to
+   pending records moved to review. Submit this reconciliation at the existing
+   save point so a restart after commit reads the reconciled queue.
+4. Capture the pending delta when a serialised write begins. Mark those changes
    saved only after `commit()` succeeds and keep newer or failed changes pending.
    Preserve the current response timing for ordinary arrivals. If SQLite reports
    an uncertain commit, reopen the connection and check the durable state before
    acknowledging the write or retrying it.
-4. For `fetch` or `rebuild` startup reset, wait for successful database
-   replacement, then call `discard()` before admitting new work. It atomically
-   clears the queue keys and legacy key for that scope. A live logical reset
-   uses a delta to retain the ordinary items selected by the processor. Use the
-   processor's database scope and generation to drop stale mutations. A late
-   completion may delete only its own retained row. Keep IDs unique across a reset
-   while callbacks from the old generation can still finish.
+5. In the pinned LiveSync CLI, `databaseEvents.onResetDatabase` runs before
+   database replacement. The `NodeServiceHub` and `NodeKeyValueDBService`
+   handlers can remove the runtime directory and the KV file at that point.
+   When wiring SQLite, keep the queue rows and legacy key through those early
+   handlers, including when the selected database's runtime directory contains
+   the SQLite file. Defer retiring that queue until the success event
+   `database.onDatabaseReset`. For a `fetch` or `rebuild` startup reset, resolve
+   the current scoped store there and await `discard()` before admitting new
+   work. For a live logical reset, commit the delta that retains the ordinary
+   items selected by the processor. Use the database scope and generation to
+   drop stale mutations. A late completion may delete only its own retained
+   row. Keep occurrence IDs unique across reset while old callbacks can finish.
 
-Validate the CLI wiring by restarting after migration, interrupting a write,
-and finishing an old item after reset while a new occurrence with the same
-document and revision is queued. Compare system write bytes on the same Vault
-and workload to measure SQLite and WAL overhead. The Commonlib contract tests
-measure row operations and the bytes passed through the test adapter's encoder.
+Validate the CLI wiring by restarting after the first replay delta commits,
+interrupting a write, and failing database replacement after the early reset
+event. Check that a later successful reset lets a new occurrence with the same
+document and revision survive the old occurrence's completion. Compare system
+write bytes on the same Vault and workload to measure SQLite and WAL overhead.
+The Commonlib contract tests measure row operations and the bytes passed through
+the test adapter's encoder.
 
 ## Verification and scope
 

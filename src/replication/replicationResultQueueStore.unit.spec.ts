@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
     createReplicationResultQueueStore,
     type ReplicationResultQueueBacking,
@@ -97,6 +97,15 @@ function queueRow(id: string, order = 0): QueueRow {
 }
 
 describe("replication result queue store", () => {
+    it("exposes unvalidated payloads on load and keeps upserts typed", () => {
+        type Store = ReturnType<typeof openStore>;
+        type ReadRows = Awaited<ReturnType<Store["load"]>>;
+        type Write = Parameters<Store["commit"]>[0][number];
+
+        expectTypeOf<ReadRows>().toEqualTypeOf<readonly ReplicationResultQueueRow<unknown, unknown, unknown>[]>();
+        expectTypeOf<Extract<Write, { kind: "upsert" }>["row"]>().toEqualTypeOf<QueueRow>();
+    });
+
     it.each([
         { name: "small", backlogCount: 2, expectedBacklogBytes: 400_396 },
         { name: "about 24 MB", backlogCount: 120, expectedBacklogBytes: 24_024_280 },
@@ -223,6 +232,37 @@ describe("replication result queue store", () => {
         ];
         expect(await openStore(backing).load()).toEqual(restored);
         expect(await openStore(backing).load()).toEqual(restored);
+    });
+
+    it("retains non-null legacy attempt payloads for the host to interpret", async () => {
+        const attempts = [7, [], false, "", attempt];
+        const backing = new RecordingBacking([
+            [legacyKey, { queued: [duplicateDoc], processing: [], recoveryAttempts: attempts }],
+        ]);
+        const restored = [
+            queueRow("legacy:queued:0"),
+            ...attempts.map((payload, order) => ({
+                kind: "recoveryAttempt",
+                id: `legacy:recoveryAttempt:${order}`,
+                order,
+                payload,
+            })),
+        ];
+
+        expect(await openStore(backing).load()).toEqual(restored);
+        expect(backing.values.has(legacyKey)).toBe(false);
+        expect(await openStore(backing).load()).toEqual(restored);
+    });
+
+    it.each([null, undefined])("keeps a legacy snapshot with a %s attempt payload intact", async (payload) => {
+        const legacy = { queued: [duplicateDoc], processing: [], recoveryAttempts: [payload] };
+        const backing = new RecordingBacking([[legacyKey, legacy]]);
+        const initialValues = new Map(backing.values);
+        vi.spyOn(backing, "read").mockResolvedValueOnce(legacy);
+
+        await expect(openStore(backing).load()).rejects.toThrow(/recoveryAttempts/);
+        expect(backing.batches).toEqual([]);
+        expect(backing.values).toEqual(initialValues);
     });
 
     it("retries a legacy snapshot with neither optional field after migration rolls back", async () => {

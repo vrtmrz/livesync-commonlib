@@ -45,8 +45,12 @@ export interface ReplicationResultQueueBacking {
  * for the lifetime of the same occurrence and issue fresh IDs even across resets.
  */
 export interface ReplicationResultQueueStore<D, P, A> {
-    /** Migrate a legacy snapshot if present, then return rows by kind in replay order and by ascending order within each kind. Ties use ascending ID. */
-    load(): Promise<readonly ReplicationResultQueueRow<D, P, A>[]>;
+    /**
+     * Migrate a legacy snapshot if present, then return rows by kind in replay
+     * order and by ascending order within each kind. Ties use ascending ID.
+     * Payloads require host validation before use.
+     */
+    load(): Promise<readonly StoredRow[]>;
     /** Apply only these changes, in order, after a successful load or discard. Keep payloads stable until the call settles. */
     commit(delta: readonly ReplicationResultQueueDelta<D, P, A>[]): Promise<void>;
     /** Atomically delete queue rows and the legacy snapshot. May be called before load to skip replay. */
@@ -107,8 +111,10 @@ function rowsFromLegacySnapshot(snapshot: unknown): StoredRow[] {
             throw new Error(`Invalid '${field}' array in the legacy replication result queue snapshot.`);
         }
         for (const [order, payload] of records.entries()) {
-            // LiveSync validates pending entries individually, including skipping old invalid headers.
-            const validPayload = kind === "pendingReflection" ? payload !== undefined : isRecord(payload);
+            // LiveSync validates pending headers and reads attempt identities from non-null values.
+            const validPayload = optional
+                ? payload !== undefined && (kind === "pendingReflection" || payload !== null)
+                : isRecord(payload);
             if (!validPayload) {
                 throw new Error(`Invalid '${field}' entry in the legacy replication result queue snapshot.`);
             }
@@ -171,7 +177,7 @@ export function createReplicationResultQueueStore<D, P, A>(
             ready = false;
             const rows = await loadRows();
             ready = true;
-            return rows as ReplicationResultQueueRow<D, P, A>[];
+            return rows;
         },
         async commit(delta) {
             if (!ready) {
