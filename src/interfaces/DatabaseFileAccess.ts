@@ -101,6 +101,9 @@ export interface DatabaseFileAccess {
         waitForReady?: boolean,
         skipCheck?: boolean
     ) => Promise<UXFileInfo | false>;
+    /**
+     * Load a revision's content from the supplied Metadata, preserving its optional `storedPath`.
+     */
     fetchEntryFromMeta: (
         meta: MetaEntry,
         waitForReady?: boolean,
@@ -108,8 +111,11 @@ export interface DatabaseFileAccess {
         localOnly?: boolean
     ) => Promise<LoadedEntry | false>;
     /**
-     * With `"stored"`, return the actual stored path in `storedPath` and use it as `path` when present.
-     * Legacy lookups keep the lookup `path` and omit `storedPath`.
+     * Read a revision's Metadata.
+     *
+     * @param pathSource - Use `"stored"` to return the revision's recorded path as both `path` and
+     * `storedPath`. When the option is omitted or the revision has no recorded path, `path` holds
+     * the lookup path and `storedPath` is absent.
      */
     fetchEntryMeta: (
         file: UXFileInfoStub | FilePathWithPrefix,
@@ -121,8 +127,9 @@ export interface DatabaseFileAccess {
      * Load a revision's content, or return `false` when it cannot be loaded.
      * `localOnly` overrides `waitForReady`: missing Chunks cause failure without remote requests
      * or waiting for delivery, so provenance checks can use only content already available locally.
-     * With `"stored"`, keep the Metadata's optional `storedPath` and use it as `path` when present.
-     * Content selection still uses the lookup path.
+     *
+     * @param pathSource - Use `"stored"` to return the same path fields as {@link DatabaseFileAccess.fetchEntryMeta}.
+     * Content selection and target checks use the lookup path.
      */
     fetchEntry: (
         file: UXFileInfoStub | FilePathWithPrefix,

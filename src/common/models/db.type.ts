@@ -127,7 +127,14 @@ export type InternalFileEntry = DatabaseEntry &
 export type AnyEntry = NoteEntry | NewEntry | PlainEntry | InternalFileEntry;
 
 type EntryReadPath = {
-    /** The path present in Metadata when requested. Undefined if the revision did not store a path. */
+    /**
+     * The path recorded in the revision's Metadata, preserving its case and Unicode spelling.
+     *
+     * @remarks
+     * Path-based reads populate this property in `"stored"` mode when the revision records a path.
+     * A default path-based read or a revision without a recorded path leaves the property absent.
+     * The entry's `path` can still contain the lookup path.
+     */
     storedPath?: FilePathWithPrefix;
 };
 

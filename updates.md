@@ -9,13 +9,14 @@
   device cannot establish which spelling was previously reflected, ordinary
   synchronisation keeps the local file and preserves both spellings as
   revisions for the host to review, even when their contents match.
-  Three-way merge requires both revisions to record the same full path.
+  Three-way merge requires both revisions to record the same full path,
+  including case, under the configured Unicode normalisation policy.
 
 ### Improved
 
 - Hosts can offer a choice of filename when combining two text revisions.
-  `storeContent` accepts the displayed parent revision and declines the
-  write if that revision has since advanced.
+  Write the combined text and chosen filename with `storeWithLiveBaseRevision`.
+  It returns `false` if the displayed parent is no longer live.
 
 ## 0.8.0
 
