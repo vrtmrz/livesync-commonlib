@@ -93,6 +93,14 @@ function upsertRow(value: StoredRow): ReplicationResultQueueWrite {
     return { kind: "upsert", key: rowKey(value.id), value };
 }
 
+/**
+ * Convert a legacy snapshot to rows in replay order. Each array index determines
+ * the row's order and forms part of its migrated occurrence ID.
+ *
+ * @param snapshot - The decoded value of the legacy snapshot key.
+ * @returns Rows carrying their original payloads for the host to validate.
+ * @throws If the snapshot, a queue array, or an entry has an invalid storage format.
+ */
 export function rowsFromLegacyReplicationResultSnapshot(snapshot: unknown): StoredRow[] {
     if (!isRecord(snapshot)) {
         throw new Error("Invalid legacy replication result queue snapshot.");
@@ -124,6 +132,13 @@ export function rowsFromLegacyReplicationResultSnapshot(snapshot: unknown): Stor
     return rows;
 }
 
+/**
+ * Compare rows by kind in replay order, then by ascending order within that
+ * kind and ascending occurrence ID using string comparison.
+ *
+ * @returns A negative number when `left` comes first, zero when the sort keys
+ * match, and a positive number when `right` comes first.
+ */
 export function compareReplicationResultQueueRows(left: StoredRow, right: StoredRow): number {
     const order = ROW_KINDS.indexOf(left.kind) - ROW_KINDS.indexOf(right.kind) || left.order - right.order;
     if (order !== 0 || left.id === right.id) {
@@ -140,6 +155,15 @@ async function listQueueKeys(backing: Pick<ReplicationResultQueueBacking, "listK
     return keys;
 }
 
+/**
+ * Read stored rows in replay order. When a legacy snapshot is present, write
+ * its rows and delete the legacy key in the same atomic batch before returning.
+ *
+ * @param backing - Storage for one queue scope. Exclude other writers to its
+ * queue keys while this operation runs.
+ * @returns Rows with payloads that require host validation before use.
+ * @throws If stored data is invalid, both formats exist, or a backing operation fails.
+ */
 export async function loadReplicationResultQueueRows(backing: ReplicationResultQueueBacking): Promise<StoredRow[]> {
     const keys = await listQueueKeys(backing);
     const legacySnapshot = await backing.read(LEGACY_KEY);
@@ -166,6 +190,14 @@ export async function loadReplicationResultQueueRows(backing: ReplicationResultQ
     return rows.sort(compareReplicationResultQueueRows);
 }
 
+/**
+ * Validate row storage fields and translate queue changes to versioned key
+ * operations. Payloads pass through for the backing to encode.
+ *
+ * @param delta - Changes to translate in the order supplied by the host.
+ * @returns The corresponding writes in input order, ready for one atomic batch.
+ * @throws {@link TypeError} If a change has an invalid row, occurrence ID, or kind.
+ */
 export function toReplicationResultQueueWrites(
     delta: readonly ReplicationResultQueueDelta<unknown, unknown, unknown>[]
 ): ReplicationResultQueueWrite[] {
@@ -184,7 +216,16 @@ export function toReplicationResultQueueWrites(
     });
 }
 
-/** Create a queue store with no I/O until an operation is called. */
+/**
+ * Create a store for a single replication result queue. Construction performs
+ * no I/O. Call `load()` or `discard()` successfully before calling `commit()`.
+ *
+ * @typeParam D - Document payload written for queued and processing items.
+ * @typeParam P - Payload written for retained reflection failures.
+ * @typeParam A - Payload written for recovery attempts.
+ * @param backing - Host-owned storage that can commit an ordered batch atomically.
+ * @returns A queue store whose operations the host must serialise.
+ */
 export function createReplicationResultQueueStore<D, P, A>(
     backing: ReplicationResultQueueBacking
 ): ReplicationResultQueueStore<D, P, A> {
