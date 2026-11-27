@@ -37,6 +37,11 @@ function isEntryWithPath(entry: unknown): entry is MetaEntry {
     return "path" in entry && typeof entry.path === "string";
 }
 
+/**
+ * Return a string `path` field as written. Pass the original document when comparing
+ * revision names, since a projected entry may already contain a lookup path.
+ * For a path resolved from a document ID, see `getPath` in `string_and_binary/path`.
+ */
 export function tryGetFilePath(entry: unknown): string | undefined {
     if (isEntryWithPath(entry)) {
         return entry.path;

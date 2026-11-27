@@ -126,6 +126,10 @@ export function id2path_base(id: DocumentID, entry?: EntryHasPath): FilePathWith
     return (prefix + body) as FilePathWithPrefix;
 }
 
+/**
+ * Resolve an entry path, falling back to its document ID when the path is absent.
+ * Use `tryGetFilePath` from `common/utils.doc` on the original document to compare stored names.
+ */
 export function getPath(entry: AnyEntry) {
     return id2path_base(entry._id, entry);
 }

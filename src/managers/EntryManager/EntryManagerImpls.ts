@@ -26,6 +26,7 @@ import type { LayeredChunkManager as ChunkManager } from "@lib/managers/LayeredC
 import type { ChunkWriteOptions } from "@lib/managers/LayeredChunkManager/types";
 import { serialized } from "octagonal-wheels/concurrency/lock";
 import { createTextBlob, getFileRegExp, isTextBlob } from "@lib/common/utils";
+import { tryGetFilePath } from "@lib/common/utils.doc";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import type { NecessaryServicesInterfaces } from "@lib/interfaces/ServiceModule";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb";
@@ -556,13 +557,14 @@ export async function getDBEntryMetaByPath(
                 type: type,
                 eden: "eden" in obj ? obj.eden : {},
             };
-            const storedPath = "path" in obj && typeof obj.path === "string" && obj.path ? obj.path : undefined;
-            if (
-                pathSource === "stored" &&
-                storedPath &&
-                storedPath !== path &&
-                (await host.services.path.path2id(storedPath)) !== id
-            ) {
+            if (pathSource !== "stored") {
+                return doc;
+            }
+            const storedPath = tryGetFilePath(obj) as FilePathWithPrefix | undefined;
+            if (!storedPath) {
+                return doc;
+            }
+            if (storedPath !== path && (await host.services.path.path2id(storedPath)) !== id) {
                 throw new ContentReadError({
                     documentId: id,
                     revision: obj._rev,
@@ -570,7 +572,7 @@ export async function getDBEntryMetaByPath(
                     cause: new Error("Stored filename belongs to a different document"),
                 });
             }
-            return pathSource === "stored" && storedPath ? { ...doc, path: storedPath, storedPath } : doc;
+            return { ...doc, path: storedPath, storedPath };
         }
     } catch (ex) {
         if (ex instanceof ContentReadError) throw ex;
