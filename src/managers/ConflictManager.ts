@@ -30,6 +30,7 @@ type AutoMergeOutcomeOK = {
 type AutoMergeCanBeDoneByDeletingRev = {
     result: string;
     conflictedRev: string;
+    path?: FilePathWithPrefix;
 };
 
 type UserActionRequired = {
@@ -38,6 +39,16 @@ type UserActionRequired = {
     leftLeaf: diff_result_leaf | false;
     rightLeaf: diff_result_leaf | false;
 };
+
+type MergeLeaves = {
+    baseLeaf: diff_result_leaf;
+    leftLeaf: diff_result_leaf;
+    rightLeaf: diff_result_leaf;
+};
+
+function haveMatchingStoredPaths(left: diff_result_leaf, right: diff_result_leaf): boolean {
+    return !!left.path && !!right.path && left.path.normalize("NFC") === right.path.normalize("NFC");
+}
 
 type ConflictCandidate = {
     revision: string;
@@ -87,8 +98,11 @@ export class ConflictManager {
 
     async getConflictedDoc(path: FilePathWithPrefix, rev: string): Promise<false | diff_result_leaf> {
         try {
-            const doc = await this.options.entryManager.getDBEntry(path, { rev: rev }, false, true, true);
-            if (doc === false) return false;
+            const revision = await this.options.entryManager.getDBEntryAtRevision(path, rev);
+            if (revision === false) {
+                return false;
+            }
+            const { entry: doc, storedPath } = revision;
             let data = getDocData(doc.data);
             if (doc.datatype == "newnote") {
                 data = readString(new Uint8Array(decodeBinary(doc.data)));
@@ -96,6 +110,8 @@ export class ConflictManager {
                 // NO OP.
             }
             return {
+                ...(storedPath ? { path: storedPath } : {}),
+                datatype: doc.datatype,
                 deleted: doc.deleted || doc._deleted,
                 ctime: doc.ctime,
                 mtime: doc.mtime,
@@ -109,23 +125,41 @@ export class ConflictManager {
         }
         return false;
     }
+
+    private async readMergeLeaves(
+        path: FilePathWithPrefix,
+        baseRev: string,
+        leftRev: string,
+        rightRev: string,
+        observed?: UserActionRequired
+    ): Promise<MergeLeaves | UserActionRequired> {
+        const leftLeaf = observed?.leftLeaf || (await this.getConflictedDoc(path, leftRev));
+        const rightLeaf = observed?.rightLeaf || (await this.getConflictedDoc(path, rightRev));
+        if (
+            leftLeaf &&
+            rightLeaf &&
+            !leftLeaf.deleted &&
+            !rightLeaf.deleted &&
+            haveMatchingStoredPaths(leftLeaf, rightLeaf)
+        ) {
+            const baseLeaf = await this.getConflictedDoc(path, baseRev);
+            if (baseLeaf) return { baseLeaf, leftLeaf, rightLeaf };
+        }
+        return { leftRev, rightRev, leftLeaf, rightLeaf };
+    }
+
     async mergeSensibly(
         path: FilePathWithPrefix,
         baseRev: string,
         currentRev: string,
         conflictedRev: string
     ): Promise<Diff[] | false> {
-        const baseLeaf = await this.getConflictedDoc(path, baseRev);
-        const leftLeaf = await this.getConflictedDoc(path, currentRev);
-        const rightLeaf = await this.getConflictedDoc(path, conflictedRev);
+        const leaves = await this.readMergeLeaves(path, baseRev, currentRev, conflictedRev);
+        return "baseLeaf" in leaves && this.mergeMarkdownLeaves(leaves);
+    }
+
+    private mergeMarkdownLeaves({ baseLeaf, leftLeaf, rightLeaf }: MergeLeaves): Diff[] | false {
         let autoMerge = false;
-        if (baseLeaf == false || leftLeaf == false || rightLeaf == false) {
-            return false;
-        }
-        if (leftLeaf.deleted || rightLeaf.deleted) {
-            // Either one is deleted
-            return false;
-        }
         // diff between base and each revision
         const dmp = new diff_match_patch();
         const mapLeft = dmp.diff_linesToChars_(baseLeaf.data, leftLeaf.data);
@@ -301,22 +335,12 @@ export class ConflictManager {
         currentRev: string,
         conflictedRev: string
     ): Promise<string | false> {
+        const leaves = await this.readMergeLeaves(path, baseRev, currentRev, conflictedRev);
+        return "baseLeaf" in leaves && this.mergeObjectLeaves(leaves);
+    }
+
+    private mergeObjectLeaves({ baseLeaf, leftLeaf, rightLeaf }: MergeLeaves): string | false {
         try {
-            const baseLeaf = await this.getConflictedDoc(path, baseRev);
-            const leftLeaf = await this.getConflictedDoc(path, currentRev);
-            const rightLeaf = await this.getConflictedDoc(path, conflictedRev);
-            if (baseLeaf == false || leftLeaf == false || rightLeaf == false) {
-                Logger(`Could not load leafs for merge`, LOG_LEVEL_VERBOSE);
-                Logger(
-                    `${baseLeaf ? "base" : "missing base"}, ${leftLeaf ? "left" : "missing left"}, ${rightLeaf ? "right" : "missing right"} }`,
-                    LOG_LEVEL_VERBOSE
-                );
-                return false;
-            }
-            if (leftLeaf.deleted || rightLeaf.deleted) {
-                Logger(`Either is deleted`, LOG_LEVEL_VERBOSE);
-                return false;
-            }
             const baseObj = { data: tryParseJSON(baseLeaf.data, {}) } as Record<string | number | symbol, unknown>;
             const leftObj = { data: tryParseJSON(leftLeaf.data, {}) } as Record<string | number | symbol, unknown>;
             const rightObj = { data: tryParseJSON(rightLeaf.data, {}) } as Record<string | number | symbol, unknown>;
@@ -361,13 +385,25 @@ export class ConflictManager {
         }
     }
     async tryAutoMergeSensibly(path: FilePathWithPrefix, test: LoadedEntry, conflicts: string[]) {
-        const conflictedRev = conflicts[0];
+        const merged = await this.tryMergeConflict(path, test._rev!, conflicts[0]);
+        return "result" in merged ? { result: merged.result, conflictedRev: merged.conflictedRev } : false;
+    }
+
+    private async tryMergeConflict(
+        path: FilePathWithPrefix,
+        leftRev: string,
+        rightRev: string,
+        observed?: UserActionRequired
+    ): Promise<AutoMergeCanBeDoneByDeletingRev | UserActionRequired> {
+        const conflict: UserActionRequired = observed ?? { leftRev, rightRev, leftLeaf: false, rightLeaf: false };
+        const markdown = isSensibleMargeApplicable(path);
+        if (!markdown && !isObjectMargeApplicable(path)) return conflict;
         let commonBase = "";
         try {
             const documentId = await this.options.pathService.path2id(path);
             const [currentBranch, conflictedBranch] = await Promise.all([
-                this.database.get<EntryDoc>(documentId, { rev: test._rev, revs_info: true }),
-                this.database.get<EntryDoc>(documentId, { rev: conflictedRev, revs_info: true }),
+                this.database.get<EntryDoc>(documentId, { rev: leftRev, revs_info: true }),
+                this.database.get<EntryDoc>(documentId, { rev: rightRev, revs_info: true }),
             ]);
             const currentAvailable = new Set(
                 (currentBranch._revs_info || [])
@@ -382,38 +418,35 @@ export class ConflictManager {
         } catch (ex) {
             Logger(`Could not determine the common revision for ${path}`, LOG_LEVEL_VERBOSE);
             Logger(ex, LOG_LEVEL_VERBOSE);
-            return false;
+            return conflict;
         }
-        let p = undefined;
-        if (commonBase) {
-            if (isSensibleMargeApplicable(path)) {
-                const result = await this.mergeSensibly(path, commonBase, test._rev!, conflictedRev);
-                if (result) {
-                    p = result
-                        .filter((e) => e[0] != DIFF_DELETE)
-                        .map((e) => e[1])
-                        .join("");
-                    // can be merged.
-                    Logger(`Sensible merge:${path}`, LOG_LEVEL_INFO);
-                } else {
-                    Logger(`Sensible merge is not applicable.`, LOG_LEVEL_VERBOSE);
-                }
-            } else if (isObjectMargeApplicable(path)) {
-                // can be merged.
-                const result = await this.mergeObject(path, commonBase, test._rev!, conflictedRev);
-                if (result) {
-                    Logger(`Object merge:${path}`, LOG_LEVEL_INFO);
-                    p = result;
-                } else {
-                    Logger(`Object merge is not applicable..`, LOG_LEVEL_VERBOSE);
-                }
+        if (!commonBase) return conflict;
+        const leaves = await this.readMergeLeaves(path, commonBase, leftRev, rightRev, conflict);
+        if (!("baseLeaf" in leaves)) return leaves;
+        const { leftLeaf, rightLeaf } = leaves;
+        const readableConflict = { leftRev, rightRev, leftLeaf, rightLeaf };
+        if (observed && leftLeaf.data === rightLeaf.data) return readableConflict;
+
+        if (markdown) {
+            const diff = this.mergeMarkdownLeaves(leaves);
+            if (diff) {
+                Logger(`Sensible merge:${path}`, LOG_LEVEL_INFO);
+                const result = diff
+                    .filter(([operation]) => operation !== DIFF_DELETE)
+                    .map(([, text]) => text)
+                    .join("");
+                return { result, conflictedRev: rightRev, path: leftLeaf.path };
             }
-            if (p !== undefined) {
-                return { result: p, conflictedRev };
+        } else {
+            const result = this.mergeObjectLeaves(leaves);
+            if (result !== false) {
+                Logger(`Object merge:${path}`, LOG_LEVEL_INFO);
+                return { result, conflictedRev: rightRev, path: leftLeaf.path };
             }
         }
-        return false;
+        return readableConflict;
     }
+
     async tryAutoMerge(path: FilePathWithPrefix, enableMarkdownAutoMerge: boolean): AutoMergeResult {
         const test = await this.options.entryManager.getDBEntry(
             path,
@@ -435,25 +468,20 @@ export class ConflictManager {
             )
         );
         conflictCandidates.sort(compareConflictCandidates);
-        const conflicts = conflictCandidates.map(({ revision }) => revision);
-        // Resolve identical conflict leaves without creating a new revision.
         const leftLeaf = await this.getConflictedDoc(path, test._rev!);
-        const rightLeaf = conflictCandidates[0].leaf;
-        if (
-            leftLeaf !== false &&
-            rightLeaf !== false &&
-            leftLeaf.data == rightLeaf.data &&
-            leftLeaf.deleted == rightLeaf.deleted
-        ) {
-            return { leftRev: test._rev!, rightRev: conflicts[0], leftLeaf, rightLeaf };
-        }
-        if ((isSensibleMargeApplicable(path) || isObjectMargeApplicable(path)) && enableMarkdownAutoMerge) {
-            const autoMergeResult = await this.tryAutoMergeSensibly(path, test, conflicts);
-            if (autoMergeResult !== false) {
-                return autoMergeResult;
+        const { revision: rightRev, leaf: rightLeaf } = conflictCandidates[0];
+        const conflict = { leftRev: test._rev!, rightRev, leftLeaf, rightLeaf };
+        if (leftLeaf !== false && rightLeaf !== false) {
+            if (
+                !haveMatchingStoredPaths(leftLeaf, rightLeaf) ||
+                (leftLeaf.data === rightLeaf.data && leftLeaf.deleted === rightLeaf.deleted)
+            ) {
+                return conflict;
             }
         }
-        // should be one or more conflicts;
-        return { leftRev: test._rev!, rightRev: conflicts[0], leftLeaf, rightLeaf };
+        if (enableMarkdownAutoMerge) {
+            return this.tryMergeConflict(path, conflict.leftRev, rightRev, conflict);
+        }
+        return conflict;
     }
 }

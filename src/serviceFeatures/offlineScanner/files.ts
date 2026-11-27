@@ -1,4 +1,5 @@
 import { isReflectionCompleted } from "@lib/interfaces/FileHandler";
+import { hasFilenameCaseConflict } from "@lib/conflicts/filenameCaseConflict";
 import {
     LOG_LEVEL_DEBUG,
     LOG_LEVEL_INFO,
@@ -26,7 +27,7 @@ import { FilePairProcessResults, MetadataDocumentIdentityStatuses, type FilePair
 async function reflectScannedEntry(
     host: NecessaryServices<never, "fileHandler">,
     entry: MetaEntry,
-    file: FilePath | null,
+    file: UXFileInfoStub | FilePath | null,
     force: boolean,
     options?: VaultScanOptions
 ): Promise<FilePairProcessResult> {
@@ -50,7 +51,7 @@ async function reflectScannedEntry(
 }
 
 /**
- * Synchronise a single file between database and storage based on freshness comparison.
+ * Synchronise a matched file after checking for a filename case difference.
  * @param host Services container
  * @param log Logging function
  * @param file Storage file information
@@ -68,8 +69,11 @@ export async function syncFileBetweenDBandStorage(
         throw new Error(`Missing doc:${docPath}`);
     }
 
-    // const settings = host.services.setting.currentSettings();
-    const compareResult = host.services.path.compareFileFreshness(file, doc);
+    const filenameCaseConflict =
+        !file.deleted && !doc.deleted && !doc._deleted && hasFilenameCaseConflict(file.path, docPath);
+    const compareResult = filenameCaseConflict
+        ? "filename-case-conflict"
+        : host.services.path.compareFileFreshness(file, doc);
     switch (compareResult) {
         case BASE_IS_NEW:
             if (!host.services.vault.isFileSizeTooLarge(file.stat.size)) {
@@ -84,10 +88,15 @@ export async function syncFileBetweenDBandStorage(
                 );
                 return FilePairProcessResults.SKIPPED;
             }
+        case "filename-case-conflict":
         case TARGET_IS_NEW:
-            if (!host.services.vault.isFileSizeTooLarge(doc.size)) {
+            if (
+                !host.services.vault.isFileSizeTooLarge(doc.size) &&
+                (!filenameCaseConflict || !host.services.vault.isFileSizeTooLarge(file.stat.size))
+            ) {
                 log("STORAGE <- DB :" + docPath);
-                const reflection = await reflectScannedEntry(host, doc, stripAllPrefixes(docPath), false, scanOptions);
+                const observedFile = filenameCaseConflict ? file : stripAllPrefixes(docPath);
+                const reflection = await reflectScannedEntry(host, doc, observedFile, false, scanOptions);
                 if (reflection === FilePairProcessResults.COMPLETED) {
                     host.services.context.events.emitEvent("event-file-changed", {
                         file: file.path,

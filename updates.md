@@ -1,5 +1,22 @@
 # Updates
 
+## Unreleased
+
+### Fixed
+
+- With case-insensitive document IDs, a Vault file named `note.md` and an
+  incoming revision named `Note.md` can refer to the same document. If the
+  device cannot establish which spelling was previously reflected, ordinary
+  synchronisation keeps the local file and preserves both spellings as
+  revisions for the host to review, even when their contents match.
+  Three-way merge requires both revisions to record the same full path.
+
+### Improved
+
+- Hosts can offer a choice of filename when combining two text revisions.
+  `storeContent` accepts the displayed parent revision and declines the
+  write if that revision has since advanced.
+
 ## 0.8.0
 
 26th November, 2026

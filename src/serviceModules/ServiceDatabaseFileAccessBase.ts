@@ -168,7 +168,11 @@ export class ServiceDatabaseFileAccessBase
         this.events.emitEvent(EVENT_FILE_SAVED);
         return result.rev;
     }
-    async storeContent(path: FilePathWithPrefix, content: string): Promise<boolean> {
+    async storeContent(
+        path: FilePathWithPrefix,
+        content: string,
+        expectedBaseRevision?: string
+    ): Promise<boolean> {
         const blob = createTextBlob(content);
         const bytes = (await blob.arrayBuffer()).byteLength;
         const isInternal = path.startsWith(".") ? true : undefined;
@@ -184,7 +188,10 @@ export class ServiceDatabaseFileAccessBase
             body: blob,
             isInternal,
         };
-        return (await this.__store(dummyUXFileInfo, true, false, false)) !== false;
+        if (expectedBaseRevision === undefined) {
+            return (await this.__store(dummyUXFileInfo, true, false, false)) !== false;
+        }
+        return (await this.storeWithLiveBaseRevision(dummyUXFileInfo, expectedBaseRevision)) !== false;
     }
 
     private async __store(
@@ -603,23 +610,28 @@ export class ServiceDatabaseFileAccessBase
     async fetchEntryMeta(
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
-        skipCheck = false
+        skipCheck = false,
+        pathSource?: "stored"
     ): Promise<MetaEntry | false> {
-        return await this.readEntryMeta(file, rev, skipCheck);
+        return await this.readEntryMeta(file, rev, skipCheck, pathSource);
     }
 
     async readEntryMeta(
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
-        skipCheck = false
+        skipCheck = false,
+        pathSource?: "stored"
     ): Promise<MetaEntry | false> {
         const filename = getDatabasePathFromUXFileInfo(file);
         if (skipCheck && !(await this.checkIsTargetFile(file))) {
             return false;
         }
-        return (await this.database.localDatabase.getDBEntryMeta(filename, rev ? { rev } : undefined, true)) as
-            | MetaEntry
-            | false;
+        return (await this.database.localDatabase.getDBEntryMeta(
+            filename,
+            rev ? { rev } : undefined,
+            true,
+            pathSource
+        )) as MetaEntry | false;
     }
 
     async fetchEntryFromMeta(
@@ -653,10 +665,11 @@ export class ServiceDatabaseFileAccessBase
         rev?: string,
         waitForReady = true,
         skipCheck = false,
-        localOnly = false
+        localOnly = false,
+        pathSource?: "stored"
     ): Promise<LoadedEntry | false> {
         try {
-            return await this.readEntry(file, rev, waitForReady, skipCheck, localOnly);
+            return await this.readEntry(file, rev, waitForReady, skipCheck, localOnly, pathSource);
         } catch (error) {
             this._log(error, LOG_LEVEL_VERBOSE);
             return false;
@@ -668,13 +681,29 @@ export class ServiceDatabaseFileAccessBase
         rev?: string,
         waitForReady = true,
         skipCheck = false,
-        localOnly = false
+        localOnly = false,
+        pathSource?: "stored"
     ): Promise<LoadedEntry | false> {
         if (skipCheck && !(await this.checkIsTargetFile(file))) {
             return false;
         }
-        const entry = await this.readEntryMeta(file, rev, true);
-        return entry ? await this.readEntryFromMeta(entry, waitForReady, true, localOnly) : false;
+        const entry = await this.readEntryMeta(file, rev, true, pathSource);
+        if (!entry) {
+            return false;
+        }
+        const lookupPath = getDatabasePathFromUXFileInfo(file);
+        if (pathSource === "stored" && entry.path !== lookupPath) {
+            // Keep content selection and decoding on the lookup path. The stored spelling
+            // describes this revision, while host target checks still apply to the caller's path.
+            const loaded = await this.readEntryFromMeta(
+                { ...entry, path: lookupPath },
+                waitForReady,
+                true,
+                localOnly
+            );
+            return loaded && { ...loaded, path: entry.path };
+        }
+        return await this.readEntryFromMeta(entry, waitForReady, true, localOnly);
     }
     async deleteFromDBbyPath(fullPath: FilePath | FilePathWithPrefix, rev?: string): Promise<boolean> {
         if (!(await this.checkIsTargetFile(fullPath))) {

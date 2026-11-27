@@ -5,6 +5,7 @@ import {
     readProvenanceSnapshot,
     currentStorageSnapshotMatches,
     classifyStorageContent,
+    findMatchingFilenameLeaf,
     rememberMatchingLeaf,
     finaliseStoredRevision,
 } from "./provenance";
@@ -16,7 +17,8 @@ import { LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
 import type { FilePathWithPrefix, MetaEntry, UXFileInfoStub } from "@lib/common/types";
 import { isDocContentSame } from "@lib/common/utils";
 
-import type { FileHandlerContext, PreservationResult } from "./context";
+import type { FileHandlerContext, PreservationResult, StorageSnapshot } from "./context";
+import type { FileReflectionProvenanceRecord } from "@lib/interfaces/FileReflectionProvenance";
 
 /** Decoded incoming file body supplied for live-write protection (absent for deletions). */
 type IncomingContent = string | string[] | Blob | ArrayBuffer;
@@ -84,6 +86,37 @@ export async function preserveUnsyncedStorageAsConflict(
         unavailableRead = error;
         classification = { kind: "unknown" };
     }
+    const result = await preserveStorageSnapshot(ctx, path, snapshot, classification, unavailableRead);
+    return result || { preserved: true };
+}
+
+/** Preserve the actual name of an untracked file before applying a differently cased database path. */
+export async function preserveUntrackedFilename(
+    ctx: FileHandlerContext,
+    path: FilePathWithPrefix,
+    observed: UXFileInfoStub,
+    hasConflicts: boolean,
+    observedProvenance?: FileReflectionProvenanceRecord
+): Promise<boolean> {
+    const file = await ctx.host.readFileFromStub(observed);
+    if (file.path !== observed.path) return false;
+    // An explicitly selected revision can be retried while other leaves are still live.
+    const classification = hasConflicts
+        ? await findMatchingFilenameLeaf(ctx, file, path)
+        : { kind: "unknown" } as const;
+    const result = await preserveStorageSnapshot(ctx, path, { file, revision: observedProvenance }, classification);
+    return result !== false && result.preserved;
+}
+
+/** Commit the file captured at its observed spelling after rechecking the bytes and provenance. */
+async function preserveStorageSnapshot(
+    ctx: FileHandlerContext,
+    path: FilePathWithPrefix,
+    snapshot: StorageSnapshot,
+    classification: StorageContentClassification,
+    unavailableRead?: ContentReadError
+): Promise<PreservationResult | false> {
+    const { file: readFile, revision: observedProvenance } = snapshot;
     // Classification can await chunk reads or leaf discovery. Revalidate
     // before creating a branch so an edit during that wait is not lost.
     if (!(await currentStorageSnapshotMatches(ctx, readFile, observedProvenance))) {
@@ -93,7 +126,7 @@ export async function preserveUnsyncedStorageAsConflict(
         return { preserved: false, snapshot };
     }
     if (classification.kind === "matching-leaf") {
-        await rememberMatchingLeaf(ctx, observedPath, classification.revision, readFile.stat.mtime, readFile.body);
+        await rememberMatchingLeaf(ctx, readFile.path, classification.revision, readFile.stat.mtime, readFile.body);
         await queueConflictCheckFor(ctx, path);
         return { preserved: true };
     }
@@ -106,7 +139,7 @@ export async function preserveUnsyncedStorageAsConflict(
             throw unavailableRead;
         }
         ctx.host.log(`Prevented overwriting unsynchronised local changes for ${path}`, LOG_LEVEL_NOTICE);
-        return { preserved: true };
+        return false;
     }
     // Publish the new provenance only after the same storage snapshot has
     // survived the database write; otherwise the caller must reread it.

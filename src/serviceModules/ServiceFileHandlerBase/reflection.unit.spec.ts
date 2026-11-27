@@ -12,7 +12,7 @@ import { TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import { computeFileContentHash } from "@lib/common/fileContentHash";
 import { describe, expect, it, vi } from "vitest";
 
-import { applyDatabaseEntryToStorage, reflectDatabaseEntry, dbToStorage, dbToStorageWithSpecificRev } from "./reflection";
+import { applyDatabaseEntryToStorage, reflectDatabaseEntry, dbToStorage, dbToStorageWithSpecificRev, IncompleteFileReflectionError } from "./reflection";
 import {
     createFileHandlerFixture,
     makeFile,
@@ -378,7 +378,7 @@ describe("database-to-storage reflection", () => {
         await expect(dbToStorageWithSpecificRev(ctx, null, "2-selected")).resolves.toBe(false);
         expect(await dbToStorage(ctx, path, null)).toBe(false);
 
-        expect(db.fetchEntryMeta).toHaveBeenCalledExactlyOnceWith(path, undefined, true);
+        expect(db.fetchEntryMeta).toHaveBeenCalledExactlyOnceWith(path, undefined, true, "stored");
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
         expect(storage.deleteVaultItem).not.toHaveBeenCalled();
     });
@@ -516,12 +516,24 @@ describe("case-only rename provenance preservation (#1378)", () => {
         return fixture;
     }
 
+    function mockReadableRename(
+        db: ReturnType<typeof createCaseAwareFixture>["db"],
+        oldPath: FilePathWithPrefix,
+        incoming: ReturnType<typeof makeMetaEntry>
+    ) {
+        const base = makeMetaEntry(oldPath, "1-base");
+        db.fetchEntryMeta.mockImplementation(async (_target, revision) => {
+            if (revision === base._rev) return base;
+            return revision === undefined || revision === incoming._rev ? incoming : false;
+        });
+    }
+
     it.each(
         ([0, 1] as const).flatMap((pathNormalizationVersion) =>
             ([false, true] as const).map((basePruned) => ({ pathNormalizationVersion, basePruned }))
         )
     )(
-        "applies a case-only rename with changed content without creating a false conflict (v=$pathNormalizationVersion, basePruned=$basePruned)",
+        "applies a case-only rename only when the recorded spelling is available (v=$pathNormalizationVersion, basePruned=$basePruned)",
         async ({ pathNormalizationVersion, basePruned }) => {
             const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
             const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
@@ -547,6 +559,18 @@ describe("case-only rename provenance preservation (#1378)", () => {
                 return false;
             });
 
+            if (basePruned) {
+                // A legacy receipt can contain this hash under either spelling.
+                await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "policy" });
+                expect(storage.renameFile).not.toHaveBeenCalled();
+                expect(storage.writeFileAuto).not.toHaveBeenCalled();
+                expect([...files.keys()]).toEqual([oldPath]);
+                expect(await files.get(oldPath)?.body.text()).toBe(oldBody);
+                expect(db.storeIndependentRevision).toHaveBeenCalledExactlyOnceWith(localFile, true);
+                expect(db.storeWithBaseRevision).not.toHaveBeenCalled();
+                expect(conflict.queueCheckFor).toHaveBeenCalledWith(newPath);
+                return;
+            }
             await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "completed" });
 
             expect(storage.renameFile).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ path: oldPath }), newPath);
@@ -576,7 +600,9 @@ describe("case-only rename provenance preservation (#1378)", () => {
         files.set(oldPath, editedFile);
         provenanceRecords.set(oldPath, await makeProvenanceRecord(baseFile, "1-base"));
         const incoming = makeMetaEntry(newPath, "2-renamed", { mtime: 2_000, size: new Blob([incomingBody]).size });
-        db.fetchEntryMeta.mockResolvedValue(incoming);
+        db.fetchEntryMeta.mockImplementation(async (_target, rev) =>
+            rev === "1-base" ? makeMetaEntry(oldPath, rev) : incoming
+        );
         db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, incomingBody));
         db.fetchEntry.mockImplementation(async (_target, rev) =>
             rev === "1-base" ? loaded(makeMetaEntry(oldPath, "1-base"), baseBody) : false
@@ -613,7 +639,7 @@ describe("case-only rename provenance preservation (#1378)", () => {
                 mtime: 2_000,
                 size: failureKind === "size-mismatch" ? 999 : new Blob([newBody]).size,
             });
-            db.fetchEntryMeta.mockResolvedValue(incoming);
+            mockReadableRename(db, oldPath, incoming);
             if (failureKind === "read-error") {
                 db.fetchEntryFromMeta
                     .mockRejectedValueOnce(
@@ -691,6 +717,7 @@ describe("case-only rename provenance preservation (#1378)", () => {
         provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
         provenance.set.mockRejectedValueOnce(new Error("kv write failed"));
         const incoming = makeMetaEntry(newPath, "2-renamed", { size: 9 });
+        mockReadableRename(db, oldPath, incoming);
 
         await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).rejects.toThrow();
 
@@ -699,28 +726,49 @@ describe("case-only rename provenance preservation (#1378)", () => {
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
     });
 
-    it("clears stale destination provenance when the renamed source has no provenance", async () => {
-        const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
-        const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
-        const localBody = "unknown local content\n";
-        const incomingBody = "remote body\n";
-        const { ctx, db, storage, provenanceRecords, files } = createCaseAwareFixture();
-        const localFile = makeFile(oldPath, localBody);
-        files.set(oldPath, localFile);
-        // Stale record at destination matches local bytes by coincidence or old history; must not be inherited.
-        provenanceRecords.set(newPath, await makeProvenanceRecord(localFile, "9-stale"));
-        const incoming = makeMetaEntry(newPath, "2-renamed", { size: new Blob([incomingBody]).size });
-        db.fetchEntryMeta.mockResolvedValue(incoming);
-        db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, incomingBody));
+    it.each(["remote body\n", "unknown local content\n"])(
+        "preserves the observed name and bytes before a case-only rename with unknown ancestry (incoming %j)",
+        async (incomingBody) => {
+            const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
+            const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
+            const localBody = "unknown local content\n";
+            const { ctx, db, storage, provenanceRecords, files, conflict } = createCaseAwareFixture();
+            const localFile = makeFile(oldPath, localBody);
+            files.set(oldPath, localFile);
+            // Stale record at destination matches local bytes by coincidence or old history; must not be inherited.
+            provenanceRecords.set(newPath, await makeProvenanceRecord(localFile, "9-stale"));
+            const incoming = makeMetaEntry(newPath, "2-renamed", { size: new Blob([incomingBody]).size });
+            db.fetchEntryMeta.mockResolvedValue(incoming);
+            db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, incomingBody));
 
-        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "policy" });
+            await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "policy" });
 
-        expect(db.storeIndependentRevision).toHaveBeenCalledExactlyOnceWith(
-            expect.objectContaining({ path: newPath }),
-            true
+            expect([...files.keys()]).toEqual([oldPath]);
+            expect(await files.get(oldPath)?.body.text()).toBe(localBody);
+            expect(storage.renameFile).not.toHaveBeenCalled();
+            expect(db.storeIndependentRevision).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+                path: oldPath, body: localFile.body,
+            }), true);
+            expect(db.storeWithBaseRevision).not.toHaveBeenCalled();
+            expect(storage.writeFileAuto).not.toHaveBeenCalled();
+            expect(provenanceRecords.get(oldPath)?.revision).toBe("1-independent");
+            expect(conflict.queueCheckFor).toHaveBeenCalledWith(newPath);
+        }
+    );
+
+    it("reflects the exact selected revision's stored filename when looked up through the other spelling", async () => {
+        const localPath = "Tasks/note.md" as FilePathWithPrefix;
+        const chosenPath = "Tasks/Note.md" as FilePathWithPrefix;
+        const { ctx, files, db } = createCaseAwareFixture();
+        files.set(localPath, makeFile(localPath, "local"));
+        const chosen = makeMetaEntry(chosenPath, "2-chosen", { size: 6 });
+        db.fetchEntryMeta.mockImplementation(async (_file, _rev, _skip, pathSource) =>
+            pathSource === "stored" ? chosen : { ...chosen, path: localPath }
         );
-        expect(storage.writeFileAuto).not.toHaveBeenCalled();
-        expect(provenanceRecords.get(newPath)?.revision).toBe("1-independent");
+        db.fetchEntryFromMeta.mockResolvedValue(loaded(chosen, "chosen"));
+        await expect(dbToStorageWithSpecificRev(ctx, localPath, "2-chosen", true)).resolves.toBe(true);
+        expect([...files.keys()]).toEqual([chosenPath]);
+        expect(await files.get(chosenPath)?.body.text()).toBe("chosen");
     });
 
     it("preserves a newer out-of-lock destination provenance written while renameFile is awaiting", async () => {
@@ -737,6 +785,7 @@ describe("case-only rename provenance preservation (#1378)", () => {
             return renamed;
         });
         const incoming = makeMetaEntry(newPath, "2-renamed", { size: 9 });
+        mockReadableRename(db, oldPath, incoming);
 
         await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).rejects.toThrow();
 
@@ -756,6 +805,7 @@ describe("case-only rename provenance preservation (#1378)", () => {
         files.set(oldPath, localFile);
         provenanceRecords.set(oldPath, await makeProvenanceRecord(localFile, "1-base"));
         const incoming = makeMetaEntry(newPath, "2-renamed", { size: 9 });
+        mockReadableRename(db, oldPath, incoming);
 
         await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).rejects.toThrow();
 
@@ -783,7 +833,7 @@ describe("case-only rename provenance preservation (#1378)", () => {
             mtime: 2_000,
             size: new Blob([newBody]).size,
         });
-        db.fetchEntryMeta.mockResolvedValue(incoming);
+        mockReadableRename(db, oldCanonical, incoming);
         db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, newBody));
 
         await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "completed" });
@@ -917,7 +967,7 @@ describe("case-only rename provenance preservation (#1378)", () => {
         expect(provenanceRecords.get(oldPath)?.revision).toBe("1-base");
     });
 
-    it("aborts before renaming if stale destination provenance cleanup fails so retry cannot trust stale evidence", async () => {
+    it("refuses a forced rename when stale destination cleanup fails, then preserves both names on an ordinary retry", async () => {
         const oldPath = "Tasks/example note.md" as FilePathWithPrefix;
         const newPath = "Tasks/Example note.md" as FilePathWithPrefix;
         const localBody = "unknown local content\n";
@@ -931,7 +981,7 @@ describe("case-only rename provenance preservation (#1378)", () => {
         db.fetchEntryMeta.mockResolvedValue(incoming);
         db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, incomingBody));
 
-        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).rejects.toThrow(
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null, true)).rejects.toThrow(
             "Reflection could not establish a safe current result"
         );
 
@@ -939,16 +989,91 @@ describe("case-only rename provenance preservation (#1378)", () => {
         expect(files.has(oldPath)).toBe(true);
         expect(await files.get(oldPath)?.body.text()).toBe(localBody);
 
-        // Retry succeeds in removing stale destination provenance and preserves unknown local content safely.
+        // Ordinary reflection cannot adopt the destination record for the other spelling.
         await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "policy" });
 
         expect(db.storeIndependentRevision).toHaveBeenCalledExactlyOnceWith(
-            expect.objectContaining({ path: newPath }),
+            expect.objectContaining({ path: oldPath }),
             true
         );
         expect(storage.writeFileAuto).not.toHaveBeenCalled();
-        expect(await files.get(newPath)?.body.text()).toBe(localBody);
-        expect(provenanceRecords.get(newPath)?.revision).toBe("1-independent");
+        expect(await files.get(oldPath)?.body.text()).toBe(localBody);
+        expect(provenanceRecords.get(oldPath)?.revision).toBe("1-independent");
+        expect(provenanceRecords.get(newPath)?.revision).toBe("9-stale");
+    });
+
+    it("retries an untracked filename conflict when writing its independent revision fails", async () => {
+        const local = "Tasks/note.md" as FilePathWithPrefix;
+        const other = "Tasks/Note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, files, conflict } = createCaseAwareFixture();
+        files.set(local, makeFile(local, "local"));
+        const incoming = makeMetaEntry(other, "2-remote", { size: 6 });
+        db.storeIndependentRevision.mockResolvedValueOnce(false);
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).rejects.toThrow(IncompleteFileReflectionError);
+        expect([...files.keys()]).toEqual([local]);
+        expect(conflict.queueCheckFor).not.toHaveBeenCalled();
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "policy" });
+        expect(db.storeIndependentRevision).toHaveBeenCalledTimes(2);
+        expect(storage.renameFile).not.toHaveBeenCalled();
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith(other);
+    });
+
+    it("preserves a local name when legacy provenance at that name identifies a revision stored under the other spelling", async () => {
+        const local = "Tasks/note.md" as FilePathWithPrefix;
+        const other = "Tasks/Note.md" as FilePathWithPrefix;
+        const { ctx, db, storage, files, provenanceRecords } = createCaseAwareFixture();
+        const file = makeFile(local, "base");
+        files.set(local, file);
+        provenanceRecords.set(local, await makeProvenanceRecord(file, "1-base"));
+        const base = makeMetaEntry(other, "1-base", { size: 4 });
+        const incoming = makeMetaEntry(other, "2-remote", { size: 6 });
+        db.fetchEntryMeta.mockImplementation(async (_target, rev) => rev === base._rev ? base : incoming);
+        db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, "remote"));
+        await expect(applyDatabaseEntryToStorage(ctx, incoming, null)).resolves.toEqual({ status: "policy" });
+        expect([...files.keys()]).toEqual([local]);
+        expect(db.storeIndependentRevision).toHaveBeenCalledWith(expect.objectContaining({ path: local }), true);
+        expect(provenanceRecords.get(local)?.revision).toBe("1-independent");
+        expect(storage.renameFile).not.toHaveBeenCalled();
+    });
+
+    it("protects the observed spelling when the incoming winner is requested through the local alias", async () => {
+        const local = "Tasks/note.md" as FilePathWithPrefix;
+        const other = "Tasks/Note.md" as FilePathWithPrefix;
+        const { ctx, db, files } = createCaseAwareFixture();
+        files.set(local, makeFile(local, "local"));
+        const winner = makeMetaEntry(other, "2-remote", { size: 6 });
+        db.fetchEntryMeta.mockImplementation(async (_file, _rev, _skip, pathSource) =>
+            pathSource === "stored" ? winner : { ...winner, path: local }
+        );
+        db.fetchEntryFromMeta.mockResolvedValue(loaded(winner, "remote"));
+        await expect(dbToStorage(ctx, local, null)).resolves.toBe(true);
+        expect(db.fetchEntryFromMeta).not.toHaveBeenCalled();
+        expect(db.storeIndependentRevision).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ path: local }), true);
+        expect([...files.keys()]).toEqual([local]);
+    });
+
+    it.each([false, true])("rechecks a scanner's physical name on exact-lookup storage (both names present: %s)", async (collision) => {
+        const local = "Tasks/note.md" as FilePathWithPrefix;
+        const other = "Tasks/Note.md" as FilePathWithPrefix;
+        const { ctx, db, files, storage } = createCaseAwareFixture({ insensitiveStorageLookup: false });
+        const file = makeFile(local, "local");
+        files.set(local, file);
+        if (collision) files.set(other, makeFile(other, "second"));
+        const incoming = makeMetaEntry(other, "2-remote", { size: 6 });
+        db.fetchEntryMeta.mockResolvedValue(incoming);
+        db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, "remote"));
+        const result = applyDatabaseEntryToStorage(ctx, incoming, file);
+        if (collision) {
+            await expect(result).rejects.toThrow(IncompleteFileReflectionError);
+            expect(db.storeIndependentRevision).not.toHaveBeenCalled();
+            expect(await files.get(other)?.body.text()).toBe("second");
+        } else {
+            await expect(result).resolves.toEqual({ status: "policy" });
+            expect(db.storeIndependentRevision).toHaveBeenCalledWith(expect.objectContaining({ path: local }), true);
+            expect(files.has(other)).toBe(false);
+        }
+        expect(await files.get(local)?.body.text()).toBe("local");
+        expect(storage.writeFileAuto).not.toHaveBeenCalled();
     });
 
     it("does not create a duplicate revision when both local and renamed incoming notes are empty", async () => {
@@ -960,7 +1085,9 @@ describe("case-only rename provenance preservation (#1378)", () => {
         files.set(oldPath, localEmpty);
         provenanceRecords.set(oldPath, await makeProvenanceRecord(oldNonEmpty, "1-nonempty"));
         const incoming = makeMetaEntry(newPath, "2-empty-renamed", { mtime: 2_000, size: 0 });
-        db.fetchEntryMeta.mockResolvedValue(incoming);
+        db.fetchEntryMeta.mockImplementation(async (_target, rev) =>
+            rev === "1-nonempty" ? makeMetaEntry(oldPath, rev) : incoming
+        );
         db.fetchEntryFromMeta.mockResolvedValue(loaded(incoming, ""));
         db.fetchEntry.mockResolvedValue(loaded(makeMetaEntry(oldPath, "1-nonempty"), "previous non-empty body\n"));
 

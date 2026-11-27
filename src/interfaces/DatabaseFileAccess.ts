@@ -69,7 +69,12 @@ export interface DatabaseFileAccess {
         file: UXFileInfoStub | FilePathWithPrefix,
         baseRevision: string
     ) => Promise<string | false>;
-    storeContent(path: FilePathWithPrefix, content: string): Promise<boolean>;
+    /** Store text content under the current winner, or only as a child of an exact expected base revision. */
+    storeContent(
+        path: FilePathWithPrefix,
+        content: string,
+        expectedBaseRevision?: string
+    ): Promise<boolean>;
     createChunks: (file: UXFileInfo, force?: boolean, skipCheck?: boolean) => Promise<boolean>;
     hasContentInRevisionHistory: (
         file: UXFileInfoStub | FilePathWithPrefix,
@@ -107,22 +112,26 @@ export interface DatabaseFileAccess {
         skipCheck?: boolean,
         localOnly?: boolean
     ) => Promise<LoadedEntry | false>;
+    /** Select the revision's stored path when requested, falling back to the lookup path for legacy documents. */
     fetchEntryMeta: (
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
-        skipCheck?: boolean
+        skipCheck?: boolean,
+        pathSource?: "stored"
     ) => Promise<MetaEntry | false>;
     /**
      * Load a revision's content, or return `false` when it cannot be loaded.
      * `localOnly` overrides `waitForReady`: missing Chunks cause failure without remote requests
      * or waiting for delivery, so provenance checks can use only content already available locally.
+     * Select `"stored"` to return the revision's stored path after loading the same content.
      */
     fetchEntry: (
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
         waitForReady?: boolean,
         skipCheck?: boolean,
-        localOnly?: boolean
+        localOnly?: boolean,
+        pathSource?: "stored"
     ) => Promise<LoadedEntry | false>;
     getConflictedRevs: (file: UXFileInfoStub | FilePathWithPrefix) => Promise<string[]>;
 }

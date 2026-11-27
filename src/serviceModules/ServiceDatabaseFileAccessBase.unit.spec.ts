@@ -10,6 +10,7 @@ import {
 } from "./ServiceDatabaseFileAccessBase";
 import { storeDeletionByPathAtRevision } from "@lib/managers/EntryManager/EntryManagerImpls";
 import { EVENT_FILE_SAVED } from "@lib/events/coreEvents";
+import { FLAGMD_REDFLAG } from "@lib/common/types";
 
 PouchDB.plugin(MemoryAdapter);
 PouchDB.plugin(replication);
@@ -106,6 +107,44 @@ describe("ServiceDatabaseFileAccessBase local database observers", () => {
         });
         expect(readRaw).toHaveBeenCalledExactlyOnceWith(id, { open_revs: "all" });
         await expect(service.findLiveContentRevisions(path, "local bytes")).resolves.toEqual([]);
+    });
+
+    it("requests the stored spelling for both metadata read entry points when selected", async () => {
+        const id = "case-conflict.md" as DocumentID;
+        const path = "case-conflict.md" as FilePathWithPrefix;
+        const database = new PouchDB<EntryDoc>(`case-conflict-metadata-${++databaseSequence}`, { adapter: "memory" });
+        databases.push(database);
+        const readMetadata = vi.fn().mockResolvedValue({ _id: id, path: "Case-Conflict.md" });
+        const service = createService(database, id, undefined, readMetadata);
+
+        await expect(service.fetchEntryMeta(path, "2-chosen", true, "stored")).resolves.toMatchObject({
+            path: "Case-Conflict.md",
+        });
+        await expect(service.readEntryMeta(path, undefined, true, "stored")).resolves.toMatchObject({
+            path: "Case-Conflict.md",
+        });
+        expect(readMetadata).toHaveBeenNthCalledWith(1, path, { rev: "2-chosen" }, true, "stored");
+        expect(readMetadata).toHaveBeenNthCalledWith(2, path, undefined, true, "stored");
+    });
+
+    it("returns the stored spelling without changing the path used to load content", async () => {
+        const id = "case-conflict.md" as DocumentID;
+        const path = "case-conflict.md" as FilePathWithPrefix;
+        const storedPath = "Case-Conflict.md" as FilePathWithPrefix;
+        const database = new PouchDB<EntryDoc>(`case-conflict-content-${++databaseSequence}`, { adapter: "memory" });
+        databases.push(database);
+        const meta = { ...createEntry(id, storedPath, "body"), _rev: "2-chosen" };
+        const readMetadata = vi.fn().mockResolvedValue(meta);
+        const service = createService(database, id, undefined, readMetadata);
+        const decoded = { ...meta, path, data: ["body"] } as LoadedEntry;
+        const readContent = vi.spyOn(service, "readEntryFromMeta").mockResolvedValue(decoded);
+
+        await expect(service.fetchEntry(path, "2-chosen", false, true, true, "stored")).resolves.toEqual({
+            ...decoded,
+            path: storedPath,
+        });
+        expect(readMetadata).toHaveBeenCalledExactlyOnceWith(path, { rev: "2-chosen" }, true, "stored");
+        expect(readContent).toHaveBeenCalledExactlyOnceWith({ ...meta, path }, false, true, true);
     });
 
     it("passes the per-call observer to conflicted-revision metadata reads", async () => {
@@ -365,5 +404,106 @@ describe("ServiceDatabaseFileAccessBase.storeWithLiveBaseRevision", () => {
         emitEvent.mockClear();
         await expect(service.storeWithLiveBaseRevision(file, "2-deleted", true)).resolves.toBe(false);
         expect(emitEvent).not.toHaveBeenCalled();
+    });
+});
+
+
+describe("ServiceDatabaseFileAccessBase.storeContent", () => {
+    function createStoreContentService(isTarget = true) {
+        const id = "stored-content-id" as DocumentID;
+        const putDBEntry = vi.fn().mockResolvedValue({ ok: true, id, rev: "2-current-winner" });
+        const putDBEntryWithLiveBaseRevision = vi.fn().mockResolvedValue({ ok: true, id, rev: "4-child" });
+        const isTargetFile = vi.fn().mockResolvedValue(isTarget);
+        const service = new ServiceDatabaseFileAccessBase({
+            events: createLiveSyncEventHub(),
+            API: { addLog: vi.fn() },
+            vault: { isTargetFile },
+            storageAccess: {},
+            path: { path2id: vi.fn().mockResolvedValue(id) },
+            database: { localDatabase: { putDBEntry, putDBEntryWithLiveBaseRevision } },
+        } as unknown as ServiceDatabaseFileAccessDependencies);
+        return { service, putDBEntry, putDBEntryWithLiveBaseRevision, isTargetFile };
+    }
+
+    it("stores text at the selected path under the exact displayed parent", async () => {
+        const path = "Chosen/Case.md" as FilePathWithPrefix;
+        const expectedParent = "3-displayed";
+        const content = "left line\nRight — café\n";
+        const { service, putDBEntry, putDBEntryWithLiveBaseRevision } = createStoreContentService();
+
+        await expect(service.storeContent(path, content, expectedParent)).resolves.toBe(true);
+
+        expect(putDBEntryWithLiveBaseRevision).toHaveBeenCalledTimes(1);
+        const [entry, parentRevision, onlyChunks] = putDBEntryWithLiveBaseRevision.mock.calls[0];
+        expect(entry).toMatchObject({
+            path,
+            datatype: "plain",
+            type: "plain",
+            size: new TextEncoder().encode(content).byteLength,
+        });
+        expect(entry.path).toBe(path);
+        expect(await entry.data.text()).toBe(content);
+        expect(parentRevision).toBe(expectedParent);
+        expect(onlyChunks).toBe(false);
+        expect(putDBEntry).not.toHaveBeenCalled();
+    });
+
+    it("returns false when the displayed parent no longer accepts the write", async () => {
+        const path = "Chosen/Case.md" as FilePathWithPrefix;
+        const expectedParent = "3-stale";
+        const { service, putDBEntry, putDBEntryWithLiveBaseRevision } = createStoreContentService();
+        putDBEntryWithLiveBaseRevision.mockResolvedValue(false);
+
+        await expect(service.storeContent(path, "joined text", expectedParent)).resolves.toBe(false);
+
+        expect(putDBEntryWithLiveBaseRevision).toHaveBeenCalledTimes(1);
+        const [entry, parentRevision] = putDBEntryWithLiveBaseRevision.mock.calls[0];
+        expect(entry.path).toBe(path);
+        expect(parentRevision).toBe(expectedParent);
+        expect(putDBEntry).not.toHaveBeenCalled();
+    });
+
+    it("returns false when the exact-base write produces no child revision", async () => {
+        const path = "Chosen/Case.md" as FilePathWithPrefix;
+        const expectedParent = "3-displayed";
+        const { service, putDBEntry, putDBEntryWithLiveBaseRevision } = createStoreContentService();
+        putDBEntryWithLiveBaseRevision.mockResolvedValue({ ok: true, id: "stored-content-id" });
+
+        await expect(service.storeContent(path, "joined text", expectedParent)).resolves.toBe(false);
+
+        const [entry, parentRevision] = putDBEntryWithLiveBaseRevision.mock.calls[0];
+        expect(entry.path).toBe(path);
+        expect(parentRevision).toBe(expectedParent);
+        expect(putDBEntry).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        { path: "excluded.md" as FilePathWithPrefix, isTarget: false },
+        { path: FLAGMD_REDFLAG as FilePathWithPrefix, isTarget: true },
+    ])("returns false without writing excluded or ignored path $path", async ({ path, isTarget }) => {
+        const { service, putDBEntry, putDBEntryWithLiveBaseRevision, isTargetFile } =
+            createStoreContentService(isTarget);
+
+        await expect(service.storeContent(path, "joined text", "3-displayed")).resolves.toBe(false);
+
+        expect(isTargetFile).toHaveBeenCalledTimes(1);
+        expect(putDBEntryWithLiveBaseRevision).not.toHaveBeenCalled();
+        expect(putDBEntry).not.toHaveBeenCalled();
+    });
+
+    it("keeps current-winner storage when no expected parent is supplied", async () => {
+        const path = "Chosen/Case.md" as FilePathWithPrefix;
+        const content = "legacy store";
+        const { service, putDBEntry, putDBEntryWithLiveBaseRevision } = createStoreContentService();
+
+        await expect(service.storeContent(path, content)).resolves.toBe(true);
+
+        expect(putDBEntry).toHaveBeenCalledTimes(1);
+        const [entry, onlyChunks, baseRevision] = putDBEntry.mock.calls[0];
+        expect(entry.path).toBe(path);
+        expect(await entry.data.text()).toBe(content);
+        expect(onlyChunks).toBe(false);
+        expect(baseRevision).toBeUndefined();
+        expect(putDBEntryWithLiveBaseRevision).not.toHaveBeenCalled();
     });
 });

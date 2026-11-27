@@ -51,6 +51,8 @@ import type { WriteResult } from "@lib/managers/LayeredChunkManager/types";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
 import { EntryManager } from "./EntryManager";
 import { ConflictManager } from "@lib/managers/ConflictManager";
+import { ServiceContext } from "@lib/services/base/ServiceBase";
+import { PathServiceCompat } from "@lib/services/implements/injectable/InjectablePathService";
 import { stopGeneratorOnReturn } from "@lib/worker/workerPushStreamProtocol.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 
@@ -175,6 +177,149 @@ describe("EntryManagerImpls", () => {
     afterEach(async () => {
         chunkManager?.destroy();
         await db.destroy();
+    });
+
+    describe("conflict revision paths", () => {
+        it.each([
+            {
+                usePathObfuscation: false,
+                leftPath: "Note.md",
+                rightPath: "note.md",
+                baseData: "Title\nLeft slot\nRight slot\n",
+                leftData: "Title\nLeft changed\nRight slot\n",
+                rightData: "Title\nLeft slot\nRight changed\n",
+            },
+            {
+                usePathObfuscation: true,
+                leftPath: "Note.json",
+                rightPath: "note.json",
+                baseData: '{"left":0,"right":0}',
+                leftData: '{"left":1,"right":0}',
+                rightData: '{"left":0,"right":1}',
+            },
+            {
+                usePathObfuscation: true,
+                leftPath: "Note.md",
+                rightPath: "note.md",
+                baseData: "Same content\n",
+                leftData: "Same content\n",
+                rightData: "Same content\n",
+            },
+        ])(
+            "returns both stored spellings for $leftPath and $rightPath (obfuscation $usePathObfuscation)",
+            async ({ usePathObfuscation, leftPath, rightPath, baseData, leftData, rightData }) => {
+                Object.assign(mockSettingService.currentSettings(), {
+                    handleFilenameCaseSensitive: false,
+                    usePathObfuscation,
+                    passphrase: "test path obfuscation",
+                });
+                const pathService = new PathServiceCompat(new ServiceContext(), { settingService: mockSettingService });
+                const left = leftPath as FilePathWithPrefix;
+                const right = rightPath as FilePathWithPrefix;
+                const id = await pathService.path2id(left);
+                expect(await pathService.path2id(right)).toBe(id);
+                const revisions = [
+                    { path: right, data: baseData, ids: ["base"] },
+                    { path: left, data: leftData, ids: ["left", "base"] },
+                    { path: right, data: rightData, ids: ["right", "base"] },
+                ];
+                const documents = await Promise.all(
+                    revisions.map(async ({ path, data, ids }, index) => {
+                        const chunkId = `${IDPrefixes.Chunk}conflict-${index}` as DocumentID;
+                        await db.put({ _id: chunkId, type: "leaf", data });
+                        return {
+                            _id: id,
+                            _rev: `${ids.length}-${ids[0]}`,
+                            _revisions: { start: ids.length, ids },
+                            path,
+                            type: "plain" as const,
+                            children: [chunkId],
+                            ctime: 1000,
+                            mtime: 1000 + index,
+                            size: data.length,
+                            eden: {},
+                        };
+                    })
+                );
+                await db.bulkDocs(documents, { new_edits: false });
+                const entryManager = new EntryManager({
+                    database: db,
+                    chunkManager,
+                    hashManager,
+                    splitter,
+                    pathService,
+                    settingService: mockSettingService,
+                });
+                const merger = new ConflictManager({ database: db, entryManager, pathService });
+
+                await expect(entryManager.getDBEntry(right, { rev: "2-left" })).resolves.toMatchObject({
+                    path: right,
+                    _rev: "2-left",
+                });
+                await expect(
+                    entryManager.getDBEntryMeta(right, { rev: "2-left" }, true, "stored")
+                ).resolves.toMatchObject({
+                    path: left,
+                    _rev: "2-left",
+                });
+                await expect(entryManager.getDBEntryMeta(left, undefined, true, "stored")).resolves.toMatchObject({
+                    path: right,
+                    _rev: "2-right",
+                });
+                await expect(merger.tryAutoMerge(right, true)).resolves.toMatchObject({
+                    leftRev: "2-right",
+                    rightRev: "2-left",
+                    leftLeaf: { path: right, data: rightData },
+                    rightLeaf: { path: left, data: leftData },
+                });
+                await expect(db.get(id, { conflicts: true })).resolves.toMatchObject({ _conflicts: ["2-left"] });
+            }
+        );
+
+        it("refuses an inconsistent stored path before a conflict can reflect it to another document", async () => {
+            const lookup = "note.md" as FilePathWithPrefix;
+            const stored = "other.md" as FilePathWithPrefix;
+            const result = await db.put({
+                _id: lookup as string as DocumentID, path: stored, type: "plain", children: [],
+                ctime: 1, mtime: 1, size: 0, eden: {},
+            } as EntryDoc);
+            const entryManager = new EntryManager({
+                database: db, chunkManager, hashManager, splitter, pathService: mockPathService,
+                settingService: mockSettingService,
+            });
+            await expect(entryManager.getDBEntryMeta(lookup, undefined, true)).resolves.toMatchObject({ path: lookup });
+            const failure = { failure: { documentId: lookup, revision: result.rev, resources: [] } };
+            await expect(entryManager.getDBEntryMeta(lookup, undefined, true, "stored")).rejects.toMatchObject(failure);
+            await expect(entryManager.getDBEntryAtRevision(lookup, result.rev)).rejects.toMatchObject(failure);
+        });
+
+        it("uses the lookup path for legacy metadata and omits unknown spelling from the conflict leaf", async () => {
+            const path = "legacy.md" as FilePathWithPrefix;
+            const result = await db.put({
+                _id: path as string as DocumentID,
+                type: "plain",
+                children: [],
+                ctime: 1,
+                mtime: 1,
+                size: 0,
+                eden: {},
+            } as EntryDoc);
+            const entryManager = new EntryManager({
+                database: db,
+                chunkManager,
+                hashManager,
+                splitter,
+                pathService: mockPathService,
+                settingService: mockSettingService,
+            });
+            const merger = new ConflictManager({ database: db, entryManager, pathService: mockPathService });
+            await expect(entryManager.getDBEntryMeta(path, { rev: result.rev }, true, "stored")).resolves.toMatchObject({
+                path,
+            });
+            const leaf = await merger.getConflictedDoc(path, result.rev);
+            expect(leaf).toMatchObject({ rev: result.rev, data: "" });
+            expect(leaf).not.toHaveProperty("path");
+        });
     });
 
     describe("EntryManager logging", () => {

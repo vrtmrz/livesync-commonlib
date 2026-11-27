@@ -663,9 +663,10 @@ export class LiveSyncLocalDB {
     async getDBEntryMeta(
         path: FilePathWithPrefix | FilePath,
         opt?: PouchDB.Core.GetOptions,
-        includeDeleted = false
+        includeDeleted = false,
+        pathSource?: "stored"
     ): Promise<false | LoadedEntry> {
-        return await this.managers.entryManager.getDBEntryMeta(path, opt, includeDeleted);
+        return await this.managers.entryManager.getDBEntryMeta(path, opt, includeDeleted, pathSource);
     }
 
     async getDBEntry(

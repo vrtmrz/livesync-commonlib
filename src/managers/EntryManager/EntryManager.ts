@@ -18,6 +18,7 @@ import type { LogFunction } from "@lib/services/lib/logUtils.ts";
 import { assertDatabasePathIdentity } from "@lib/pouchdb/pathIdentityCompatibility";
 import {
     deleteDBEntryByPath,
+    getDBEntryAtRevision,
     getDBEntryByPath,
     getDBEntryFromMeta,
     getDBEntryMetaByPath,
@@ -97,9 +98,10 @@ export class EntryManager {
     async getDBEntryMeta(
         path: FilePathWithPrefix | FilePath,
         opt?: PouchDB.Core.GetOptions,
-        includeDeleted = false
+        includeDeleted = false,
+        pathSource?: "stored"
     ): Promise<false | LoadedEntry> {
-        return await getDBEntryMetaByPath(this.serviceHost, this, path, opt, includeDeleted);
+        return await getDBEntryMetaByPath(this.serviceHost, this, path, opt, includeDeleted, pathSource);
     }
     async getDBEntry(
         path: FilePathWithPrefix | FilePath,
@@ -111,6 +113,11 @@ export class EntryManager {
     ): Promise<false | LoadedEntry> {
         return await getDBEntryByPath(this.serviceHost, this, path, opt, dump, waitForReady, includeDeleted, localOnly);
     }
+    /** Load the exact revision and return its stored path separately from the lookup path. */
+    async getDBEntryAtRevision(path: FilePathWithPrefix, rev: string) {
+        return await getDBEntryAtRevision(this.serviceHost, this, path, rev);
+    }
+
     async getDBEntryFromMeta(
         meta: LoadedEntry | MetaEntry,
         dump = false,

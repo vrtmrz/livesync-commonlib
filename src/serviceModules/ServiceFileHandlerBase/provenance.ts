@@ -3,7 +3,7 @@ import { isFolderInfo } from "./storage";
 
 import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 
-import type { FilePathWithPrefix, UXFileInfo } from "@lib/common/types";
+import type { FilePathWithPrefix, MetaEntry, UXFileInfo } from "@lib/common/types";
 import { displayRev, isDocContentSame, readContent } from "@lib/common/utils";
 
 import { computeFileContentHash } from "@lib/common/fileContentHash";
@@ -148,32 +148,56 @@ export interface RenameProvenanceSnapshot {
     readonly destinationBefore: FileReflectionProvenanceRecord | undefined;
 }
 
+/** Check the stored spelling of the revision recorded at the observed path before moving it. */
+export async function hasRecordedFilename(
+    ctx: FileHandlerContext,
+    observedPath: FilePathWithPrefix,
+    record: FileReflectionProvenanceRecord | undefined,
+    databasePath: FilePathWithPrefix
+): Promise<boolean> {
+    if (!record) return false;
+    // Older clients could record matching bytes under a lookup alias. Only the revision carries its spelling.
+    const entry = await ctx.host.db().readEntryMeta(databasePath, record.revision, true, "stored");
+    return (
+        !!entry &&
+        entry._rev === record.revision &&
+        !entry.deleted &&
+        !entry._deleted &&
+        getProvenancePath(ctx, entry.path) === getProvenancePath(ctx, observedPath)
+    );
+}
+
 /**
  * Capture source and destination provenance strictly before a physical case-only rename.
  *
  * @param ctx - The captured services, per-instance state, and dynamic host seams.
- * @param oldPath - The physical path observed before renaming.
+ * @param oldPath - The physical filename observed before renaming.
  * @param targetPath - The incoming canonical path requested for the rename.
- * @returns The captured snapshot, or undefined when provenance is disabled or keys already match; returns false on a read or pre-rename stale-destination cleanup failure.
- * @remarks When the source has no provenance and a stale record already occupies the destination key, that stale record is removed before mutating storage so a post-rename retry cannot inherit it.
+ * @param protectUntracked - Whether an untracked spelling must be preserved before any physical rename.
+ * @returns The captured records, the untrusted source record for conflict preservation, an empty result when no transfer is needed, or false on a preparation failure.
+ * @remarks An explicit overwrite clears stale destination evidence before renaming an untracked file.
  */
 export async function captureRenameProvenance(
     ctx: FileHandlerContext,
     oldPath: FilePathWithPrefix,
-    targetPath: FilePathWithPrefix
-): Promise<RenameProvenanceSnapshot | undefined | false> {
-    if (!ctx.provenance) return undefined;
+    targetPath: FilePathWithPrefix,
+    protectUntracked: boolean
+): Promise<{ transfer?: RenameProvenanceSnapshot } | { untracked: FileReflectionProvenanceRecord | undefined } | false> {
+    if (!ctx.provenance) return protectUntracked ? { untracked: undefined } : {};
     const oldKey = getProvenancePath(ctx, oldPath);
     const expectedNewKey = getProvenancePath(ctx, targetPath);
-    if (oldKey === expectedNewKey) return undefined;
+    if (oldKey === expectedNewKey) return {};
     try {
         const sourceRecord = await readProvenanceSnapshot(ctx, oldPath, true);
+        if (protectUntracked && !(await hasRecordedFilename(ctx, oldPath, sourceRecord, targetPath))) {
+            return { untracked: sourceRecord };
+        }
         let destinationBefore = await readProvenanceSnapshot(ctx, targetPath, true);
         if (!sourceRecord && destinationBefore !== undefined) {
             await ctx.provenance.delete(expectedNewKey);
             destinationBefore = undefined;
         }
-        return { oldPath, oldKey, expectedNewKey, sourceRecord, destinationBefore };
+        return { transfer: { oldPath, oldKey, expectedNewKey, sourceRecord, destinationBefore } };
     } catch (ex) {
         ctx.host.log(
             `Could not prepare file reflection provenance before renaming ${oldPath} -> ${targetPath}`,
@@ -540,6 +564,46 @@ async function classifyLiveStorageContent(
 ): Promise<StorageContentClassification> {
     const matches = currentEntry ? await ctx.host.db().readLiveContentRevisions(file, file.body) : [];
     if (matches.length) {
+        return { kind: "matching-leaf", revision: matches.length === 1 ? matches[0] : undefined };
+    }
+    return { kind: "unknown" };
+}
+
+/**
+ * Find a live content match at the observed physical spelling.
+ *
+ * @param ctx - The captured file-handler context.
+ * @param file - The observed storage path and bytes.
+ * @param databasePath - The stored or incoming spelling used to look up each leaf.
+ * @param current - The already observed current Metadata, when available.
+ * @returns A same-spelling match, with a revision only when the match is unique.
+ */
+export async function findMatchingFilenameLeaf(
+    ctx: FileHandlerContext,
+    file: UXFileInfo,
+    databasePath: FilePathWithPrefix,
+    current?: Pick<MetaEntry, "_rev" | "path" | "deleted" | "_deleted">
+): Promise<Extract<StorageContentClassification, { kind: "matching-leaf" | "unknown" }>> {
+    const revisions = await ctx.host.db().readLiveContentRevisions(file, file.body);
+    const filename = getProvenancePath(ctx, file.path);
+    const matches: string[] = [];
+    for (const revision of revisions) {
+        // Missing legacy filenames fall back to the database spelling, which can differ from storage.
+        const leaf =
+            current?._rev === revision
+                ? current
+                : await ctx.host.db().readEntryMeta(databasePath, revision, true, "stored");
+        if (
+            leaf &&
+            leaf._rev === revision &&
+            !leaf.deleted &&
+            !leaf._deleted &&
+            getProvenancePath(ctx, leaf.path) === filename
+        ) {
+            matches.push(revision);
+        }
+    }
+    if (matches.length > 0) {
         return { kind: "matching-leaf", revision: matches.length === 1 ? matches[0] : undefined };
     }
     return { kind: "unknown" };
