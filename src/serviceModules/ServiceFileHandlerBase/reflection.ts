@@ -238,7 +238,12 @@ export async function applyDatabaseEntryToStorage(
     }
     const existOnDB = !(docEntry._deleted || docEntry.deleted);
     let existDoc = await ctx.host.storage().getStub(path);
-    if (existOnDB && file && file.path !== existDoc?.path && hasFilenameCaseConflict(file.path, path)) {
+    if (
+        existOnDB &&
+        file &&
+        file.path !== existDoc?.path &&
+        hasFilenameCaseConflict(file.path, path, getPathNormalizationVersion(settings))
+    ) {
         // Exact-lookup hosts can see the scanned spelling even when the database spelling is absent.
         const observed = await ctx.host.storage().getStub(file.path);
         if (existDoc && observed && observed.path !== existDoc.path) {

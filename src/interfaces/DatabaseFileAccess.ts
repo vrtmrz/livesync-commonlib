@@ -69,12 +69,7 @@ export interface DatabaseFileAccess {
         file: UXFileInfoStub | FilePathWithPrefix,
         baseRevision: string
     ) => Promise<string | false>;
-    /** Store text content under the current winner, or only as a child of an exact expected base revision. */
-    storeContent(
-        path: FilePathWithPrefix,
-        content: string,
-        expectedBaseRevision?: string
-    ): Promise<boolean>;
+    storeContent(path: FilePathWithPrefix, content: string): Promise<boolean>;
     createChunks: (file: UXFileInfo, force?: boolean, skipCheck?: boolean) => Promise<boolean>;
     hasContentInRevisionHistory: (
         file: UXFileInfoStub | FilePathWithPrefix,
@@ -112,7 +107,10 @@ export interface DatabaseFileAccess {
         skipCheck?: boolean,
         localOnly?: boolean
     ) => Promise<LoadedEntry | false>;
-    /** Select the revision's stored path when requested, falling back to the lookup path for legacy documents. */
+    /**
+     * With `"stored"`, return the actual stored path in `storedPath` and use it as `path` when present.
+     * Legacy lookups keep the lookup `path` and omit `storedPath`.
+     */
     fetchEntryMeta: (
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,

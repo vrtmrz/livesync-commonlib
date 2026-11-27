@@ -11,7 +11,7 @@ import type {
     LoadedEntry,
     // SavingEntry,
 } from "@lib/common/types";
-import { MISSING_OR_ERROR, NOT_CONFLICTED } from "@lib/common/types";
+import { DEFAULT_SETTINGS, MISSING_OR_ERROR, NOT_CONFLICTED } from "@lib/common/types";
 import type { EntryManager } from "./EntryManager/EntryManager";
 import type { IPathService } from "@lib/services/base/IService";
 import { hasFilenameCaseConflict } from "@lib/conflicts.ts";
@@ -134,9 +134,18 @@ describe("hasFilenameCaseConflict", () => {
         ["Note.md", "Other.md", false],
         ["Note.md", "Note.md", false],
         ["Note.md", undefined, false],
-    ])("compares %s and %s", (left, right, expected) => {
-        expect(hasFilenameCaseConflict(left as FilePathWithPrefix, right as FilePathWithPrefix | undefined)).toBe(
+    ])("compares %s and %s in NFC mode", (left, right, expected) => {
+        expect(hasFilenameCaseConflict(left as FilePathWithPrefix, right as FilePathWithPrefix | undefined, 1)).toBe(
             expected
+        );
+    });
+
+    it("retains a distinct spelling under legacy path identity", () => {
+        expect(hasFilenameCaseConflict("K.json" as FilePathWithPrefix, "\u212a.json" as FilePathWithPrefix, 0)).toBe(
+            true
+        );
+        expect(hasFilenameCaseConflict("K.json" as FilePathWithPrefix, "\u212a.json" as FilePathWithPrefix, 1)).toBe(
+            false
         );
     });
 });
@@ -146,11 +155,13 @@ describe("ConflictManager", () => {
     let conflictManager: ConflictManager;
     let mockEntryManager: Partial<EntryManager>;
     let mockPathService: Partial<IPathService>;
+    let settings: typeof DEFAULT_SETTINGS;
 
     beforeEach(() => {
         // Create a unique in-memory database for each test
         dbCounter++;
         db = new PouchDB(`test-conflict-${dbCounter}`, { adapter: "memory" });
+        settings = { ...DEFAULT_SETTINGS };
 
         // Mock PathService
         mockPathService = {
@@ -164,10 +175,18 @@ describe("ConflictManager", () => {
 
         // Mock EntryManager
         mockEntryManager = {
-            getDBEntryAtRevision: async (path, rev) => {
-                const entry = await mockEntryManager.getDBEntry?.(path, { rev }, false, true, true);
-                return entry ? { entry, storedPath: entry.path } : false;
+            serviceHost: {
+                services: {
+                    path: mockPathService as IPathService,
+                    setting: { currentSettings: () => settings } as EntryManager["serviceHost"]["services"]["setting"],
+                },
+                serviceModules: {},
             },
+            getDBEntryMeta: async (path, options) => {
+                const entry = await mockEntryManager.getDBEntry?.(path, options, false, true, true);
+                return entry ? { ...entry, storedPath: entry.path } : false;
+            },
+            getDBEntryFromMeta: async (entry) => entry as LoadedEntry,
             getDBEntry: vi.fn(
                 async (
                     path: FilePathWithPrefix,
@@ -860,15 +879,17 @@ describe("ConflictManager", () => {
 
     describe("tryAutoMerge", () => {
         function missFirstReadOf(revision: string) {
-            const read = mockEntryManager.getDBEntryAtRevision!;
+            const metadataReads = vi.spyOn(mockEntryManager, "getDBEntryMeta");
+            const read = mockEntryManager.getDBEntryFromMeta!;
             let unavailable = true;
-            return vi.spyOn(mockEntryManager, "getDBEntryAtRevision").mockImplementation((path, rev) => {
-                if (unavailable && rev === revision) {
+            vi.spyOn(mockEntryManager, "getDBEntryFromMeta").mockImplementation((metadata) => {
+                if (unavailable && metadata._rev === revision) {
                     unavailable = false;
                     return Promise.resolve(false);
                 }
-                return read(path, rev);
+                return read(metadata);
             });
+            return metadataReads;
         }
 
         it("should return MISSING_OR_ERROR for non-existent document", async () => {
@@ -1010,7 +1031,7 @@ describe("ConflictManager", () => {
                 rightLeaf: expect.objectContaining({ path: otherPath, data: a }),
             });
 
-            expect(reads.mock.calls.map(([, rev]) => rev)).toEqual(["2-left", "2-right", "2-left"]);
+            expect(reads.mock.calls.map(([, options]) => options?.rev)).toEqual(["2-left", "2-right", "2-left"]);
 
             const direct =
                 ext === "md"
@@ -1022,10 +1043,12 @@ describe("ConflictManager", () => {
         it.each([false, true])("requires a stored name on each revision (both missing: %s)", async (both) => {
             const path = "note.json" as FilePathWithPrefix;
             await createSharedBaseConflict(db, path, "{}", '{"a":1}', '{"b":2}');
-            const read = mockEntryManager.getDBEntryAtRevision!;
-            vi.spyOn(mockEntryManager, "getDBEntryAtRevision").mockImplementation(async (p, rev) => {
-                const result = await read(p, rev);
-                return result && (rev === "2-left" || (both && rev === "2-right")) ? { entry: result.entry } : result;
+            const read = mockEntryManager.getDBEntryMeta!;
+            vi.spyOn(mockEntryManager, "getDBEntryMeta").mockImplementation(async (p, options) => {
+                const result = await read(p, options);
+                return result && (options?.rev === "2-left" || (both && options?.rev === "2-right"))
+                    ? { ...result, storedPath: undefined }
+                    : result;
             });
 
             const result = await conflictManager.tryAutoMerge(path, true);
@@ -1053,6 +1076,7 @@ describe("ConflictManager", () => {
         });
 
         it("merges recovered revisions with canonically equivalent names using the winner's stored spelling", async () => {
+            settings.pathNormalizationVersion = 1;
             const path = "café.json" as FilePathWithPrefix;
             const storedPath = "Café.json" as FilePathWithPrefix;
             const otherPath = "Cafe\u0301.json" as FilePathWithPrefix;
@@ -1062,7 +1086,21 @@ describe("ConflictManager", () => {
             const result = await conflictManager.tryAutoMerge(path, true);
             expect(result).toMatchObject({ conflictedRev: "2-left", path: storedPath });
             expect("result" in result && JSON.parse(result.result)).toEqual({ left: 1, right: 2 });
-            expect(reads.mock.calls.map(([, rev]) => rev)).toEqual(["2-left", "2-right", "2-right", "1-base"]);
+            expect(reads.mock.calls.map(([, options]) => options?.rev)).toEqual(["2-left", "2-right", "2-right", "1-base"]);
+        });
+
+        it("keeps different legacy spellings available after recovering the other revision", async () => {
+            const path = "k.json" as FilePathWithPrefix;
+            const leftPath = "\u212a.json" as FilePathWithPrefix;
+            const rightPath = "K.json" as FilePathWithPrefix;
+            await createSharedBaseConflict(db, path, "{}", '{"left":1}', '{"right":2}', rightPath, leftPath);
+            const reads = missFirstReadOf("2-right");
+
+            await expect(conflictManager.tryAutoMerge(path, true)).resolves.toMatchObject({
+                leftLeaf: { path: rightPath, data: '{"right":2}' },
+                rightLeaf: { path: leftPath, data: '{"left":1}' },
+            });
+            expect(reads.mock.calls.map(([, options]) => options?.rev)).toEqual(["2-left", "2-right", "2-right"]);
         });
 
         it("retains the two leaves' shared spelling when the lookup and ancestor use an alias", async () => {

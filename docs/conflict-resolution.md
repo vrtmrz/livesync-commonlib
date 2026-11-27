@@ -38,7 +38,7 @@ Commonlib follows these rules:
 - deduplicate unknown-origin content against current non-deleted leaves, preserving differing content as a fresh independent root under the same document ID; and
 - never select the newest modification time as a package-level default.
 
-For a three-way merge, both leaves must record the same full path, including case. Commonlib compares the two stored paths after Unicode NFC normalisation.
+For a three-way merge, both leaves must record the same full path, including case. Commonlib applies Unicode NFC when `pathNormalizationVersion` is `1`. With version `0`, it compares the stored paths as written.
 
 Ordinary saving and incoming reflection share this classification. A historical byte match alone cannot distinguish an unchanged stale file from an intentional revert, and a prefix or suffix relationship does not prove which version the user edited. Unknown-origin content must not acquire an inferred parent from the current winner or its parent.
 
@@ -202,7 +202,7 @@ During ordinary reflection under case-insensitive document identity, an untracke
 
 Hosts can display each conflict leaf's stored `path` when available and use `hasFilenameCaseConflict` from the `conflicts` entry point to recognise this choice. A host selecting a revision reflects both its name and its content. If either revision has no stored `path`, its conflict leaf omits `path`, `hasFilenameCaseConflict` returns `false`, and the host applies its ordinary revision conflict policy.
 
-The conflict result includes each loaded leaf's `datatype`. A host offering manual concatenation can check that both leaves are live and `plain` before combining their text. To save the result under the chosen spelling, `databaseFileAccess.storeContent(chosenPath, combinedText, expectedBaseRevision)` writes a child of the specified live revision. If the expected revision is no longer a live leaf, the write returns `false`. Custom implementations of `storeContent` must honour the same condition when the third argument is supplied. Resolve the other displayed leaf only after the write succeeds.
+The conflict result includes each loaded leaf's `datatype`. A host offering manual concatenation can check that both leaves are live and `plain` before combining their text. To save the result under the chosen spelling, `databaseFileAccess.storeWithLiveBaseRevision(file, expectedBaseRevision)` writes the combined content and chosen path as a child of the specified live revision. If the expected revision is no longer a live leaf, the write returns `false`. Resolve the other displayed leaf only after the write succeeds.
 
 For a case-only rename, such as `Note.md` to `note.md`, the renamed entry is written as a child of the displayed revision in the same document tree. The other live branch remains available for resolution.
 

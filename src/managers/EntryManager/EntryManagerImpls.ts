@@ -479,28 +479,12 @@ export async function prepareChunk(
 
 export async function getDBEntryMetaByPath(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
-    managers: NecessaryManagers<"localDatabase">,
-    path: FilePathWithPrefix | FilePath,
-    opt?: PouchDB.Core.GetOptions,
-    includeDeleted = false,
-    pathSource?: "stored"
-): Promise<false | LoadedEntry> {
-    const metadata = await readDBEntryMetadata(host, managers, path, opt, includeDeleted, pathSource);
-    if (!metadata) {
-        return false;
-    }
-    const { entry, storedPath } = metadata;
-    return pathSource === "stored" && storedPath ? { ...entry, path: storedPath } : entry;
-}
-
-async function readDBEntryMetadata(
-    host: NecessaryServicesInterfaces<"path" | "setting", never>,
     { localDatabase, readScope }: NecessaryManagers<"localDatabase">,
     path: FilePathWithPrefix | FilePath,
     opt?: PouchDB.Core.GetOptions,
     includeDeleted = false,
     pathSource?: "stored"
-): Promise<false | { entry: LoadedEntry; storedPath?: FilePathWithPrefix }> {
+): Promise<false | LoadedEntry> {
     if (!isTargetFile(host, path)) {
         return false;
     }
@@ -586,7 +570,7 @@ async function readDBEntryMetadata(
                     cause: new Error("Stored filename belongs to a different document"),
                 });
             }
-            return { entry: doc, storedPath };
+            return pathSource === "stored" && storedPath ? { ...doc, path: storedPath, storedPath } : doc;
         }
     } catch (ex) {
         if (ex instanceof ContentReadError) throw ex;
@@ -845,19 +829,6 @@ export async function getDBEntryByPath(
     } else {
         return false;
     }
-}
-export async function getDBEntryAtRevision(
-    host: NecessaryServicesInterfaces<"path" | "setting", never>,
-    managers: NecessaryManagers<"localDatabase" | "chunkManager">,
-    path: FilePathWithPrefix,
-    rev: string
-): Promise<false | { entry: LoadedEntry; storedPath?: FilePathWithPrefix }> {
-    const metadata = await readDBEntryMetadata(host, managers, path, { rev }, true, "stored");
-    if (!metadata) {
-        return false;
-    }
-    const entry = await getDBEntryFromMeta(host, managers, metadata.entry);
-    return entry ? { entry, storedPath: metadata.storedPath } : false;
 }
 
 export async function deleteDBEntryByPath(

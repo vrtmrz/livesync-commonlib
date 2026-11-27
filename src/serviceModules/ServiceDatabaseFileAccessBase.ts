@@ -168,11 +168,7 @@ export class ServiceDatabaseFileAccessBase
         this.events.emitEvent(EVENT_FILE_SAVED);
         return result.rev;
     }
-    async storeContent(
-        path: FilePathWithPrefix,
-        content: string,
-        expectedBaseRevision?: string
-    ): Promise<boolean> {
+    async storeContent(path: FilePathWithPrefix, content: string): Promise<boolean> {
         const blob = createTextBlob(content);
         const bytes = (await blob.arrayBuffer()).byteLength;
         const isInternal = path.startsWith(".") ? true : undefined;
@@ -188,10 +184,7 @@ export class ServiceDatabaseFileAccessBase
             body: blob,
             isInternal,
         };
-        if (expectedBaseRevision === undefined) {
-            return (await this.__store(dummyUXFileInfo, true, false, false)) !== false;
-        }
-        return (await this.storeWithLiveBaseRevision(dummyUXFileInfo, expectedBaseRevision)) !== false;
+        return (await this.__store(dummyUXFileInfo, true, false, false)) !== false;
     }
 
     private async __store(

@@ -1,4 +1,5 @@
 import { isReflectionCompleted } from "@lib/interfaces/FileHandler";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
 import { hasFilenameCaseConflict } from "@lib/conflicts/filenameCaseConflict";
 import {
     LOG_LEVEL_DEBUG,
@@ -70,7 +71,11 @@ export async function syncFileBetweenDBandStorage(
     }
 
     const filenameCaseConflict =
-        !file.deleted && !doc.deleted && !doc._deleted && hasFilenameCaseConflict(file.path, docPath);
+        !file.deleted &&
+        !doc.deleted &&
+        !doc._deleted &&
+        file.path !== docPath &&
+        hasFilenameCaseConflict(file.path, docPath, getPathNormalizationVersion(host.services.setting.currentSettings()));
     const compareResult = filenameCaseConflict
         ? "filename-case-conflict"
         : host.services.path.compareFileFreshness(file, doc);

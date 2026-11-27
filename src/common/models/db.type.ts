@@ -126,7 +126,12 @@ export type InternalFileEntry = DatabaseEntry &
 
 export type AnyEntry = NoteEntry | NewEntry | PlainEntry | InternalFileEntry;
 
-export type LoadedEntry = AnyEntry & {
+type EntryReadPath = {
+    /** The path present in Metadata when requested. Undefined if the revision did not store a path. */
+    storedPath?: FilePathWithPrefix;
+};
+
+export type LoadedEntry = AnyEntry & EntryReadPath & {
     data: string | string[];
     datatype: EntryTypeNotes;
 };
@@ -135,7 +140,7 @@ export type SavingEntry = AnyEntry & {
     datatype: EntryTypeNotes;
 };
 
-export type MetaEntry = AnyEntry & {
+export type MetaEntry = AnyEntry & EntryReadPath & {
     children: string[];
     // datatype: "plain" | "newnote";
 };

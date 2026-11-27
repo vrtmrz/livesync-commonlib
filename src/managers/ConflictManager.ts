@@ -20,6 +20,7 @@ import {
     isObjectMargeApplicable,
 } from "@lib/common/utils.ts";
 import type { EntryManager } from "@lib/managers/EntryManager/EntryManager.ts";
+import { getPathNormalizationVersion, normalisePathForIdentity } from "@lib/common/pathNormalization.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import type { IPathService } from "@lib/services/base/IService.ts";
 
@@ -45,10 +46,6 @@ type MergeLeaves = {
     leftLeaf: diff_result_leaf;
     rightLeaf: diff_result_leaf;
 };
-
-function haveMatchingStoredPaths(left: diff_result_leaf, right: diff_result_leaf): boolean {
-    return !!left.path && !!right.path && left.path.normalize("NFC") === right.path.normalize("NFC");
-}
 
 type ConflictCandidate = {
     revision: string;
@@ -96,13 +93,26 @@ export class ConflictManager {
         return this.options.database;
     }
 
+    private haveMatchingStoredPaths(left: diff_result_leaf, right: diff_result_leaf): boolean {
+        if (!left.path || !right.path) {
+            return false;
+        }
+        const settings = this.options.entryManager.serviceHost.services.setting.currentSettings();
+        const version = getPathNormalizationVersion(settings);
+        return normalisePathForIdentity(left.path, version) === normalisePathForIdentity(right.path, version);
+    }
+
     async getConflictedDoc(path: FilePathWithPrefix, rev: string): Promise<false | diff_result_leaf> {
         try {
-            const revision = await this.options.entryManager.getDBEntryAtRevision(path, rev);
-            if (revision === false) {
+            const metadata = await this.options.entryManager.getDBEntryMeta(path, { rev }, true, "stored");
+            if (!metadata) {
                 return false;
             }
-            const { entry: doc, storedPath } = revision;
+            const { storedPath, ...entry } = metadata;
+            const doc = await this.options.entryManager.getDBEntryFromMeta({ ...entry, path });
+            if (!doc) {
+                return false;
+            }
             let data = getDocData(doc.data);
             if (doc.datatype == "newnote") {
                 data = readString(new Uint8Array(decodeBinary(doc.data)));
@@ -140,7 +150,7 @@ export class ConflictManager {
             rightLeaf &&
             !leftLeaf.deleted &&
             !rightLeaf.deleted &&
-            haveMatchingStoredPaths(leftLeaf, rightLeaf)
+            this.haveMatchingStoredPaths(leftLeaf, rightLeaf)
         ) {
             const baseLeaf = await this.getConflictedDoc(path, baseRev);
             if (baseLeaf) return { baseLeaf, leftLeaf, rightLeaf };
@@ -473,7 +483,7 @@ export class ConflictManager {
         const conflict = { leftRev: test._rev!, rightRev, leftLeaf, rightLeaf };
         if (leftLeaf !== false && rightLeaf !== false) {
             if (
-                !haveMatchingStoredPaths(leftLeaf, rightLeaf) ||
+                !this.haveMatchingStoredPaths(leftLeaf, rightLeaf) ||
                 (leftLeaf.data === rightLeaf.data && leftLeaf.deleted === rightLeaf.deleted)
             ) {
                 return conflict;

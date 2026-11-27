@@ -260,10 +260,12 @@ describe("EntryManagerImpls", () => {
                     entryManager.getDBEntryMeta(right, { rev: "2-left" }, true, "stored")
                 ).resolves.toMatchObject({
                     path: left,
+                    storedPath: left,
                     _rev: "2-left",
                 });
                 await expect(entryManager.getDBEntryMeta(left, undefined, true, "stored")).resolves.toMatchObject({
                     path: right,
+                    storedPath: right,
                     _rev: "2-right",
                 });
                 await expect(merger.tryAutoMerge(right, true)).resolves.toMatchObject({
@@ -290,7 +292,8 @@ describe("EntryManagerImpls", () => {
             await expect(entryManager.getDBEntryMeta(lookup, undefined, true)).resolves.toMatchObject({ path: lookup });
             const failure = { failure: { documentId: lookup, revision: result.rev, resources: [] } };
             await expect(entryManager.getDBEntryMeta(lookup, undefined, true, "stored")).rejects.toMatchObject(failure);
-            await expect(entryManager.getDBEntryAtRevision(lookup, result.rev)).rejects.toMatchObject(failure);
+            const merger = new ConflictManager({ database: db, entryManager, pathService: mockPathService });
+            await expect(merger.getConflictedDoc(lookup, result.rev)).resolves.toBe(false);
         });
 
         it("uses the lookup path for legacy metadata and omits unknown spelling from the conflict leaf", async () => {
@@ -313,9 +316,9 @@ describe("EntryManagerImpls", () => {
                 settingService: mockSettingService,
             });
             const merger = new ConflictManager({ database: db, entryManager, pathService: mockPathService });
-            await expect(entryManager.getDBEntryMeta(path, { rev: result.rev }, true, "stored")).resolves.toMatchObject({
-                path,
-            });
+            const metadata = await entryManager.getDBEntryMeta(path, { rev: result.rev }, true, "stored");
+            expect(metadata).toMatchObject({ path });
+            expect(metadata).not.toHaveProperty("storedPath");
             const leaf = await merger.getConflictedDoc(path, result.rev);
             expect(leaf).toMatchObject({ rev: result.rev, data: "" });
             expect(leaf).not.toHaveProperty("path");
