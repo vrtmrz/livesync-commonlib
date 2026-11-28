@@ -386,6 +386,7 @@ export async function currentStorageSnapshotMatches(
     if (!current || isFolderInfo(current) || current.path !== file.path) return false;
     const readCurrent = await ctx.host.readFileFromStub(current);
     return (
+        readCurrent.path === file.path &&
         readCurrent.stat.mtime === file.stat.mtime &&
         (await isDocContentSame(readCurrent.body, file.body)) &&
         sameProvenance(await readProvenanceSnapshot(ctx, file.path, requireReadableProvenance), revision)
@@ -538,8 +539,38 @@ async function classifyLiveStorageContent(
     file: UXFileInfo,
     currentEntry: { _rev?: string; deleted?: boolean; _deleted?: boolean } | false
 ): Promise<StorageContentClassification> {
-    const matches = currentEntry ? await ctx.host.db().readLiveContentRevisions(file, file.body) : [];
-    if (matches.length) {
+    const db = ctx.host.db();
+    if (
+        currentEntry &&
+        !currentEntry.deleted &&
+        !currentEntry._deleted &&
+        !ctx.setting.currentSettings().handleFilenameCaseSensitive &&
+        db.readRevisionPath
+    ) {
+        return await classifyMatchingFilenameLeaf(ctx, file);
+    }
+    const matches = currentEntry ? await db.readLiveContentRevisions(file, file.body) : [];
+    return classifyMatchingLeaves(matches);
+}
+
+/** Use existing live-content matches only when the same filename is also recorded. */
+export async function classifyMatchingFilenameLeaf(
+    ctx: FileHandlerContext,
+    file: UXFileInfo
+): Promise<StorageContentClassification> {
+    const db = ctx.host.db();
+    if (!db.readRevisionPath) {
+        return { kind: "unknown" };
+    }
+    const matches = await db.readLiveContentRevisions(file, file.body, {
+        path: file.path,
+        normalizationVersion: getPathNormalizationVersion(ctx.setting.currentSettings()),
+    });
+    return classifyMatchingLeaves(matches);
+}
+
+function classifyMatchingLeaves(matches: string[]): StorageContentClassification {
+    if (matches.length > 0) {
         return { kind: "matching-leaf", revision: matches.length === 1 ? matches[0] : undefined };
     }
     return { kind: "unknown" };

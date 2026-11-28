@@ -13,6 +13,8 @@ import {
     type FilePathWithPrefixLC,
     type LOG_LEVEL,
 } from "@lib/common/types";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
+import { hasSameParentFilenameCaseConflict } from "@lib/conflicts/filenameCaseConflict";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
@@ -26,7 +28,7 @@ import { FilePairProcessResults, MetadataDocumentIdentityStatuses, type FilePair
 async function reflectScannedEntry(
     host: NecessaryServices<never, "fileHandler">,
     entry: MetaEntry,
-    file: FilePath | null,
+    file: UXFileInfoStub | FilePath | null,
     force: boolean,
     options?: VaultScanOptions
 ): Promise<FilePairProcessResult> {
@@ -68,8 +70,14 @@ export async function syncFileBetweenDBandStorage(
         throw new Error(`Missing doc:${docPath}`);
     }
 
-    // const settings = host.services.setting.currentSettings();
-    const compareResult = host.services.path.compareFileFreshness(file, doc);
+    const filenameChanged = file.path !== docPath && !doc.deleted && !doc._deleted;
+    const settings = filenameChanged ? host.services.setting.currentSettings() : undefined;
+    const compareFilename =
+        settings &&
+        !settings.handleFilenameCaseSensitive &&
+        hasSameParentFilenameCaseConflict(file.path, docPath, getPathNormalizationVersion(settings));
+    // A different local spelling has to be checked before age can choose a direction.
+    const compareResult = compareFilename ? TARGET_IS_NEW : host.services.path.compareFileFreshness(file, doc);
     switch (compareResult) {
         case BASE_IS_NEW:
             if (!host.services.vault.isFileSizeTooLarge(file.stat.size)) {
@@ -85,9 +93,13 @@ export async function syncFileBetweenDBandStorage(
                 return FilePairProcessResults.SKIPPED;
             }
         case TARGET_IS_NEW:
-            if (!host.services.vault.isFileSizeTooLarge(doc.size)) {
+            if (
+                !host.services.vault.isFileSizeTooLarge(doc.size) &&
+                (!compareFilename || !host.services.vault.isFileSizeTooLarge(file.stat.size))
+            ) {
                 log("STORAGE <- DB :" + docPath);
-                const reflection = await reflectScannedEntry(host, doc, stripAllPrefixes(docPath), false, scanOptions);
+                const observed = compareFilename ? file : stripAllPrefixes(docPath);
+                const reflection = await reflectScannedEntry(host, doc, observed, false, scanOptions);
                 if (reflection === FilePairProcessResults.COMPLETED) {
                     host.services.context.events.emitEvent("event-file-changed", {
                         file: file.path,

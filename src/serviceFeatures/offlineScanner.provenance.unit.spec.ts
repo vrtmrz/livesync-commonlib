@@ -264,6 +264,37 @@ function contentHash(body: string): string {
     return `sha256:${createHash("sha256").update(body).digest("hex")}`;
 }
 
+describe("offline filename case changes", () => {
+    it.each([-4_000, 0, 4_000])("keeps both names with a local mtime offset of %s", async (offset) => {
+        const fixture = await createScenario("untracked-unchanged");
+        try {
+            fixture.services.path.path2id = async (value) => value.toLowerCase() as DocumentID;
+            const storagePath = path.toUpperCase() as FilePathWithPrefix;
+            fixture.setStorage({ ...makeFile(original, originalMtime + offset), path: storagePath, name: storagePath });
+            await expect(syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, fixture.previousMetadata
+            )).resolves.toBe("skipped");
+
+            const leaves = await liveLeaves(fixture);
+            expect(leaves.map((leaf) => leaf.path).sort()).toEqual([storagePath, path]);
+            expect(leaves.map((leaf) => leaf._rev)).toContain(fixture.baseRevision);
+            expect(fixture.getStorage().path).toBe(storagePath);
+            expect(await fixture.getStorage().body.text()).toBe(original);
+            const winner = await fixture.access.fetchEntryMeta(path);
+            if (!winner) {
+                throw new Error("The file has no current revision after preservation");
+            }
+            const conflicted = { ...winner, _conflicts: await fixture.access.getConflictedRevs(path) };
+            await expect(syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, conflicted
+            )).resolves.toBe("skipped");
+            expect((await liveLeaves(fixture)).map((leaf) => leaf._rev)).toEqual(leaves.map((leaf) => leaf._rev));
+        } finally {
+            await fixture.dispose();
+        }
+    });
+});
+
 describe("optional startup content checks", () => {
     async function trackedFixture() {
         const fixture = await createScenario("recorded-unchanged");

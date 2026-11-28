@@ -19,9 +19,10 @@ import {
     isSensibleMargeApplicable,
     isObjectMargeApplicable,
 } from "@lib/common/utils.ts";
+import { tryGetFilePath } from "@lib/common/utils.doc.ts";
+import { haveMatchingRevisionPaths } from "@lib/conflicts/filenameCaseConflict.ts";
 import type { EntryManager } from "@lib/managers/EntryManager/EntryManager.ts";
-import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
-import type { IPathService } from "@lib/services/base/IService.ts";
+import type { IPathService, ISettingService } from "@lib/services/base/IService.ts";
 
 type AutoMergeOutcomeOK = {
     ok: DIFF_CHECK_RESULT_AUTO;
@@ -30,6 +31,7 @@ type AutoMergeOutcomeOK = {
 type AutoMergeCanBeDoneByDeletingRev = {
     result: string;
     conflictedRev: string;
+    path: FilePathWithPrefix;
 };
 
 type UserActionRequired = {
@@ -72,8 +74,9 @@ function compareConflictCandidates(left: ConflictCandidate, right: ConflictCandi
 export type AutoMergeResult = Promise<AutoMergeOutcomeOK | AutoMergeCanBeDoneByDeletingRev | UserActionRequired>;
 
 export interface ConflictManagerOptions {
-    entryManager: EntryManager;
+    entryManager: Pick<EntryManager, "getDBEntry" | "getConflictEntryMeta" | "getDBEntryFromMeta">;
     pathService: IPathService;
+    settingService: Pick<ISettingService, "currentSettings">;
     database: PouchDB.Database<EntryDoc>;
 }
 export class ConflictManager {
@@ -85,15 +88,24 @@ export class ConflictManager {
         return this.options.database;
     }
 
+    private haveMatchingPaths(left: string | undefined, right: string | undefined): boolean {
+        const { pathNormalizationVersion } = this.options.settingService.currentSettings();
+        return haveMatchingRevisionPaths(left, right, pathNormalizationVersion);
+    }
+
     async getConflictedDoc(path: FilePathWithPrefix, rev: string): Promise<false | diff_result_leaf> {
         try {
-            const doc = await this.options.entryManager.getDBEntry(path, { rev: rev }, false, true, true);
-            if (doc === false) return false;
+            const entry = await this.options.entryManager.getConflictEntryMeta(path, { rev });
+            if (!entry) {
+                return false;
+            }
+            const doc = await this.options.entryManager.getDBEntryFromMeta(entry.metadata);
+            if (!doc) {
+                return false;
+            }
             let data = getDocData(doc.data);
             if (doc.datatype == "newnote") {
                 data = readString(new Uint8Array(decodeBinary(doc.data)));
-            } else if (doc.datatype == "plain") {
-                // NO OP.
             }
             return {
                 deleted: doc.deleted || doc._deleted,
@@ -101,13 +113,12 @@ export class ConflictManager {
                 mtime: doc.mtime,
                 rev: rev,
                 data: data,
+                datatype: doc.datatype,
+                ...(entry.path ? { path: entry.path } : {}),
             };
-        } catch (ex) {
-            if (isErrorOfMissingDoc(ex)) {
-                return false;
-            }
+        } catch {
+            return false;
         }
-        return false;
     }
     async mergeSensibly(
         path: FilePathWithPrefix,
@@ -124,6 +135,9 @@ export class ConflictManager {
         }
         if (leftLeaf.deleted || rightLeaf.deleted) {
             // Either one is deleted
+            return false;
+        }
+        if (!this.haveMatchingPaths(leftLeaf.path, rightLeaf.path)) {
             return false;
         }
         // diff between base and each revision
@@ -317,6 +331,9 @@ export class ConflictManager {
                 Logger(`Either is deleted`, LOG_LEVEL_VERBOSE);
                 return false;
             }
+            if (!this.haveMatchingPaths(leftLeaf.path, rightLeaf.path)) {
+                return false;
+            }
             const baseObj = { data: tryParseJSON(baseLeaf.data, {}) } as Record<string | number | symbol, unknown>;
             const leftObj = { data: tryParseJSON(leftLeaf.data, {}) } as Record<string | number | symbol, unknown>;
             const rightObj = { data: tryParseJSON(rightLeaf.data, {}) } as Record<string | number | symbol, unknown>;
@@ -363,12 +380,18 @@ export class ConflictManager {
     async tryAutoMergeSensibly(path: FilePathWithPrefix, test: LoadedEntry, conflicts: string[]) {
         const conflictedRev = conflicts[0];
         let commonBase = "";
+        let mergePath: FilePathWithPrefix;
+        const documentId = test._id;
         try {
-            const documentId = await this.options.pathService.path2id(path);
             const [currentBranch, conflictedBranch] = await Promise.all([
                 this.database.get<EntryDoc>(documentId, { rev: test._rev, revs_info: true }),
                 this.database.get<EntryDoc>(documentId, { rev: conflictedRev, revs_info: true }),
             ]);
+            const currentPath = tryGetFilePath(currentBranch) as FilePathWithPrefix | undefined;
+            if (!currentPath || !this.haveMatchingPaths(currentPath, tryGetFilePath(conflictedBranch))) {
+                return false;
+            }
+            mergePath = currentPath;
             const currentAvailable = new Set(
                 (currentBranch._revs_info || [])
                     .filter((revision) => revision.status === "available")
@@ -409,7 +432,12 @@ export class ConflictManager {
                 }
             }
             if (p !== undefined) {
-                return { result: p, conflictedRev };
+                // A revision created with case-insensitive IDs may record 'Note.md' under 'note.md'.
+                // Keep the merged content in the reviewed document if that spelling now points elsewhere.
+                if (mergePath !== path && (await this.options.pathService.path2id(mergePath)) !== documentId) {
+                    mergePath = path;
+                }
+                return { result: p, conflictedRev, path: mergePath };
             }
         }
         return false;
@@ -436,16 +464,16 @@ export class ConflictManager {
         );
         conflictCandidates.sort(compareConflictCandidates);
         const conflicts = conflictCandidates.map(({ revision }) => revision);
-        // Resolve identical conflict leaves without creating a new revision.
         const leftLeaf = await this.getConflictedDoc(path, test._rev!);
         const rightLeaf = conflictCandidates[0].leaf;
+        const conflict = { leftRev: test._rev!, rightRev: conflicts[0], leftLeaf, rightLeaf };
         if (
-            leftLeaf !== false &&
-            rightLeaf !== false &&
-            leftLeaf.data == rightLeaf.data &&
-            leftLeaf.deleted == rightLeaf.deleted
+            !leftLeaf ||
+            !rightLeaf ||
+            !this.haveMatchingPaths(leftLeaf.path, rightLeaf.path) ||
+            (leftLeaf.data === rightLeaf.data && leftLeaf.deleted === rightLeaf.deleted)
         ) {
-            return { leftRev: test._rev!, rightRev: conflicts[0], leftLeaf, rightLeaf };
+            return conflict;
         }
         if ((isSensibleMargeApplicable(path) || isObjectMargeApplicable(path)) && enableMarkdownAutoMerge) {
             const autoMergeResult = await this.tryAutoMergeSensibly(path, test, conflicts);
@@ -453,7 +481,6 @@ export class ConflictManager {
                 return autoMergeResult;
             }
         }
-        // should be one or more conflicts;
-        return { leftRev: test._rev!, rightRev: conflicts[0], leftLeaf, rightLeaf };
+        return conflict;
     }
 }

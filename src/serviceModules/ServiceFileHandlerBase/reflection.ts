@@ -8,7 +8,7 @@ import {
     type ReflectionOperationContext,
 } from "@lib/interfaces/FileHandler";
 import { withFileEventPaths, queueConflictCheckFor } from "./locking";
-import { infoToStub, isFolderInfo, getParentPath } from "./storage";
+import { infoToStub, isFolderInfo } from "./storage";
 import {
     captureRenameProvenance,
     commitRenamedProvenance,
@@ -20,7 +20,7 @@ import {
     readProvenanceSnapshot,
     setProvenance,
 } from "./provenance";
-import { preserveUnsyncedStorageAsConflict, recheckIncomingStorage } from "./protection";
+import { preserveUnsyncedStorageAsConflict, preserveUnobservedFilename, recheckIncomingStorage } from "./protection";
 
 import type { LoadedEntry, ObsidianLiveSyncSettings } from "@lib/common/types";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
@@ -32,6 +32,11 @@ import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
 import { EVEN } from "@lib/common/models/shared.const.symbols";
 import { tryGetFilePath } from "@lib/common/utils.doc";
 import { getPathNormalizationVersion, normalisePathForIdentity } from "@lib/common/pathNormalization";
+import {
+    getParentPath,
+    hasSameParentFilenameCaseConflict,
+    haveMatchingRevisionPaths,
+} from "@lib/conflicts/filenameCaseConflict";
 import type { FileReflectionProvenanceRecord } from "@lib/interfaces/FileReflectionProvenance";
 import type { FileHandlerContext, StorageSnapshot } from "./context";
 
@@ -115,7 +120,8 @@ async function dbToStorageWithSpecificRevCore(
         );
         return false;
     }
-    return !isReflectionCancelled(await applyDatabaseEntryToStorage(ctx, docEntry, file, force, true));
+    const entry = await withStoredFilename(ctx, docEntry);
+    return !isReflectionCancelled(await applyDatabaseEntryToStorage(ctx, entry, file, force, true));
 }
 
 /**
@@ -196,7 +202,25 @@ export async function dbToStorageCore(
         ctx.host.log(`File ${pathFromEntryInfo} is not exist on the database`, LOG_LEVEL_VERBOSE);
         throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
     }
-    return await applyDatabaseEntryToStorage(ctx, docEntry, file, force, false, 0, operation);
+    const entry = force ? docEntry : await withStoredFilename(ctx, docEntry);
+    return await applyDatabaseEntryToStorage(ctx, entry, file, force, false, 0, operation);
+}
+
+/** Recover the exact filename when a metadata read projects the caller's lookup spelling. */
+async function withStoredFilename(ctx: FileHandlerContext, entry: MetaEntry): Promise<MetaEntry> {
+    const settings = ctx.setting.currentSettings();
+    if (settings.handleFilenameCaseSensitive || !entry._rev || entry.deleted || entry._deleted) {
+        return entry;
+    }
+    const stored = await ctx.host.db().readRevisionPath?.(entry._id, entry._rev);
+    if (stored && hasSameParentFilenameCaseConflict(entry.path, stored, getPathNormalizationVersion(settings))) {
+        const target = await ctx.host.db().readEntryMeta(stored as FilePathWithPrefix, entry._rev, true);
+        if (!target || target._id !== entry._id || target._rev !== entry._rev) {
+            throw new IncompleteFileReflectionError("Could not confirm the stored filename as a reflection target");
+        }
+        return target;
+    }
+    return entry;
 }
 
 /**
@@ -235,12 +259,26 @@ export async function applyDatabaseEntryToStorage(
             return FILE_REFLECTION_POLICY;
         }
     }
+    const existOnDB = !(docEntry._deleted || docEntry.deleted);
     let existDoc = await ctx.host.storage().getStub(path);
+    if (
+        existOnDB &&
+        !force &&
+        !settings.handleFilenameCaseSensitive &&
+        file &&
+        file.path !== existDoc?.path &&
+        hasSameParentFilenameCaseConflict(file.path, path, getPathNormalizationVersion(settings))
+    ) {
+        const observed = await ctx.host.storage().getStub(file.path);
+        if (existDoc && observed && existDoc.path !== observed.path) {
+            throw new IncompleteFileReflectionError("Both filename spellings exist in storage");
+        }
+        existDoc ??= observed;
+    }
     if (isFolderInfo(existDoc)) {
         ctx.host.log(`Folder ${path} is already exist on the storage as a folder`, LOG_LEVEL_VERBOSE);
         return FILE_REFLECTION_POLICY;
     }
-    const existOnDB = !(docEntry._deleted || docEntry.deleted || false);
     if (!existOnDB && !existDoc) {
         ctx.host.log(`File ${path} seems to be deleted, but already not on storage`, LOG_LEVEL_VERBOSE);
         await deleteProvenance(ctx, path);
@@ -260,9 +298,12 @@ export async function applyDatabaseEntryToStorage(
         );
     }
     if (existDoc && existDoc.path !== path) {
-        const current = await reconcileStoragePath(ctx, existDoc, path, settings);
+        const current = await reconcileStoragePath(ctx, existDoc, path, settings, docEntry, force);
         if (current === false) {
             throw new IncompleteFileReflectionError("Reflection could not establish a safe current result");
+        }
+        if ("status" in current) {
+            return current;
         }
         existDoc = current;
     }
@@ -344,7 +385,7 @@ async function reconcileAdvancedIncomingRevision(
     }
     return await applyDatabaseEntryToStorage(
         ctx,
-        current,
+        await withStoredFilename(ctx, current),
         storage,
         force,
         allowExistingConflicts,
@@ -537,15 +578,19 @@ async function applyIncomingDeletion(
  * @param existDoc - The current file using another path spelling.
  * @param path - The incoming target spelling.
  * @param settings - The original reflection settings snapshot.
- * @returns The original or renamed file, or false after a path safety or provenance transfer refusal.
+ * @param incoming - The exact incoming revision.
+ * @param force - Whether the caller has explicitly requested an overwrite.
+ * @returns The original or renamed file, a preserved conflict, or false on an unsafe observation.
  * @remarks The caller holds the document lock. Pre-rename provenance is captured before touching storage and transferred to the renamed spelling only after the rename succeeds.
  */
 async function reconcileStoragePath(
     ctx: FileHandlerContext,
     existDoc: UXFileInfoStub,
     path: FilePathWithPrefix,
-    settings: ObsidianLiveSyncSettings
-): Promise<UXFileInfoStub | false> {
+    settings: ObsidianLiveSyncSettings,
+    incoming: MetaEntry,
+    force: boolean | undefined
+): Promise<UXFileInfoStub | typeof FILE_REFLECTION_POLICY | false> {
     const [existingDocumentId, targetDocumentId] = await Promise.all([
         ctx.path.path2id(existDoc.path),
         ctx.path.path2id(path),
@@ -577,9 +622,36 @@ async function reconcileStoragePath(
             return false;
         }
         const oldPath = existDoc.path;
+        let recorded: FileReflectionProvenanceRecord | undefined;
+        if (
+            !force &&
+            !settings.writeDocumentsIfConflicted &&
+            !settings.handleFilenameCaseSensitive &&
+            hasSameParentFilenameCaseConflict(oldPath, path, pathNormalizationVersion)
+        ) {
+            recorded = await readProvenanceSnapshot(ctx, oldPath, true);
+            const recordedName = recorded && (await ctx.host.db().readRevisionPath?.(incoming._id, recorded.revision));
+            if (!haveMatchingRevisionPaths(oldPath, recordedName, pathNormalizationVersion)) {
+                const protection = await preserveUnobservedFilename(ctx, path, existDoc, recorded);
+                return protection.preserved ? FILE_REFLECTION_POLICY : false;
+            }
+        }
         const renameProvenance = await captureRenameProvenance(ctx, oldPath, path);
         if (renameProvenance === false) {
             return false;
+        }
+        if (recorded) {
+            // The database read may have let storage or its recorded branch change.
+            const current = await ctx.host.storage().getStub(oldPath);
+            if (
+                !current ||
+                isFolderInfo(current) ||
+                current.path !== oldPath ||
+                !sameProvenance(renameProvenance?.sourceRecord, recorded)
+            ) {
+                return false;
+            }
+            existDoc = current;
         }
         const renamedFile = await ctx.host.storage().renameFile(existDoc, path);
         if (!renamedFile) {

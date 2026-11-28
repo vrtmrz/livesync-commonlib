@@ -86,6 +86,48 @@ describe("ServiceDatabaseFileAccessBase local database observers", () => {
         await Promise.all(databases.splice(0).map((database) => database.destroy()));
     });
 
+    it("reads the exact original revision path and distinguishes absence from failure", async () => {
+        const id = "tasks/note.md" as DocumentID;
+        const path = "Tasks/Note.md" as FilePathWithPrefix;
+        const database = new PouchDB<EntryDoc>(`revision-spelling-${++databaseSequence}`, { adapter: "memory" });
+        databases.push(database);
+        const first = await database.put(createEntry(id, path, "old content"));
+        const current = await database.put({ ...createEntry(id, id as unknown as FilePathWithPrefix, "new content"), _rev: first.rev });
+        const service = createService(database, id);
+
+        await expect(service.readRevisionPath(id, first.rev)).resolves.toBe(path);
+        await expect(service.readRevisionPath(id, current.rev)).resolves.toBe(id);
+        await expect(service.readRevisionPath(id, "2-missing")).resolves.toBeUndefined();
+
+        const failure = new Error("database unavailable");
+        const unavailable = createService(database, id, undefined, undefined, vi.fn().mockRejectedValue(failure));
+        await expect(unavailable.readRevisionPath(id, current.rev)).rejects.toMatchObject({
+            failure: { documentId: id, revision: current.rev, resources: ["local-database"], cause: failure },
+        });
+    });
+
+    it("loads only name-matching live leaves when an observed filename is supplied", async () => {
+        const id = "note.md" as DocumentID;
+        const path = "Note.md" as FilePathWithPrefix;
+        const database = new PouchDB<EntryDoc>(`named-leaf-${++databaseSequence}`, { adapter: "memory" });
+        databases.push(database);
+        const matching = { ...createEntry(id, path, "same bytes"), _rev: "1-matching" };
+        const other = { ...createEntry(id, "note.md" as FilePathWithPrefix, "same bytes"), _rev: "1-other" };
+        await database.bulkDocs([matching, other], { new_edits: false });
+        const readRevision = vi.fn<RevisionReader>(async (_file, options) => {
+            if (options?.rev === other._rev) {
+                throw new Error("other filename's Chunk unavailable");
+            }
+            return matching as LoadedEntry;
+        });
+        const service = createService(database, id, readRevision);
+
+        await expect(service.readLiveContentRevisions(path, "same bytes", { path, normalizationVersion: 0 }))
+            .resolves.toEqual([matching._rev]);
+        expect(readRevision).toHaveBeenCalledExactlyOnceWith(path, { rev: matching._rev }, false, true, true, true);
+        await expect(service.readLiveContentRevisions(path, "same bytes")).rejects.toThrow("Chunk unavailable");
+    });
+
     it("reports a local InvalidStateError before live-content discovery returns no matches", async () => {
         const id = "database-id-not-path" as DocumentID;
         const path = "local-revision-read.md" as FilePathWithPrefix;

@@ -21,6 +21,7 @@ import {
     getDBEntryByPath,
     getDBEntryFromMeta,
     getDBEntryMetaByPath,
+    getConflictEntryMetaByPath,
     isTargetFile,
     prepareChunk,
     putDBEntry,
@@ -100,6 +101,10 @@ export class EntryManager {
         includeDeleted = false
     ): Promise<false | LoadedEntry> {
         return await getDBEntryMetaByPath(this.serviceHost, this, path, opt, includeDeleted);
+    }
+    /** Read a conflict candidate's metadata and its recorded path, including deleted revisions. */
+    async getConflictEntryMeta(path: FilePathWithPrefix, opt: PouchDB.Core.GetOptions) {
+        return await getConflictEntryMetaByPath(this.serviceHost, this, path, opt);
     }
     async getDBEntry(
         path: FilePathWithPrefix | FilePath,

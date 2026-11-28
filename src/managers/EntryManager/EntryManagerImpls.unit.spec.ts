@@ -1029,7 +1029,12 @@ describe("EntryManagerImpls", () => {
                 pathService: mockPathService,
                 settingService: mockSettingService,
             });
-            const merger = new ConflictManager({ database: db, entryManager, pathService: mockPathService });
+            const merger = new ConflictManager({
+                database: db,
+                entryManager,
+                pathService: mockPathService,
+                settingService: mockSettingService,
+            });
             const merge = await merger.tryAutoMerge(entry.path, true);
             expect(merge).not.toHaveProperty("result");
 

@@ -74,18 +74,6 @@ export async function infoToStub<T extends UXFileInfoStub | UXFileInfo | UXInter
 }
 
 /**
- * Extract a parent directory using storage path separators.
- *
- * @param path - The affected file or provenance path.
- * @returns The parent path, or the empty root path.
- * @remarks This helper acquires no document lock. Storage and path access retain the dynamic public host seams where the original operation used them.
- */
-export function getParentPath(path: string): string {
-    const lastSeparator = path.lastIndexOf("/");
-    return lastSeparator < 0 ? "" : path.slice(0, lastSeparator);
-}
-
-/**
  * Narrow a nullable storage observation to a folder.
  *
  * @param info - The supplied file observation or path.

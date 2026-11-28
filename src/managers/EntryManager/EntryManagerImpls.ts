@@ -26,6 +26,7 @@ import type { LayeredChunkManager as ChunkManager } from "@lib/managers/LayeredC
 import type { ChunkWriteOptions } from "@lib/managers/LayeredChunkManager/types";
 import { serialized } from "octagonal-wheels/concurrency/lock";
 import { createTextBlob, getFileRegExp, isTextBlob } from "@lib/common/utils";
+import { tryGetFilePath } from "@lib/common/utils.doc";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import type { NecessaryServicesInterfaces } from "@lib/interfaces/ServiceModule";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb";
@@ -479,11 +480,36 @@ export async function prepareChunk(
 
 export async function getDBEntryMetaByPath(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
-    { localDatabase, readScope }: NecessaryManagers<"localDatabase">,
+    managers: NecessaryManagers<"localDatabase">,
     path: FilePathWithPrefix | FilePath,
     opt?: PouchDB.Core.GetOptions,
     includeDeleted = false
 ): Promise<false | LoadedEntry> {
+    const result = await readDBEntryMeta(host, managers, path, opt, includeDeleted);
+    return result && result.metadata;
+}
+
+export async function getConflictEntryMetaByPath(
+    host: NecessaryServicesInterfaces<"path" | "setting", never>,
+    managers: NecessaryManagers<"localDatabase">,
+    path: FilePathWithPrefix,
+    opt: PouchDB.Core.GetOptions
+) {
+    const result = await readDBEntryMeta(host, managers, path, opt, true);
+    if (!result) {
+        return false;
+    }
+    const recordedPath = tryGetFilePath(result.document);
+    return { metadata: result.metadata, path: (recordedPath || undefined) as FilePathWithPrefix | undefined };
+}
+
+async function readDBEntryMeta(
+    host: NecessaryServicesInterfaces<"path" | "setting", never>,
+    { localDatabase, readScope }: NecessaryManagers<"localDatabase">,
+    path: FilePathWithPrefix | FilePath,
+    opt?: PouchDB.Core.GetOptions,
+    includeDeleted = false
+): Promise<false | { metadata: LoadedEntry & PouchDB.Core.GetMeta; document: EntryDocResponse }> {
     if (!isTargetFile(host, path)) {
         return false;
     }
@@ -555,7 +581,7 @@ export async function getDBEntryMetaByPath(
                 type: type,
                 eden: "eden" in obj ? obj.eden : {},
             };
-            return doc;
+            return { metadata: doc, document: obj };
         }
     } catch (ex) {
         if (isErrorOfMissingDoc(ex)) {

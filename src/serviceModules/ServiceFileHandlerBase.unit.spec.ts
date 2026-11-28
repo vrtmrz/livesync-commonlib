@@ -1472,12 +1472,12 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
     it.each([0, 1] as const)(
         "applies a canonical filename case change before comparing content with path normalisation version %s",
         async (pathNormalizationVersion) => {
-            const { handler, storageStub, databaseFileAccess, storageAccess, pathService } = createHandler(
+            const { handler, storageStub, databaseFileAccess, storageAccess, pathService, provenance } = createHandler(
                 "same body",
                 "same body",
                 false,
                 EVEN,
-                false,
+                true,
                 pathNormalizationVersion
             );
             const remoteMeta = createMeta("calculus.md", "same body");
@@ -1492,6 +1492,12 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
                 path: "calculus.md" as FilePath,
             };
             databaseFileAccess.fetchEntryMeta.mockResolvedValue(remoteMeta);
+            provenance.get.mockImplementation(async (path) => path === existingFile.path
+                ? { revision: "1-displayed", observedStorageMtime: 3 }
+                : undefined);
+            Object.assign(databaseFileAccess, {
+                readRevisionPath: vi.fn(async (_id, rev) => rev === "1-displayed" ? existingFile.path : remoteMeta.path),
+            });
             databaseFileAccess.fetchEntryFromMeta.mockResolvedValue({ ...remoteMeta, data: "same body" });
             storageAccess.getStub.mockResolvedValue(existingFile);
             storageAccess.renameFile.mockResolvedValue(renamedFile);
@@ -1507,12 +1513,12 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
     );
 
     it("applies a filename case change when the parent directory differs only by Unicode normalisation", async () => {
-        const { handler, storageStub, databaseFileAccess, storageAccess, pathService } = createHandler(
+        const { handler, storageStub, databaseFileAccess, storageAccess, pathService, provenance } = createHandler(
             "same body",
             "same body",
             false,
             EVEN,
-            false,
+            true,
             1
         );
         const nfdParent = "Cafe\u0301";
@@ -1529,6 +1535,12 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
             path: `${nfdParent}/note.md` as FilePath,
         };
         databaseFileAccess.fetchEntryMeta.mockResolvedValue(remoteMeta);
+        provenance.get.mockImplementation(async (path) => path === `${nfcParent}/Note.md`
+            ? { revision: "1-displayed", observedStorageMtime: 3 }
+            : undefined);
+        Object.assign(databaseFileAccess, {
+            readRevisionPath: vi.fn(async (_id, rev) => rev === "1-displayed" ? existingFile.path : remoteMeta.path),
+        });
         storageAccess.getStub.mockResolvedValue(existingFile);
         storageAccess.renameFile.mockResolvedValue(renamedFile);
         storageAccess.readStubContent.mockResolvedValue(createStorageFile(`${nfdParent}/note.md`, "same body"));

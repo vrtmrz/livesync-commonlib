@@ -127,6 +127,7 @@ export class LiveSyncManagers {
             entryManager: entryManager,
             database,
             pathService: this._pathService,
+            settingService: this.options.settingService,
         });
         this.log("LiveSync Managers have been created");
         return {

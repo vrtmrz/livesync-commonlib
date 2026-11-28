@@ -1,6 +1,8 @@
 import { isReflectionCancelled } from "@lib/interfaces/FileHandler";
 import { ContentReadError } from "@lib/common/LSError.ts";
 import { isFolderInfo, infoToStub } from "./storage";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
+import { hasSameParentFilenameCaseConflict, haveMatchingRevisionPaths } from "@lib/conflicts/filenameCaseConflict";
 import { withFileEventPaths, queueConflictCheckFor } from "./locking";
 import {
     setProvenance,
@@ -492,12 +494,14 @@ async function observeClassifiedStorage(
     retryIfStorageChanges: boolean
 ): Promise<ClassifiedStorageEvidence> {
     const { readFile, observedProvenance, entry, currentEntry } = save;
+    const recorded =
+        preferredBasePath || (await hasObservedStorageFilename(ctx, save)) ? observedProvenance : undefined;
     const classification = await classifyStorageContent(
         ctx,
         readFile,
         currentEntry,
         preferredBasePath,
-        observedProvenance,
+        recorded,
         entry ? { _rev: entry._rev, data: readContent(entry) } : undefined,
         retryIfStorageChanges
     );
@@ -508,6 +512,34 @@ async function observeClassifiedStorage(
             : undefined;
 
     return { classification, upgradeCurrentRecord, evidence };
+}
+
+/** Verify old provenance when the current revision and the observed file use different names. */
+async function hasObservedStorageFilename(ctx: FileHandlerContext, save: StorageSaveObservation): Promise<boolean> {
+    const { readFile, observedProvenance, currentEntry } = save;
+    const settings = ctx.setting.currentSettings();
+    const db = ctx.host.db();
+    if (
+        !observedProvenance ||
+        !currentEntry ||
+        !currentEntry._rev ||
+        currentEntry.deleted ||
+        currentEntry._deleted ||
+        settings.handleFilenameCaseSensitive ||
+        !db.readRevisionPath
+    ) {
+        return true;
+    }
+    const currentName = await db.readRevisionPath(currentEntry._id, currentEntry._rev);
+    const version = getPathNormalizationVersion(settings);
+    if (!currentName || !hasSameParentFilenameCaseConflict(readFile.path, currentName, version)) {
+        return true;
+    }
+    const recordedName =
+        observedProvenance.revision === currentEntry._rev
+            ? currentName
+            : await db.readRevisionPath(currentEntry._id, observedProvenance.revision);
+    return haveMatchingRevisionPaths(readFile.path, recordedName, version);
 }
 
 /**

@@ -5,6 +5,7 @@ import {
     readProvenanceSnapshot,
     currentStorageSnapshotMatches,
     classifyStorageContent,
+    classifyMatchingFilenameLeaf,
     rememberMatchingLeaf,
     finaliseStoredRevision,
 } from "./provenance";
@@ -16,7 +17,8 @@ import { LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
 import type { FilePathWithPrefix, MetaEntry, UXFileInfoStub } from "@lib/common/types";
 import { isDocContentSame } from "@lib/common/utils";
 
-import type { FileHandlerContext, PreservationResult } from "./context";
+import type { FileHandlerContext, PreservationResult, StorageSnapshot } from "./context";
+import type { FileReflectionProvenanceRecord } from "@lib/interfaces/FileReflectionProvenance";
 
 /** Decoded incoming file body supplied for live-write protection (absent for deletions). */
 type IncomingContent = string | string[] | Blob | ArrayBuffer;
@@ -64,10 +66,8 @@ export async function preserveUnsyncedStorageAsConflict(
     if (!incomingEntry._rev) {
         return { preserved: false };
     }
-    let classification: StorageContentClassification;
-    let unavailableRead: ContentReadError | undefined;
-    try {
-        classification = await classifyStorageContent(
+    return await preserveStorageSnapshot(ctx, path, snapshot, () =>
+        classifyStorageContent(
             ctx,
             readFile,
             incomingEntry,
@@ -75,7 +75,37 @@ export async function preserveUnsyncedStorageAsConflict(
             observedProvenance,
             hasIncomingContent(incomingContent) ? { _rev: incomingEntry._rev, data: incomingContent } : undefined,
             false
-        );
+        )
+    );
+}
+
+/** Preserve an unobserved filename and its bytes before an incoming rename. */
+export async function preserveUnobservedFilename(
+    ctx: FileHandlerContext,
+    path: FilePathWithPrefix,
+    existDoc: UXFileInfoStub,
+    observedProvenance: FileReflectionProvenanceRecord | undefined
+): Promise<PreservationResult> {
+    const file = await ctx.host.readFileFromStub(existDoc);
+    if (file.path !== existDoc.path) {
+        return { preserved: false };
+    }
+    return await preserveStorageSnapshot(ctx, path, { file, revision: observedProvenance }, () =>
+        classifyMatchingFilenameLeaf(ctx, file)
+    );
+}
+
+async function preserveStorageSnapshot(
+    ctx: FileHandlerContext,
+    path: FilePathWithPrefix,
+    snapshot: StorageSnapshot,
+    classify: () => Promise<StorageContentClassification>
+): Promise<PreservationResult> {
+    const { file: readFile, revision: observedProvenance } = snapshot;
+    let classification: StorageContentClassification;
+    let unavailableRead: ContentReadError | undefined;
+    try {
+        classification = await classify();
     } catch (error) {
         if (!(error instanceof ContentReadError)) {
             throw error;
@@ -93,7 +123,7 @@ export async function preserveUnsyncedStorageAsConflict(
         return { preserved: false, snapshot };
     }
     if (classification.kind === "matching-leaf") {
-        await rememberMatchingLeaf(ctx, observedPath, classification.revision, readFile.stat.mtime, readFile.body);
+        await rememberMatchingLeaf(ctx, readFile.path, classification.revision, readFile.stat.mtime, readFile.body);
         await queueConflictCheckFor(ctx, path);
         return { preserved: true };
     }

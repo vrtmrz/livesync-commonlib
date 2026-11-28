@@ -1,5 +1,11 @@
 # Updates
 
+## Unreleased
+
+### Fixed
+
+- With case-insensitive document IDs, ordinary synchronisation preserves an untracked filename spelling and its content for manual selection. This includes files whose contents match. Automatic three-way merge requires matching revision paths under the configured Unicode normalisation policy. Merged text keeps the recorded spelling when it identifies the same document. If that spelling now identifies another document, the result uses the original lookup path.
+
 ## 0.8.0
 
 26th November, 2026
