@@ -1,14 +1,13 @@
 import { isReflectionCancelled } from "@lib/interfaces/FileHandler";
 import { ContentReadError } from "@lib/common/LSError.ts";
-import { getParentPath, isFolderInfo, infoToStub } from "./storage";
+import { isFolderInfo, infoToStub } from "./storage";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
+import { hasSameParentFilenameCaseConflict, haveMatchingRevisionPaths } from "@lib/conflicts/filenameCaseConflict";
 import { withFileEventPaths, queueConflictCheckFor } from "./locking";
 import {
     setProvenance,
     readProvenanceSnapshot,
     getProvenBaseRevision,
-    getProvenancePath,
-    hasRecordedFilename,
-    findMatchingFilenameLeaf,
     deleteProvenance,
     classifyStorageContent,
     contentEvidence,
@@ -36,7 +35,6 @@ import type { StoreFileOptions } from "@lib/interfaces/FileHandler";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
 import { EVEN } from "@lib/common/models/shared.const.symbols";
 import { tryGetFilePath } from "@lib/common/utils.doc";
-import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
 
 import type { FileReflectionProvenanceRecord } from "@lib/interfaces/FileReflectionProvenance";
 import type { FileHandlerContext } from "./context";
@@ -46,36 +44,24 @@ import type { FileHandlerContext } from "./context";
  *
  * @param ctx - The captured services, per-instance state, and dynamic host seams.
  * @param path - The affected file or provenance path.
- * @param recovery - The source path, reread count, and validation policies for this save.
+ * @param preferredBasePath - The source provenance path used during a rename, when supplied.
+ * @param snapshotRetry - The number of storage rereads already consumed.
  * @returns The next fresh retry result, or false when the retry budget is exhausted or the current path is absent or a folder.
  * @remarks The caller retains the document lock. The counter limits fresh retry attempts after the initial save; snapshot validation can reread storage without consuming that counter.
  */
 async function retryCurrentStorage(
     ctx: FileHandlerContext,
     path: FilePathWithPrefix,
-    recovery: StorageSaveRecovery
+    preferredBasePath: FilePathWithPrefix | undefined,
+    snapshotRetry: number
 ): Promise<boolean> {
-    const { preferredBasePath, retryIfStorageChanges, snapshotRetry, filenameAlias } = recovery;
     if (snapshotRetry >= 2) {
         ctx.host.log(`Storage kept changing while saving ${path}; a fresh event is required`, LOG_LEVEL_NOTICE);
         return false;
     }
     const fresh = await ctx.host.storage().getStub(path);
-    if (!fresh || isFolderInfo(fresh)) {
-        return false;
-    }
-    if (filenameAlias && (fresh.path !== path || ctx.vault.isFileSizeTooLarge(fresh.stat.size))) {
-        return false;
-    }
-    return await storeFileToDBFromRevision(
-        ctx,
-        fresh,
-        false,
-        false,
-        preferredBasePath,
-        retryIfStorageChanges,
-        snapshotRetry + 1
-    );
+    if (!fresh || isFolderInfo(fresh)) return false;
+    return await storeFileToDBFromRevision(ctx, fresh, false, false, preferredBasePath, true, snapshotRetry + 1);
 }
 
 /**
@@ -232,9 +218,7 @@ export async function storeFileToDBFromRevision(
         const readFile = await ctx.host.readFileFromStub(file);
         return await ctx.host.db().createChunks(readFile, force, true);
     }
-    const inspectStoredFilename =
-        !force && !preferredBasePath && !ctx.setting.currentSettings().handleFilenameCaseSensitive;
-    const save = await observeStorageSave(ctx, file, preferredBasePath, retryIfStorageChanges, inspectStoredFilename);
+    const save = await observeStorageSave(ctx, file, preferredBasePath, retryIfStorageChanges);
     const currentEntry = save.currentEntry;
     const currentIsLive = currentEntry && !currentEntry.deleted && !currentEntry._deleted;
     if (!force && (currentIsLive || retryIfStorageChanges)) {
@@ -260,8 +244,6 @@ interface StorageSaveObservation {
     readonly currentEntry: MetaEntry | LoadedEntry | false;
     /** Whether the observed current tree has another live leaf. */
     readonly isConflicted: boolean;
-    /** Whether the current entry exposes its stored spelling. */
-    readonly inspectStoredFilename: boolean;
 }
 /**
  * Capture provenance, one storage body, and the current database tree in the existing order.
@@ -269,7 +251,6 @@ interface StorageSaveObservation {
  * @param file - The file selected for this attempt.
  * @param preferredBasePath - Rename-source provenance path, when supplied.
  * @param retryIfStorageChanges - Whether recovery revalidates the observed storage snapshot.
- * @param inspectStoredFilename - Whether to read the actual Metadata path with the body.
  * @returns The immutable body and associated provenance/database observations.
  * @remarks The caller holds the document lock. Recovery reads may retrieve missing Chunks through the settings-controlled path; ordinary reads remain local-only. This stage creates no Metadata revision and starts no retry.
  */
@@ -277,8 +258,7 @@ async function observeStorageSave(
     ctx: FileHandlerContext,
     file: UXFileInfoStub,
     preferredBasePath: FilePathWithPrefix | undefined,
-    retryIfStorageChanges: boolean,
-    inspectStoredFilename: boolean
+    retryIfStorageChanges: boolean
 ): Promise<StorageSaveObservation> {
     const observedProvenance = await readProvenanceSnapshot(
         ctx,
@@ -288,12 +268,11 @@ async function observeStorageSave(
     const readFile = await ctx.host.readFileFromStub(file);
     // Recovery comparisons may need chunks omitted by on-demand replication.
     // Ordinary saves retain their local-first read.
-    const pathSource: [pathSource?: "stored"] = inspectStoredFilename ? ["stored"] : [];
-    const entry = await ctx.host.db().fetchEntry(file, undefined, true, true, !retryIfStorageChanges, ...pathSource);
-    const currentEntry = entry || (await ctx.host.db().fetchEntryMeta(file, undefined, true, ...pathSource));
+    const entry = await ctx.host.db().fetchEntry(file, undefined, true, true, !retryIfStorageChanges);
+    const currentEntry = entry || (await ctx.host.db().fetchEntryMeta(file, undefined, true));
     const conflictedRevs = await ctx.host.db().getConflictedRevs(file);
     const isConflicted = conflictedRevs.length > 0;
-    return { file, readFile, observedProvenance, entry, currentEntry, isConflicted, inspectStoredFilename };
+    return { file, readFile, observedProvenance, entry, currentEntry, isConflicted };
 }
 
 /**
@@ -323,18 +302,10 @@ async function saveClassifiedStorage(
         );
         return false;
     }
-    const filenameAlias =
-        save.inspectStoredFilename &&
-        currentIsLive &&
-        !!currentEntry.storedPath &&
-        getProvenancePath(ctx, currentEntry.storedPath) !== getProvenancePath(ctx, save.file.path);
-    if (filenameAlias && !(await canPreserveFilenameAlias(ctx, save, currentEntry))) {
-        return false;
-    }
-    const recovery: StorageSaveRecovery = { preferredBasePath, retryIfStorageChanges, snapshotRetry, filenameAlias };
+    const recovery: StorageSaveRecovery = { preferredBasePath, retryIfStorageChanges, snapshotRetry };
     let details: Awaited<ReturnType<typeof observeClassifiedStorage>>;
     try {
-        details = await observeClassifiedStorage(ctx, save, recovery);
+        details = await observeClassifiedStorage(ctx, save, preferredBasePath, retryIfStorageChanges);
     } catch (error) {
         if (retryIfStorageChanges || !(error instanceof ContentReadError)) {
             throw error;
@@ -349,31 +320,9 @@ async function saveClassifiedStorage(
     const classification = details.classification;
     if (classification.kind === "unchanged")
         return await finishUnchangedStorageSave(ctx, save, classification.revision, details, recovery);
-    if (classification.kind === "matching-leaf") {
+    if (classification.kind === "matching-leaf")
         return await finishMatchingStorageSave(ctx, save, classification.revision, details, recovery);
-    }
     return await storeClassifiedStorageEdit(ctx, save, classification, recovery);
-}
-
-/** Limit ordinary filename preservation to another spelling in the same document and parent. */
-async function canPreserveFilenameAlias(
-    ctx: FileHandlerContext,
-    { file, readFile }: StorageSaveObservation,
-    entry: MetaEntry | LoadedEntry
-): Promise<boolean> {
-    if (file.path !== readFile.path || ctx.vault.isFileSizeTooLarge(readFile.stat.size)) {
-        return false;
-    }
-    const version = getPathNormalizationVersion(ctx.setting.currentSettings());
-    if (getParentPath(file.path, version) !== getParentPath(entry.path, version)) {
-        ctx.host.log(
-            `Refusing to save a filename case change across differently cased parent directories: ${entry.path} -> ${file.path}`,
-            LOG_LEVEL_NOTICE
-        );
-        return false;
-    }
-    const [localId, storedId] = await Promise.all([ctx.path.path2id(file.path), ctx.path.path2id(entry.path)]);
-    return localId === entry._id && storedId === entry._id;
 }
 
 /**
@@ -528,45 +477,34 @@ interface StorageSaveRecovery {
     readonly retryIfStorageChanges: boolean;
     /** Existing count of consumed recovery rereads. */
     readonly snapshotRetry: number;
-    /** Whether untracked content must keep its distinct local spelling after snapshot validation. */
-    readonly filenameAlias: boolean;
 }
 /**
  * Acquire ancestry classification and any required hash evidence before the final storage check.
  * @param ctx - Captured services, instance state, and dynamic public seams.
  * @param save - The already captured storage and database observations.
- * @param recovery - Rename-source path and validation policies for this save.
+ * @param preferredBasePath - Rename-source provenance path, when supplied.
+ * @param retryIfStorageChanges - Whether recovery requires readable recorded content.
  * @returns Classification, legacy-record upgrade intent, and evidence for the next effect stage.
  * @remarks The caller holds the document lock. This stage may read or repair provenance but does not certify a later destructive effect.
  */
 async function observeClassifiedStorage(
     ctx: FileHandlerContext,
     save: StorageSaveObservation,
-    recovery: StorageSaveRecovery
+    preferredBasePath: FilePathWithPrefix | undefined,
+    retryIfStorageChanges: boolean
 ): Promise<ClassifiedStorageEvidence> {
     const { readFile, observedProvenance, entry, currentEntry } = save;
-    const { preferredBasePath, retryIfStorageChanges, filenameAlias } = recovery;
     const recorded =
-        filenameAlias && currentEntry && !(await hasRecordedFilename(ctx, readFile.path, observedProvenance, currentEntry.path))
-            ? undefined
-            : observedProvenance;
-    const filenameMatchEntry = save.inspectStoredFilename && save.isConflicted && currentEntry;
-    const content = await classifyStorageContent(
+        preferredBasePath || (await hasObservedStorageFilename(ctx, save)) ? observedProvenance : undefined;
+    const classification = await classifyStorageContent(
         ctx,
         readFile,
-        filenameAlias || filenameMatchEntry ? false : currentEntry,
+        currentEntry,
         preferredBasePath,
         recorded,
         entry ? { _rev: entry._rev, data: readContent(entry) } : undefined,
         retryIfStorageChanges
     );
-    const classification =
-        filenameMatchEntry && content.kind === "unknown"
-            ? await findMatchingFilenameLeaf(ctx, readFile, filenameMatchEntry.path, {
-                  current: filenameMatchEntry,
-                  requireStoredPath: filenameAlias,
-              })
-            : content;
     const upgradeCurrentRecord = shouldUpgradeSavedRecord(save, classification);
     const evidence =
         upgradeCurrentRecord || (classification.kind === "matching-leaf" && classification.revision)
@@ -574,6 +512,34 @@ async function observeClassifiedStorage(
             : undefined;
 
     return { classification, upgradeCurrentRecord, evidence };
+}
+
+/** Verify old provenance when the current revision and the observed file use different names. */
+async function hasObservedStorageFilename(ctx: FileHandlerContext, save: StorageSaveObservation): Promise<boolean> {
+    const { readFile, observedProvenance, currentEntry } = save;
+    const settings = ctx.setting.currentSettings();
+    const db = ctx.host.db();
+    if (
+        !observedProvenance ||
+        !currentEntry ||
+        !currentEntry._rev ||
+        currentEntry.deleted ||
+        currentEntry._deleted ||
+        settings.handleFilenameCaseSensitive ||
+        !db.readRevisionPath
+    ) {
+        return true;
+    }
+    const currentName = await db.readRevisionPath(currentEntry._id, currentEntry._rev);
+    const version = getPathNormalizationVersion(settings);
+    if (!currentName || !hasSameParentFilenameCaseConflict(readFile.path, currentName, version)) {
+        return true;
+    }
+    const recordedName =
+        observedProvenance.revision === currentEntry._rev
+            ? currentName
+            : await db.readRevisionPath(currentEntry._id, observedProvenance.revision);
+    return haveMatchingRevisionPaths(readFile.path, recordedName, version);
 }
 
 /**
@@ -615,13 +581,13 @@ async function finishUnchangedStorageSave(
 ): Promise<boolean> {
     const { file, readFile, observedProvenance, currentEntry, isConflicted } = save;
     const { upgradeCurrentRecord, evidence } = details;
-    const { retryIfStorageChanges } = recovery;
+    const { preferredBasePath, retryIfStorageChanges, snapshotRetry } = recovery;
     const snapshotMatches =
         retryIfStorageChanges || upgradeCurrentRecord
             ? await currentStorageSnapshotMatches(ctx, readFile, observedProvenance, retryIfStorageChanges)
             : true;
     if (retryIfStorageChanges && !snapshotMatches)
-        return await retryCurrentStorage(ctx, file.path, recovery);
+        return await retryCurrentStorage(ctx, file.path, preferredBasePath, snapshotRetry);
     if (isConflicted) {
         await queueConflictCheckFor(ctx, file.path);
     } else if (!currentEntry || currentEntry.deleted || currentEntry._deleted || revision !== currentEntry._rev) {
@@ -655,13 +621,9 @@ async function finishMatchingStorageSave(
 ): Promise<boolean> {
     const { file, readFile, observedProvenance, isConflicted } = save;
     const { evidence } = details;
-    const { retryIfStorageChanges, filenameAlias } = recovery;
-    if (
-        (retryIfStorageChanges || filenameAlias) &&
-        !(await currentStorageSnapshotMatches(ctx, readFile, observedProvenance, retryIfStorageChanges))
-    ) {
-        return await retryCurrentStorage(ctx, file.path, recovery);
-    }
+    const { preferredBasePath, retryIfStorageChanges, snapshotRetry } = recovery;
+    if (retryIfStorageChanges && !(await currentStorageSnapshotMatches(ctx, readFile, observedProvenance, true)))
+        return await retryCurrentStorage(ctx, file.path, preferredBasePath, snapshotRetry);
     await rememberMatchingLeaf(ctx, file.path, revision, readFile.stat.mtime, readFile.body, evidence);
     if (isConflicted) await queueConflictCheckFor(ctx, file.path);
     return true;
@@ -683,12 +645,9 @@ async function storeClassifiedStorageEdit(
     recovery: StorageSaveRecovery
 ): Promise<boolean> {
     const { file, readFile, observedProvenance, isConflicted } = save;
-    const { preferredBasePath, retryIfStorageChanges, filenameAlias } = recovery;
-    const preservingFilename = filenameAlias && classification.kind === "unknown";
-    const revalidate = retryIfStorageChanges || preservingFilename;
-    if (revalidate && !(await currentStorageSnapshotMatches(ctx, readFile, observedProvenance, retryIfStorageChanges))) {
-        return await retryCurrentStorage(ctx, file.path, recovery);
-    }
+    const { preferredBasePath, retryIfStorageChanges, snapshotRetry } = recovery;
+    if (retryIfStorageChanges && !(await currentStorageSnapshotMatches(ctx, readFile, observedProvenance, true)))
+        return await retryCurrentStorage(ctx, file.path, preferredBasePath, snapshotRetry);
     const storedRevision =
         classification.kind === "edited"
             ? await ctx.host.db().storeWithBaseRevision(readFile, classification.revision, true)
@@ -696,17 +655,12 @@ async function storeClassifiedStorageEdit(
     if (storedRevision === false) return false;
     if (preferredBasePath && preferredBasePath !== file.path) await deleteProvenance(ctx, preferredBasePath);
     if (
-        revalidate &&
-        !(await finaliseStoredRevision(ctx, readFile, observedProvenance, storedRevision, retryIfStorageChanges))
+        retryIfStorageChanges &&
+        !(await finaliseStoredRevision(ctx, readFile, observedProvenance, storedRevision, true))
     ) {
-        if (preservingFilename) {
-            await queueConflictCheckFor(ctx, file.path);
-        }
-        return await retryCurrentStorage(ctx, file.path, recovery);
+        return await retryCurrentStorage(ctx, file.path, preferredBasePath, snapshotRetry);
     }
-    if (!revalidate) {
-        await setProvenance(ctx, file.path, storedRevision, readFile.stat.mtime, readFile.body);
-    }
+    if (!retryIfStorageChanges) await setProvenance(ctx, file.path, storedRevision, readFile.stat.mtime, readFile.body);
     if (isConflicted || classification.kind === "unknown") await queueConflictCheckFor(ctx, file.path);
     return true;
 }

@@ -5,7 +5,7 @@ import {
     readProvenanceSnapshot,
     currentStorageSnapshotMatches,
     classifyStorageContent,
-    findMatchingFilenameLeaf,
+    classifyMatchingFilenameLeaf,
     rememberMatchingLeaf,
     finaliseStoredRevision,
 } from "./provenance";
@@ -66,10 +66,8 @@ export async function preserveUnsyncedStorageAsConflict(
     if (!incomingEntry._rev) {
         return { preserved: false };
     }
-    let classification: StorageContentClassification;
-    let unavailableRead: ContentReadError | undefined;
-    try {
-        classification = await classifyStorageContent(
+    return await preserveStorageSnapshot(ctx, path, snapshot, () =>
+        classifyStorageContent(
             ctx,
             readFile,
             incomingEntry,
@@ -77,7 +75,37 @@ export async function preserveUnsyncedStorageAsConflict(
             observedProvenance,
             hasIncomingContent(incomingContent) ? { _rev: incomingEntry._rev, data: incomingContent } : undefined,
             false
-        );
+        )
+    );
+}
+
+/** Preserve an unobserved filename and its bytes before an incoming rename. */
+export async function preserveUnobservedFilename(
+    ctx: FileHandlerContext,
+    path: FilePathWithPrefix,
+    existDoc: UXFileInfoStub,
+    observedProvenance: FileReflectionProvenanceRecord | undefined
+): Promise<PreservationResult> {
+    const file = await ctx.host.readFileFromStub(existDoc);
+    if (file.path !== existDoc.path) {
+        return { preserved: false };
+    }
+    return await preserveStorageSnapshot(ctx, path, { file, revision: observedProvenance }, () =>
+        classifyMatchingFilenameLeaf(ctx, file)
+    );
+}
+
+async function preserveStorageSnapshot(
+    ctx: FileHandlerContext,
+    path: FilePathWithPrefix,
+    snapshot: StorageSnapshot,
+    classify: () => Promise<StorageContentClassification>
+): Promise<PreservationResult> {
+    const { file: readFile, revision: observedProvenance } = snapshot;
+    let classification: StorageContentClassification;
+    let unavailableRead: ContentReadError | undefined;
+    try {
+        classification = await classify();
     } catch (error) {
         if (!(error instanceof ContentReadError)) {
             throw error;
@@ -86,37 +114,6 @@ export async function preserveUnsyncedStorageAsConflict(
         unavailableRead = error;
         classification = { kind: "unknown" };
     }
-    const result = await preserveStorageSnapshot(ctx, path, snapshot, classification, unavailableRead);
-    return result || { preserved: true };
-}
-
-/** Preserve the actual name of an untracked file before applying a differently cased database path. */
-export async function preserveUntrackedFilename(
-    ctx: FileHandlerContext,
-    path: FilePathWithPrefix,
-    observed: UXFileInfoStub,
-    hasConflicts: boolean,
-    observedProvenance?: FileReflectionProvenanceRecord
-): Promise<boolean> {
-    const file = await ctx.host.readFileFromStub(observed);
-    if (file.path !== observed.path) return false;
-    // An explicitly selected revision can be retried while other leaves are still live.
-    const classification = hasConflicts
-        ? await findMatchingFilenameLeaf(ctx, file, path, { requireStoredPath: true })
-        : { kind: "unknown" } as const;
-    const result = await preserveStorageSnapshot(ctx, path, { file, revision: observedProvenance }, classification);
-    return result !== false && result.preserved;
-}
-
-/** Commit the file captured at its observed spelling after rechecking the bytes and provenance. */
-async function preserveStorageSnapshot(
-    ctx: FileHandlerContext,
-    path: FilePathWithPrefix,
-    snapshot: StorageSnapshot,
-    classification: StorageContentClassification,
-    unavailableRead?: ContentReadError
-): Promise<PreservationResult | false> {
-    const { file: readFile, revision: observedProvenance } = snapshot;
     // Classification can await chunk reads or leaf discovery. Revalidate
     // before creating a branch so an edit during that wait is not lost.
     if (!(await currentStorageSnapshotMatches(ctx, readFile, observedProvenance))) {
@@ -139,7 +136,7 @@ async function preserveStorageSnapshot(
             throw unavailableRead;
         }
         ctx.host.log(`Prevented overwriting unsynchronised local changes for ${path}`, LOG_LEVEL_NOTICE);
-        return false;
+        return { preserved: true };
     }
     // Publish the new provenance only after the same storage snapshot has
     // survived the database write; otherwise the caller must reread it.

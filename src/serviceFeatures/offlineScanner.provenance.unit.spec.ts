@@ -22,10 +22,10 @@ const originalMtime = 1_000_000;
 
 class TestFileHandler extends ServiceFileHandlerBase {}
 
-function makeFile(body: string, mtime = originalMtime, filePath = path): UXFileInfo {
+function makeFile(body: string, mtime = originalMtime): UXFileInfo {
     return {
-        name: filePath,
-        path: filePath,
+        name: path,
+        path,
         stat: { type: "file", ctime: originalMtime, mtime, size: new Blob([body]).size },
         body: createTextBlob(body),
     } as UXFileInfo;
@@ -66,14 +66,13 @@ async function createScenario(scenario: Scenario, revsLimit = 1000, onDemand = f
     };
     const settings = {
         ...DEFAULT_SETTINGS,
-        handleFilenameCaseSensitive: false,
         useOnlyLocalChunk: !onDemand,
         minimumIntervalOfReadChunksOnline: 0,
         writeDocumentsIfConflicted: false,
     };
     const setting = { currentSettings: () => settings };
     const pathService = {
-        path2id: async (value: string) => (settings.handleFilenameCaseSensitive ? value : value.toLowerCase()),
+        path2id: async (value: string) => value,
         id2path: (id: string, entry?: { path?: string }) => entry?.path ?? id,
         getPath: (entry: { path: FilePathWithPrefix }) => entry.path,
         compareFileFreshness: (file: UXFileInfo, entry: { mtime: number }) => compareMTime(file.stat.mtime, entry.mtime),
@@ -103,7 +102,7 @@ async function createScenario(scenario: Scenario, revsLimit = 1000, onDemand = f
     try {
         expect(await localDatabase.initializeDatabase()).toBe(true);
         const storageAccess = {
-            getStub: async (_path: string) => {
+            getStub: async () => {
                 const next = storageReadHook?.();
                 if (next) storage = next;
                 return storage ?? null;
@@ -265,6 +264,37 @@ function contentHash(body: string): string {
     return `sha256:${createHash("sha256").update(body).digest("hex")}`;
 }
 
+describe("offline filename case changes", () => {
+    it.each([-4_000, 0, 4_000])("keeps both names with a local mtime offset of %s", async (offset) => {
+        const fixture = await createScenario("untracked-unchanged");
+        try {
+            fixture.services.path.path2id = async (value) => value.toLowerCase() as DocumentID;
+            const storagePath = path.toUpperCase() as FilePathWithPrefix;
+            fixture.setStorage({ ...makeFile(original, originalMtime + offset), path: storagePath, name: storagePath });
+            await expect(syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, fixture.previousMetadata
+            )).resolves.toBe("skipped");
+
+            const leaves = await liveLeaves(fixture);
+            expect(leaves.map((leaf) => leaf.path).sort()).toEqual([storagePath, path]);
+            expect(leaves.map((leaf) => leaf._rev)).toContain(fixture.baseRevision);
+            expect(fixture.getStorage().path).toBe(storagePath);
+            expect(await fixture.getStorage().body.text()).toBe(original);
+            const winner = await fixture.access.fetchEntryMeta(path);
+            if (!winner) {
+                throw new Error("The file has no current revision after preservation");
+            }
+            const conflicted = { ...winner, _conflicts: await fixture.access.getConflictedRevs(path) };
+            await expect(syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, conflicted
+            )).resolves.toBe("skipped");
+            expect((await liveLeaves(fixture)).map((leaf) => leaf._rev)).toEqual(leaves.map((leaf) => leaf._rev));
+        } finally {
+            await fixture.dispose();
+        }
+    });
+});
+
 describe("optional startup content checks", () => {
     async function trackedFixture() {
         const fixture = await createScenario("recorded-unchanged");
@@ -351,56 +381,6 @@ describe("optional startup content checks", () => {
             } finally { await fixture.dispose(); }
         }
     );
-});
-
-describe("scan with untracked filename-case differences", () => {
-    it.each([
-        { time: "older", offset: -60_000, body: localEdit, exactLookup: false },
-        { time: "equal", offset: 0, body: original, exactLookup: false },
-        { time: "newer", offset: 60_000, body: original, exactLookup: true },
-    ])("preserves both names and contents when the local file is $time", async ({ offset, body, exactLookup }) => {
-        const fixture = await createScenario("untracked-unchanged");
-        const localPath = "Issue-1207.md" as FilePathWithPrefix;
-        try {
-            fixture.setStorage(makeFile(body, originalMtime + offset, localPath));
-            const file = { name: localPath, path: localPath, stat: fixture.getStorage().stat };
-            if (exactLookup) {
-                vi.spyOn(fixture.storageAccess, "getStub").mockImplementation(async (requestedPath) => {
-                    return requestedPath === localPath ? fixture.getStorage() : null;
-                });
-            }
-            const reflect = vi.spyOn(fixture.handler, "reflectDatabaseEntry");
-
-            const result = await syncStorageAndDatabase(
-                fixture.host, vi.fn(), file, LOG_LEVEL_INFO, fixture.previousMetadata
-            );
-
-            expect(fixture.getStorage().path).toBe(localPath);
-            expect(await fixture.getStorage().body.text()).toBe(body);
-            expect(fixture.storageAccess.writeFileAuto).not.toHaveBeenCalled();
-            const leaves = await liveLeaves(fixture);
-            expect(leaves).toHaveLength(2);
-            expect(leaves).toEqual(expect.arrayContaining([
-                expect.objectContaining({ _id: path, _rev: fixture.baseRevision, path }),
-                expect.objectContaining({ _id: path, path: localPath }),
-            ]));
-            const remote = await fixture.access.fetchEntry(path, fixture.baseRevision, true, true);
-            expect(remote && (await new Blob(remote.data).text())).toBe(original);
-            const localRevision = fixture.provenance.get(localPath)?.revision;
-            expect(localRevision).toBeDefined();
-            expect(localRevision).not.toBe(fixture.baseRevision);
-            const local = await fixture.access.fetchEntry(localPath, localRevision, true, true);
-            expect(local && (await new Blob(local.data).text())).toBe(body);
-            expect(fixture.services.conflict.queueCheckFor).toHaveBeenCalledWith(path);
-            expect(reflect).toHaveBeenCalledExactlyOnceWith(fixture.previousMetadata, file, false, {
-                source: "scan",
-                target: { documentId: path, revision: fixture.baseRevision },
-            });
-            expect(result).toBe("skipped");
-        } finally {
-            await fixture.dispose();
-        }
-    });
 });
 
 describe("equal-time scan and later incoming revision", () => {

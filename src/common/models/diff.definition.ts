@@ -1,16 +1,15 @@
-import type { EntryTypeNotes, FilePathWithPrefix } from "./db.type";
 import type { AUTO_MERGED, CANCELLED, MISSING_OR_ERROR, NOT_CONFLICTED } from "./shared.const.symbols";
+import type { EntryTypeNotes, FilePathWithPrefix } from "./db.type";
 
 export type diff_result_leaf = {
     rev: string;
-    /** The path stored on this revision, when available. */
-    path?: FilePathWithPrefix;
-    /** Storage datatype observed for this revision; transient and not persisted. */
-    datatype?: EntryTypeNotes;
     data: string;
     ctime: number;
     mtime: number;
     deleted?: boolean;
+    /** The path recorded on this revision, when available. */
+    path?: FilePathWithPrefix;
+    datatype?: EntryTypeNotes;
 };
 export type dmp_result = Array<[number, string]>;
 

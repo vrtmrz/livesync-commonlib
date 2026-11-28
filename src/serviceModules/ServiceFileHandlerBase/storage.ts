@@ -8,8 +8,6 @@ import type {
     UXInternalFileInfoStub,
 } from "@lib/common/types";
 
-import { normalisePathForIdentity } from "@lib/common/pathNormalization";
-import type { PathNormalizationVersion } from "@lib/common/models/setting.type";
 import { stripAllPrefixes } from "@lib/string_and_binary/path";
 
 import type { FileHandlerContext } from "./context";
@@ -73,18 +71,6 @@ export async function infoToStub<T extends UXFileInfoStub | UXFileInfo | UXInter
     if (info == null) return null;
     const file = typeof info === "string" ? await ctx.host.storage().getFileStub(info) : info;
     return file;
-}
-
-/**
- * Derive a case-sensitive parent directory key from a storage path.
- * @param path - The affected file or provenance path.
- * @param version - The current path normalisation policy.
- * @returns The normalised parent path, or the empty root path.
- */
-export function getParentPath(path: string, version: PathNormalizationVersion): string {
-    const lastSeparator = path.lastIndexOf("/");
-    const parent = lastSeparator < 0 ? "" : path.slice(0, lastSeparator);
-    return normalisePathForIdentity(parent, version);
 }
 
 /**

@@ -9,7 +9,7 @@ import type {
     LoadedEntry,
     FilePath,
 } from "@lib/common/types";
-import type { DatabaseFileAccess } from "@lib/interfaces/DatabaseFileAccess";
+import type { DatabaseFileAccess, LiveContentFilename } from "@lib/interfaces/DatabaseFileAccess";
 import type { StorageAccess } from "@lib/interfaces/StorageAccess";
 import type { APIService } from "@lib/services/base/APIService";
 import type { DatabaseService } from "@lib/services/base/DatabaseService";
@@ -24,6 +24,9 @@ import { EVENT_FILE_SAVED } from "@lib/events/coreEvents";
 import { getDatabasePathFromUXFileInfo, getStoragePathFromUXFileInfo, isInternalMetadata } from "@lib/common/typeUtils";
 import { createBlob, createTextBlob, determineTypeFromBlob, isDocContentSame, readContent } from "@lib/common/utils";
 import { ICHeader } from "@lib/common/models/fileaccess.const";
+import { tryGetFilePath } from "@lib/common/utils.doc";
+import { haveMatchingRevisionPaths } from "@lib/conflicts/filenameCaseConflict";
+import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb";
 
 export interface ServiceDatabaseFileAccessDependencies {
     events: LiveSyncEventHub;
@@ -481,10 +484,11 @@ export class ServiceDatabaseFileAccessBase
      */
     async findLiveContentRevisions(
         file: UXFileInfoStub | FilePathWithPrefix,
-        content: string | string[] | Blob | ArrayBuffer
+        content: string | string[] | Blob | ArrayBuffer,
+        filename?: LiveContentFilename
     ): Promise<string[]> {
         try {
-            return await this.readLiveContentRevisions(file, content);
+            return await this.readLiveContentRevisions(file, content, filename);
         } catch (error) {
             this._log(error, LOG_LEVEL_VERBOSE);
             return [];
@@ -492,7 +496,10 @@ export class ServiceDatabaseFileAccessBase
     }
 
     /** Select current live leaves, independently of historical ancestor lookup. */
-    private async selectLiveContentLeaves(file: UXFileInfoStub | FilePathWithPrefix): Promise<string[]> {
+    private async selectLiveContentLeaves(
+        file: UXFileInfoStub | FilePathWithPrefix,
+        filenameFilter?: LiveContentFilename
+    ): Promise<string[]> {
         const filename = getDatabasePathFromUXFileInfo(file);
         const current = await this.readEntryMeta(file, undefined, true);
         if (!current) {
@@ -514,18 +521,30 @@ export class ServiceDatabaseFileAccessBase
                 cause: new Error(`Invalid live revision response for ${filename}`),
             });
         }
-        return leaves.flatMap(({ ok }) => (ok?._rev && !ok.deleted && !ok._deleted ? [ok._rev] : []));
+        return leaves.flatMap(({ ok }) => {
+            if (!ok?._rev || ok.deleted || ok._deleted) {
+                return [];
+            }
+            if (
+                filenameFilter &&
+                !haveMatchingRevisionPaths(tryGetFilePath(ok), filenameFilter.path, filenameFilter.normalizationVersion)
+            ) {
+                return [];
+            }
+            return [ok._rev];
+        });
     }
 
     /** Compare selected leaves using local Chunks only; unreadable content rejects. */
     async readLiveContentRevisions(
         file: UXFileInfoStub | FilePathWithPrefix,
-        content: string | string[] | Blob | ArrayBuffer
+        content: string | string[] | Blob | ArrayBuffer,
+        filename?: LiveContentFilename
     ): Promise<string[]> {
         if (!(await this.checkIsTargetFile(file))) {
             return [];
         }
-        const revisions = await this.selectLiveContentLeaves(file);
+        const revisions = await this.selectLiveContentLeaves(file, filename);
         const matches: string[] = [];
         for (const revision of revisions) {
             const entry = await this.database.localDatabase.readDBEntry(
@@ -603,28 +622,34 @@ export class ServiceDatabaseFileAccessBase
     async fetchEntryMeta(
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
-        skipCheck = false,
-        pathSource?: "stored"
+        skipCheck = false
     ): Promise<MetaEntry | false> {
-        return await this.readEntryMeta(file, rev, skipCheck, pathSource);
+        return await this.readEntryMeta(file, rev, skipCheck);
+    }
+
+    async readRevisionPath(documentId: DocumentID, revision: string): Promise<string | undefined> {
+        try {
+            return tryGetFilePath(await this.database.localDatabase.getRaw(documentId, { rev: revision }));
+        } catch (error) {
+            if (isErrorOfMissingDoc(error)) {
+                return undefined;
+            }
+            throw new ContentReadError({ documentId, revision, resources: ["local-database"], cause: error });
+        }
     }
 
     async readEntryMeta(
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
-        skipCheck = false,
-        pathSource?: "stored"
+        skipCheck = false
     ): Promise<MetaEntry | false> {
         const filename = getDatabasePathFromUXFileInfo(file);
         if (skipCheck && !(await this.checkIsTargetFile(file))) {
             return false;
         }
-        return (await this.database.localDatabase.getDBEntryMeta(
-            filename,
-            rev ? { rev } : undefined,
-            true,
-            pathSource
-        )) as MetaEntry | false;
+        return (await this.database.localDatabase.getDBEntryMeta(filename, rev ? { rev } : undefined, true)) as
+            | MetaEntry
+            | false;
     }
 
     async fetchEntryFromMeta(
@@ -658,11 +683,10 @@ export class ServiceDatabaseFileAccessBase
         rev?: string,
         waitForReady = true,
         skipCheck = false,
-        localOnly = false,
-        pathSource?: "stored"
+        localOnly = false
     ): Promise<LoadedEntry | false> {
         try {
-            return await this.readEntry(file, rev, waitForReady, skipCheck, localOnly, pathSource);
+            return await this.readEntry(file, rev, waitForReady, skipCheck, localOnly);
         } catch (error) {
             this._log(error, LOG_LEVEL_VERBOSE);
             return false;
@@ -674,29 +698,13 @@ export class ServiceDatabaseFileAccessBase
         rev?: string,
         waitForReady = true,
         skipCheck = false,
-        localOnly = false,
-        pathSource?: "stored"
+        localOnly = false
     ): Promise<LoadedEntry | false> {
         if (skipCheck && !(await this.checkIsTargetFile(file))) {
             return false;
         }
-        const entry = await this.readEntryMeta(file, rev, true, pathSource);
-        if (!entry) {
-            return false;
-        }
-        const lookupPath = getDatabasePathFromUXFileInfo(file);
-        if (pathSource === "stored" && entry.path !== lookupPath) {
-            // Keep content selection and decoding on the lookup path. The stored spelling
-            // describes this revision, while host target checks still apply to the caller's path.
-            const loaded = await this.readEntryFromMeta(
-                { ...entry, path: lookupPath },
-                waitForReady,
-                true,
-                localOnly
-            );
-            return loaded && { ...loaded, path: entry.path };
-        }
-        return await this.readEntryFromMeta(entry, waitForReady, true, localOnly);
+        const entry = await this.readEntryMeta(file, rev, true);
+        return entry ? await this.readEntryFromMeta(entry, waitForReady, true, localOnly) : false;
     }
     async deleteFromDBbyPath(fullPath: FilePath | FilePathWithPrefix, rev?: string): Promise<boolean> {
         if (!(await this.checkIsTargetFile(fullPath))) {

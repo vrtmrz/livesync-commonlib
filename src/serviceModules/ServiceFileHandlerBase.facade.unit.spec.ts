@@ -213,7 +213,7 @@ describe("ServiceFileHandlerBase host facade contracts", () => {
 
         expect(f.path.path2id).toHaveBeenCalledWith("canonical.md");
         expect(f.storage.getStub).toHaveBeenCalledWith("physical.md");
-        expect(f.db.fetchEntryMeta).toHaveBeenCalledWith("canonical.md", undefined, true, "stored");
+        expect(f.db.fetchEntryMeta).toHaveBeenCalledWith("canonical.md", undefined, true);
         expect(f.conflict.queueCheckForIfOpen).toHaveBeenCalledWith("canonical.md");
         expect(log).toHaveBeenCalledWith(expect.stringContaining("Done"));
     });
@@ -243,7 +243,7 @@ describe("ServiceFileHandlerBase host facade contracts", () => {
         new PlainHandler(f.services);
         const registered = f.replicationHandler.mock.calls[0][0] as (entry: MetaEntry) => Promise<unknown>;
         await expect(registered(entry)).rejects.toBe(error);
-        expect(f.db.fetchEntryMeta).toHaveBeenCalledWith("note.md", undefined, true, "stored");
+        expect(f.db.fetchEntryMeta).toHaveBeenCalledWith("note.md", undefined, true);
         expect(f.db.getConflictedRevs).toHaveBeenCalledWith("note.md");
         expect(f.db.fetchEntryFromMeta).toHaveBeenCalledWith(entry);
     });

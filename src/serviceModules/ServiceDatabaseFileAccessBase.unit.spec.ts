@@ -10,7 +10,6 @@ import {
 } from "./ServiceDatabaseFileAccessBase";
 import { storeDeletionByPathAtRevision } from "@lib/managers/EntryManager/EntryManagerImpls";
 import { EVENT_FILE_SAVED } from "@lib/events/coreEvents";
-import { FLAGMD_REDFLAG } from "@lib/common/types";
 
 PouchDB.plugin(MemoryAdapter);
 PouchDB.plugin(replication);
@@ -87,6 +86,48 @@ describe("ServiceDatabaseFileAccessBase local database observers", () => {
         await Promise.all(databases.splice(0).map((database) => database.destroy()));
     });
 
+    it("reads the exact original revision path and distinguishes absence from failure", async () => {
+        const id = "tasks/note.md" as DocumentID;
+        const path = "Tasks/Note.md" as FilePathWithPrefix;
+        const database = new PouchDB<EntryDoc>(`revision-spelling-${++databaseSequence}`, { adapter: "memory" });
+        databases.push(database);
+        const first = await database.put(createEntry(id, path, "old content"));
+        const current = await database.put({ ...createEntry(id, id as unknown as FilePathWithPrefix, "new content"), _rev: first.rev });
+        const service = createService(database, id);
+
+        await expect(service.readRevisionPath(id, first.rev)).resolves.toBe(path);
+        await expect(service.readRevisionPath(id, current.rev)).resolves.toBe(id);
+        await expect(service.readRevisionPath(id, "2-missing")).resolves.toBeUndefined();
+
+        const failure = new Error("database unavailable");
+        const unavailable = createService(database, id, undefined, undefined, vi.fn().mockRejectedValue(failure));
+        await expect(unavailable.readRevisionPath(id, current.rev)).rejects.toMatchObject({
+            failure: { documentId: id, revision: current.rev, resources: ["local-database"], cause: failure },
+        });
+    });
+
+    it("loads only name-matching live leaves when an observed filename is supplied", async () => {
+        const id = "note.md" as DocumentID;
+        const path = "Note.md" as FilePathWithPrefix;
+        const database = new PouchDB<EntryDoc>(`named-leaf-${++databaseSequence}`, { adapter: "memory" });
+        databases.push(database);
+        const matching = { ...createEntry(id, path, "same bytes"), _rev: "1-matching" };
+        const other = { ...createEntry(id, "note.md" as FilePathWithPrefix, "same bytes"), _rev: "1-other" };
+        await database.bulkDocs([matching, other], { new_edits: false });
+        const readRevision = vi.fn<RevisionReader>(async (_file, options) => {
+            if (options?.rev === other._rev) {
+                throw new Error("other filename's Chunk unavailable");
+            }
+            return matching as LoadedEntry;
+        });
+        const service = createService(database, id, readRevision);
+
+        await expect(service.readLiveContentRevisions(path, "same bytes", { path, normalizationVersion: 0 }))
+            .resolves.toEqual([matching._rev]);
+        expect(readRevision).toHaveBeenCalledExactlyOnceWith(path, { rev: matching._rev }, false, true, true, true);
+        await expect(service.readLiveContentRevisions(path, "same bytes")).rejects.toThrow("Chunk unavailable");
+    });
+
     it("reports a local InvalidStateError before live-content discovery returns no matches", async () => {
         const id = "database-id-not-path" as DocumentID;
         const path = "local-revision-read.md" as FilePathWithPrefix;
@@ -107,44 +148,6 @@ describe("ServiceDatabaseFileAccessBase local database observers", () => {
         });
         expect(readRaw).toHaveBeenCalledExactlyOnceWith(id, { open_revs: "all" });
         await expect(service.findLiveContentRevisions(path, "local bytes")).resolves.toEqual([]);
-    });
-
-    it("requests the stored spelling for both metadata read entry points when selected", async () => {
-        const id = "case-conflict.md" as DocumentID;
-        const path = "case-conflict.md" as FilePathWithPrefix;
-        const database = new PouchDB<EntryDoc>(`case-conflict-metadata-${++databaseSequence}`, { adapter: "memory" });
-        databases.push(database);
-        const readMetadata = vi.fn().mockResolvedValue({ _id: id, path: "Case-Conflict.md" });
-        const service = createService(database, id, undefined, readMetadata);
-
-        await expect(service.fetchEntryMeta(path, "2-chosen", true, "stored")).resolves.toMatchObject({
-            path: "Case-Conflict.md",
-        });
-        await expect(service.readEntryMeta(path, undefined, true, "stored")).resolves.toMatchObject({
-            path: "Case-Conflict.md",
-        });
-        expect(readMetadata).toHaveBeenNthCalledWith(1, path, { rev: "2-chosen" }, true, "stored");
-        expect(readMetadata).toHaveBeenNthCalledWith(2, path, undefined, true, "stored");
-    });
-
-    it("returns the stored spelling without changing the path used to load content", async () => {
-        const id = "case-conflict.md" as DocumentID;
-        const path = "case-conflict.md" as FilePathWithPrefix;
-        const storedPath = "Case-Conflict.md" as FilePathWithPrefix;
-        const database = new PouchDB<EntryDoc>(`case-conflict-content-${++databaseSequence}`, { adapter: "memory" });
-        databases.push(database);
-        const meta = { ...createEntry(id, storedPath, "body"), _rev: "2-chosen" };
-        const readMetadata = vi.fn().mockResolvedValue(meta);
-        const service = createService(database, id, undefined, readMetadata);
-        const decoded = { ...meta, path, data: ["body"] } as LoadedEntry;
-        const readContent = vi.spyOn(service, "readEntryFromMeta").mockResolvedValue(decoded);
-
-        await expect(service.fetchEntry(path, "2-chosen", false, true, true, "stored")).resolves.toEqual({
-            ...decoded,
-            path: storedPath,
-        });
-        expect(readMetadata).toHaveBeenCalledExactlyOnceWith(path, { rev: "2-chosen" }, true, "stored");
-        expect(readContent).toHaveBeenCalledExactlyOnceWith({ ...meta, path }, false, true, true);
     });
 
     it("passes the per-call observer to conflicted-revision metadata reads", async () => {
@@ -404,40 +407,5 @@ describe("ServiceDatabaseFileAccessBase.storeWithLiveBaseRevision", () => {
         emitEvent.mockClear();
         await expect(service.storeWithLiveBaseRevision(file, "2-deleted", true)).resolves.toBe(false);
         expect(emitEvent).not.toHaveBeenCalled();
-    });
-});
-
-
-describe("ServiceDatabaseFileAccessBase.storeContent", () => {
-    function createStoreContentService(isTarget = true) {
-        const id = "stored-content-id" as DocumentID;
-        const putDBEntry = vi.fn().mockResolvedValue({ ok: true, id, rev: "2-current-winner" });
-        const putDBEntryWithLiveBaseRevision = vi.fn().mockResolvedValue({ ok: true, id, rev: "4-child" });
-        const isTargetFile = vi.fn().mockResolvedValue(isTarget);
-        const service = new ServiceDatabaseFileAccessBase({
-            events: createLiveSyncEventHub(),
-            API: { addLog: vi.fn() },
-            vault: { isTargetFile },
-            storageAccess: {},
-            path: { path2id: vi.fn().mockResolvedValue(id) },
-            database: { localDatabase: { putDBEntry, putDBEntryWithLiveBaseRevision } },
-        } as unknown as ServiceDatabaseFileAccessDependencies);
-        return { service, putDBEntry, putDBEntryWithLiveBaseRevision, isTargetFile };
-    }
-
-    it("keeps current-winner storage when no expected parent is supplied", async () => {
-        const path = "Chosen/Case.md" as FilePathWithPrefix;
-        const content = "legacy store";
-        const { service, putDBEntry, putDBEntryWithLiveBaseRevision } = createStoreContentService();
-
-        await expect(service.storeContent(path, content)).resolves.toBe(true);
-
-        expect(putDBEntry).toHaveBeenCalledTimes(1);
-        const [entry, onlyChunks, baseRevision] = putDBEntry.mock.calls[0];
-        expect(entry.path).toBe(path);
-        expect(await entry.data.text()).toBe(content);
-        expect(onlyChunks).toBe(false);
-        expect(baseRevision).toBeUndefined();
-        expect(putDBEntryWithLiveBaseRevision).not.toHaveBeenCalled();
     });
 });

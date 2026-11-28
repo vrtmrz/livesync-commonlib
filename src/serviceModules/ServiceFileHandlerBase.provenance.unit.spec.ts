@@ -133,7 +133,12 @@ async function fixture(revsLimit = 1000) {
         db, entries, access, handler, conflict, reflection, storageAccess, oldRevision, remoteRevision, services,
         getStorage: () => storage,
         setStorage: (file: UXFileInfo) => { storage = file; },
-        merger: new ConflictManager({ database: db, entryManager: entries, pathService: pathService as EntryManagerOptions["pathService"] }),
+        merger: new ConflictManager({
+            database: db,
+            entryManager: entries,
+            pathService: pathService as EntryManagerOptions["pathService"],
+            settingService: setting as EntryManagerOptions["settingService"],
+        }),
     };
 }
 

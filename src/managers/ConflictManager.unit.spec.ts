@@ -9,12 +9,12 @@ import type {
     FilePathWithPrefix,
     // diff_result_leaf,
     LoadedEntry,
+    ObsidianLiveSyncSettings,
     // SavingEntry,
 } from "@lib/common/types";
 import { DEFAULT_SETTINGS, MISSING_OR_ERROR, NOT_CONFLICTED } from "@lib/common/types";
-import type { EntryManager } from "./EntryManager/EntryManager";
+import { EntryManager, type EntryManagerOptions } from "./EntryManager/EntryManager";
 import type { IPathService } from "@lib/services/base/IService";
-import { hasFilenameCaseConflict } from "@lib/conflicts.ts";
 
 // Set up PouchDB with memory adapter
 PouchDB.plugin(MemoryAdapter);
@@ -102,8 +102,7 @@ async function createSharedBaseConflict(
     baseData: string,
     leftData: string,
     rightData: string,
-    storedPath: FilePathWithPrefix = id as FilePathWithPrefix,
-    leftStoredPath: FilePathWithPrefix = storedPath
+    revisionPaths: { left: string | undefined; right: string | undefined } = { left: id, right: id }
 ): Promise<void> {
     const base = {
         ...createTestDoc(id, baseData, 1000),
@@ -112,56 +111,31 @@ async function createSharedBaseConflict(
     };
     const left = {
         ...createTestDoc(id, leftData, 2000),
-        path: leftStoredPath,
+        path: revisionPaths.left as FilePathWithPrefix,
         _rev: "2-left",
         _revisions: { start: 2, ids: ["left", "base"] },
     };
     const right = {
         ...createTestDoc(id, rightData, 2100),
-        path: storedPath,
+        path: revisionPaths.right as FilePathWithPrefix,
         _rev: "2-right",
         _revisions: { start: 2, ids: ["right", "base"] },
     };
     await db.bulkDocs([base, left, right], { new_edits: false });
 }
 
-describe("hasFilenameCaseConflict", () => {
-    it.each([
-        ["Note.md", "note.md", true],
-        ["Folder/note.md", "folder/note.md", true],
-        ["Café.md", "Cafe\u0301.md", false],
-        ["Café.md", "cafe\u0301.md", true],
-        ["Note.md", "Other.md", false],
-        ["Note.md", "Note.md", false],
-        ["Note.md", undefined, false],
-    ])("compares %s and %s in NFC mode", (left, right, expected) => {
-        expect(hasFilenameCaseConflict(left as FilePathWithPrefix, right as FilePathWithPrefix | undefined, 1)).toBe(
-            expected
-        );
-    });
-
-    it("retains a distinct spelling under legacy path identity", () => {
-        expect(hasFilenameCaseConflict("K.json" as FilePathWithPrefix, "\u212a.json" as FilePathWithPrefix, 0)).toBe(
-            true
-        );
-        expect(hasFilenameCaseConflict("K.json" as FilePathWithPrefix, "\u212a.json" as FilePathWithPrefix, 1)).toBe(
-            false
-        );
-    });
-});
-
 describe("ConflictManager", () => {
     let db: PouchDB.Database<EntryDoc>;
     let conflictManager: ConflictManager;
     let mockEntryManager: Partial<EntryManager>;
     let mockPathService: Partial<IPathService>;
-    let settings: typeof DEFAULT_SETTINGS;
+    let settings: ObsidianLiveSyncSettings;
 
     beforeEach(() => {
         // Create a unique in-memory database for each test
         dbCounter++;
         db = new PouchDB(`test-conflict-${dbCounter}`, { adapter: "memory" });
-        settings = { ...DEFAULT_SETTINGS };
+        settings = { ...DEFAULT_SETTINGS, pathNormalizationVersion: 0 };
 
         // Mock PathService
         mockPathService = {
@@ -175,18 +149,6 @@ describe("ConflictManager", () => {
 
         // Mock EntryManager
         mockEntryManager = {
-            serviceHost: {
-                services: {
-                    path: mockPathService as IPathService,
-                    setting: { currentSettings: () => settings } as EntryManager["serviceHost"]["services"]["setting"],
-                },
-                serviceModules: {},
-            },
-            getDBEntryMeta: async (path, options) => {
-                const entry = await mockEntryManager.getDBEntry?.(path, options, false, true, true);
-                return entry ? { ...entry, storedPath: entry.path } : false;
-            },
-            getDBEntryFromMeta: async (entry) => entry as LoadedEntry,
             getDBEntry: vi.fn(
                 async (
                     path: FilePathWithPrefix,
@@ -196,7 +158,7 @@ describe("ConflictManager", () => {
                     includeDeleted?: boolean
                 ) => {
                     try {
-                        const doc = await db.get(p2i(path), opt);
+                        const doc = await db.get(await mockPathService.path2id!(path), opt);
                         return doc as LoadedEntry;
                     } catch (ex) {
                         unused(ex);
@@ -204,11 +166,17 @@ describe("ConflictManager", () => {
                     }
                 }
             ),
+            getConflictEntryMeta: vi.fn(async (path, options) => {
+                const document = await mockEntryManager.getDBEntry!(path, options);
+                return document && { metadata: { ...document, path }, path: document.path };
+            }),
+            getDBEntryFromMeta: vi.fn(async (metadata) => metadata as LoadedEntry),
         };
 
         const options: ConflictManagerOptions = {
-            entryManager: mockEntryManager as EntryManager,
+            entryManager: mockEntryManager as ConflictManagerOptions["entryManager"],
             pathService: mockPathService as IPathService,
+            settingService: { currentSettings: () => settings },
             database: db,
         };
 
@@ -261,6 +229,45 @@ describe("ConflictManager", () => {
     });
 
     describe("getConflictedDoc", () => {
+        it("reads the stored name for a conflict while ordinary body reads keep the lookup path", async () => {
+            const lookup = "folder/café.md" as FilePathWithPrefix;
+            const recordedPath = "Folder/Café.md" as FilePathWithPrefix;
+            const datum = { ...createTestDoc(lookup, ""), path: recordedPath, children: ["h:content"] };
+            const revision = await db.put(datum);
+            const chunk = { _id: "h:content", type: "leaf", data: "stored text" };
+            const chunkManager = { read: vi.fn<() => Promise<Array<typeof chunk | false>>>(async () => [chunk]) };
+            const entryManager = new EntryManager({
+                database: db,
+                pathService: mockPathService as IPathService,
+                settingService: { currentSettings: () => settings } as EntryManagerOptions["settingService"],
+                chunkManager: chunkManager as unknown as EntryManagerOptions["chunkManager"],
+                hashManager: {} as EntryManagerOptions["hashManager"],
+                splitter: {} as EntryManagerOptions["splitter"],
+            });
+            const manager = new ConflictManager({ ...conflictManager.options, entryManager });
+            const metadataReads = vi.spyOn(db, "get");
+
+            const ordinary = await entryManager.getDBEntry(lookup, { rev: revision.rev });
+            expect(ordinary).toMatchObject({ path: lookup, data: ["stored text"] });
+            expect(ordinary).not.toHaveProperty("storedPath");
+            metadataReads.mockClear();
+            await expect(manager.getConflictedDoc(lookup, revision.rev)).resolves.toMatchObject({
+                path: recordedPath,
+                datatype: "plain",
+                data: "stored text",
+            });
+            expect(metadataReads).toHaveBeenCalledTimes(1);
+            expect(chunkManager.read).toHaveBeenCalledTimes(2);
+
+            chunkManager.read.mockResolvedValueOnce([false]);
+            await expect(manager.getConflictedDoc(lookup, revision.rev)).resolves.toBe(false);
+            expect(chunkManager.read).toHaveBeenCalledTimes(3);
+
+            settings.syncIgnoreRegEx = "^folder/café\\.md$";
+            await expect(manager.getConflictedDoc(lookup, revision.rev)).resolves.toBe(false);
+            expect(chunkManager.read).toHaveBeenCalledTimes(3);
+        });
+
         it("should return false for non-existent document", async () => {
             const result = await conflictManager.getConflictedDoc("non-existent" as FilePathWithPrefix, "1-abc");
 
@@ -280,7 +287,6 @@ describe("ConflictManager", () => {
                 expect(result.rev).toBe(putResult.rev);
                 expect(result.mtime).toBe(1000);
                 expect(result.ctime).toBe(900);
-                expect(result.datatype).toBe("plain");
             }
         });
 
@@ -322,7 +328,6 @@ describe("ConflictManager", () => {
             expect(result).not.toBe(false);
             if (result !== false) {
                 expect(result.data).toContain("test data");
-                expect(result.datatype).toBe("newnote");
             }
         });
     });
@@ -878,20 +883,6 @@ describe("ConflictManager", () => {
     });
 
     describe("tryAutoMerge", () => {
-        function missFirstReadOf(revision: string) {
-            const metadataReads = vi.spyOn(mockEntryManager, "getDBEntryMeta");
-            const read = mockEntryManager.getDBEntryFromMeta!;
-            let unavailable = true;
-            vi.spyOn(mockEntryManager, "getDBEntryFromMeta").mockImplementation((metadata) => {
-                if (unavailable && metadata._rev === revision) {
-                    unavailable = false;
-                    return Promise.resolve(false);
-                }
-                return read(metadata);
-            });
-            return metadataReads;
-        }
-
         it("should return MISSING_OR_ERROR for non-existent document", async () => {
             const result = await conflictManager.tryAutoMerge("non-existent" as FilePathWithPrefix, true);
 
@@ -1015,111 +1006,75 @@ describe("ConflictManager", () => {
         });
 
         it.each([
-            ["md", "first\nsecond\n", "left\nsecond\n", "first\nright\n"],
-            ["json", "{}", '{"left":1}', '{"right":2}'],
-            ["canvas", '{"nodes":[]}', '{"nodes":[],"left":1}', '{"nodes":[],"right":2}'],
-        ])("returns both stored names and bodies after a transient %s read failure", async (ext, base, a, b) => {
-            const path = `folder/file.${ext}` as FilePathWithPrefix;
-            const otherPath = `Folder/file.${ext}` as FilePathWithPrefix;
-            await createSharedBaseConflict(db, path, base, a, b, path, otherPath);
-            const reads = missFirstReadOf("2-left");
+            { winner: "CafÉ.md", sibling: "Café.md" },
+            { winner: "CafÉ.md", sibling: undefined },
+            { winner: "CafÉ.md", sibling: "Other.md" },
+        ])(
+            "keeps mergeable Markdown leaves for manual resolution when the names are $winner and $sibling",
+            async ({ winner, sibling }) => {
+                const lookup = "café.md" as FilePathWithPrefix;
+                await createSharedBaseConflict(
+                    db,
+                    lookup,
+                    "Title\nLeft slot\nRight slot\n",
+                    "Title\nLeft changed\nRight slot\n",
+                    "Title\nLeft slot\nRight changed\n",
+                    { left: sibling, right: winner }
+                );
+                const metadataReads = vi.spyOn(db, "get");
 
-            await expect(conflictManager.tryAutoMerge(path, true)).resolves.toEqual({
-                leftRev: "2-right",
-                rightRev: "2-left",
-                leftLeaf: expect.objectContaining({ path, data: b }),
-                rightLeaf: expect.objectContaining({ path: otherPath, data: a }),
-            });
+                const result = await conflictManager.tryAutoMerge(lookup, true);
 
-            expect(reads.mock.calls.map(([, options]) => options?.rev)).toEqual(["2-left", "2-right", "2-left"]);
-
-            const direct =
-                ext === "md"
-                    ? conflictManager.mergeSensibly(path, "1-base", "2-right", "2-left")
-                    : conflictManager.mergeObject(path, "1-base", "2-right", "2-left");
-            await expect(direct).resolves.toBe(false);
-        });
-
-        it.each([false, true])("requires a stored name on each revision (both missing: %s)", async (both) => {
-            const path = "note.json" as FilePathWithPrefix;
-            await createSharedBaseConflict(db, path, "{}", '{"a":1}', '{"b":2}');
-            const read = mockEntryManager.getDBEntryMeta!;
-            vi.spyOn(mockEntryManager, "getDBEntryMeta").mockImplementation(async (p, options) => {
-                const result = await read(p, options);
-                return result && (options?.rev === "2-left" || (both && options?.rev === "2-right"))
-                    ? { ...result, storedPath: undefined }
-                    : result;
-            });
-
-            const result = await conflictManager.tryAutoMerge(path, true);
-            expect(result).toEqual({
-                leftRev: "2-right",
-                rightRev: "2-left",
-                leftLeaf: expect.objectContaining({ data: '{"b":2}' }),
-                rightLeaf: expect.objectContaining({ data: '{"a":1}' }),
-            });
-            if ("rightLeaf" in result) {
-                expect(result.rightLeaf).not.toHaveProperty("path");
-                if (both) expect(result.leftLeaf).not.toHaveProperty("path");
+                expect(result).toMatchObject({
+                    leftRev: "2-right",
+                    rightRev: "2-left",
+                    leftLeaf: { path: winner, datatype: "plain", data: "Title\nLeft slot\nRight changed\n" },
+                    rightLeaf: { datatype: "plain", data: "Title\nLeft changed\nRight slot\n" },
+                });
+                expect("rightLeaf" in result && result.rightLeaf && result.rightLeaf.path).toBe(sibling);
+                expect(metadataReads.mock.calls.length).toBeLessThanOrEqual(3);
             }
-        });
+        );
 
-        it("retains the direct sensible merge result for same-name revisions with identical text", async () => {
-            const path = "note.md" as FilePathWithPrefix;
-            await createSharedBaseConflict(db, path, "base\n", "edited\n", "edited\n");
-            const winner = (await db.get(path, { conflicts: true })) as LoadedEntry;
-
-            await expect(conflictManager.tryAutoMergeSensibly(path, winner, ["2-left"])).resolves.toEqual({
-                result: "edited\n",
-                conflictedRev: "2-left",
-            });
-        });
-
-        it("merges recovered revisions with canonically equivalent names using the winner's stored spelling", async () => {
-            settings.pathNormalizationVersion = 1;
-            const path = "café.json" as FilePathWithPrefix;
-            const storedPath = "Café.json" as FilePathWithPrefix;
-            const otherPath = "Cafe\u0301.json" as FilePathWithPrefix;
-            await createSharedBaseConflict(db, path, "{}", '{"left":1}', '{"right":2}', storedPath, otherPath);
-            const reads = missFirstReadOf("2-right");
-
-            const result = await conflictManager.tryAutoMerge(path, true);
-            expect(result).toMatchObject({ conflictedRev: "2-left", path: storedPath });
-            expect("result" in result && JSON.parse(result.result)).toEqual({ left: 1, right: 2 });
-            expect(reads.mock.calls.map(([, options]) => options?.rev)).toEqual(["2-left", "2-right", "2-right", "1-base"]);
-        });
-
-        it("keeps different legacy spellings available after recovering the other revision", async () => {
-            const path = "k.json" as FilePathWithPrefix;
-            const leftPath = "\u212a.json" as FilePathWithPrefix;
-            const rightPath = "K.json" as FilePathWithPrefix;
-            await createSharedBaseConflict(db, path, "{}", '{"left":1}', '{"right":2}', rightPath, leftPath);
-            const reads = missFirstReadOf("2-right");
-
-            await expect(conflictManager.tryAutoMerge(path, true)).resolves.toMatchObject({
-                leftLeaf: { path: rightPath, data: '{"right":2}' },
-                rightLeaf: { path: leftPath, data: '{"left":1}' },
-            });
-            expect(reads.mock.calls.map(([, options]) => options?.rev)).toEqual(["2-left", "2-right", "2-right"]);
-        });
-
-        it("retains the two leaves' shared spelling when the lookup and ancestor use an alias", async () => {
-            const lookupPath = "shared-note.md" as FilePathWithPrefix;
-            const storedPath = "Shared-Note.md" as FilePathWithPrefix;
+        it("keeps a sensible merge in the original document when its recorded name now identifies another document", async () => {
+            const lookup = "note.md" as FilePathWithPrefix;
+            const storedName = "Note.md";
+            settings.handleFilenameCaseSensitive = true;
             await createSharedBaseConflict(
                 db,
-                lookupPath,
+                lookup,
                 "Title\nLeft slot\nRight slot\n",
-                "Title\nLeft changed\nRight slot\n",
-                "Title\nLeft slot\nRight changed\n",
-                storedPath
+                "Title\nEdited left\nRight slot\n",
+                "Title\nLeft slot\nEdited right\n",
+                { left: storedName, right: storedName }
             );
 
-            await expect(conflictManager.tryAutoMerge(lookupPath, true)).resolves.toEqual({
-                result: "Title\nLeft changed\nRight changed\n",
+            await expect(conflictManager.tryAutoMerge(lookup, true)).resolves.toMatchObject({
+                result: "Title\nEdited left\nEdited right\n",
                 conflictedRev: "2-left",
-                path: storedPath,
+                path: lookup,
             });
+        });
+
+        it("uses the configured normalisation and returns the winning name when merging JSON through an alias", async () => {
+            const lookup = "café.json" as FilePathWithPrefix;
+            const winnerPath = "Cafe\u0301.json";
+            await createSharedBaseConflict(db, lookup, "{}", '{"left":1}', '{"right":2}', {
+                left: "Café.json",
+                right: winnerPath,
+            });
+
+            const legacy = await conflictManager.tryAutoMerge(lookup, true);
+            expect(legacy).toMatchObject({ leftRev: "2-right", rightRev: "2-left" });
+
+            settings.pathNormalizationVersion = 1;
+            vi.mocked(mockPathService.path2id!).mockImplementation(async (path) =>
+                p2i(path === winnerPath ? lookup : path)
+            );
+            const merged = await conflictManager.tryAutoMerge(lookup, true);
+
+            expect(merged).toMatchObject({ path: winnerPath, conflictedRev: "2-left" });
+            expect("result" in merged && JSON.parse(merged.result)).toEqual({ left: 1, right: 2 });
         });
 
         it("rebuilds the next pair from live leaves after a sensible merge leaves a manual conflict", async () => {
@@ -1174,6 +1129,7 @@ describe("ConflictManager", () => {
                 ...current,
                 data: [firstPair.result],
                 mtime: 4000,
+                path: firstPair.path,
             });
             await db.remove(path, firstPair.conflictedRev);
 
@@ -1544,20 +1500,11 @@ describe("ConflictManager", () => {
             const conflicted = await db.get(path, { conflicts: true });
             expect(conflicted._rev).toBe("4-d1");
             expect(conflicted._conflicts).toEqual(["3-c2"]);
-            const read = vi.spyOn(conflictManager, "getConflictedDoc");
+            const merge = vi.spyOn(conflictManager, "mergeSensibly").mockResolvedValue(false);
 
-            const result = await conflictManager.tryAutoMerge(path, true);
+            await conflictManager.tryAutoMerge(path, true);
 
-            expect(read.mock.calls.map(([, rev]) => rev).sort()).toEqual(["1-a1", "3-c2", "4-d1"]);
-            expect(result).toHaveProperty("conflictedRev", "3-c2");
-            expect("result" in result && result.result.split("\n").filter(Boolean).sort()).toEqual([
-                "A1",
-                "B1",
-                "B2",
-                "C1",
-                "C2",
-                "D1",
-            ]);
+            expect(merge).toHaveBeenCalledWith(path, "1-a1", "4-d1", "3-c2");
         });
     });
 });

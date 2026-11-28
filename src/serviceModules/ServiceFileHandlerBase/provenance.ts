@@ -3,7 +3,7 @@ import { isFolderInfo } from "./storage";
 
 import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 
-import type { FilePathWithPrefix, MetaEntry, UXFileInfo } from "@lib/common/types";
+import type { FilePathWithPrefix, UXFileInfo } from "@lib/common/types";
 import { displayRev, isDocContentSame, readContent } from "@lib/common/utils";
 
 import { computeFileContentHash } from "@lib/common/fileContentHash";
@@ -148,68 +148,32 @@ export interface RenameProvenanceSnapshot {
     readonly destinationBefore: FileReflectionProvenanceRecord | undefined;
 }
 
-type FilenameRevision = Pick<MetaEntry, "_rev" | "storedPath" | "deleted" | "_deleted">;
-
-/** Compare only the spelling recorded by a verified live revision. */
-function compareRevisionFilename(
-    ctx: FileHandlerContext,
-    entry: FilenameRevision | false,
-    revision: string,
-    observedFilename: FilePathWithPrefix
-): "unavailable" | "unrecorded" | "same" | "different" {
-    if (!entry || entry._rev !== revision || entry.deleted || entry._deleted) {
-        return "unavailable";
-    }
-    if (!entry.storedPath) {
-        return "unrecorded";
-    }
-    return getProvenancePath(ctx, entry.storedPath) === observedFilename ? "same" : "different";
-}
-
-/** Check the stored spelling of the revision recorded at the observed path before moving it. */
-export async function hasRecordedFilename(
-    ctx: FileHandlerContext,
-    observedPath: FilePathWithPrefix,
-    record: FileReflectionProvenanceRecord | undefined,
-    databasePath: FilePathWithPrefix
-): Promise<boolean> {
-    if (!record) return false;
-    // Older clients could record matching bytes under a lookup alias. Only the revision carries its spelling.
-    const entry = await ctx.host.db().readEntryMeta(databasePath, record.revision, true, "stored");
-    return compareRevisionFilename(ctx, entry, record.revision, getProvenancePath(ctx, observedPath)) === "same";
-}
-
 /**
  * Capture source and destination provenance strictly before a physical case-only rename.
  *
  * @param ctx - The captured services, per-instance state, and dynamic host seams.
- * @param oldPath - The physical filename observed before renaming.
+ * @param oldPath - The physical path observed before renaming.
  * @param targetPath - The incoming canonical path requested for the rename.
- * @param protectUntracked - Whether an untracked spelling must be preserved before any physical rename.
- * @returns The captured records, the untrusted source record for conflict preservation, an empty result when no transfer is needed, or false on a preparation failure.
- * @remarks An explicit overwrite clears stale destination evidence before renaming an untracked file.
+ * @returns The captured snapshot, or undefined when provenance is disabled or keys already match; returns false on a read or pre-rename stale-destination cleanup failure.
+ * @remarks When the source has no provenance and a stale record already occupies the destination key, that stale record is removed before mutating storage so a post-rename retry cannot inherit it.
  */
 export async function captureRenameProvenance(
     ctx: FileHandlerContext,
     oldPath: FilePathWithPrefix,
-    targetPath: FilePathWithPrefix,
-    protectUntracked: boolean
-): Promise<{ transfer?: RenameProvenanceSnapshot } | { untracked: FileReflectionProvenanceRecord | undefined } | false> {
-    if (!ctx.provenance) return protectUntracked ? { untracked: undefined } : {};
+    targetPath: FilePathWithPrefix
+): Promise<RenameProvenanceSnapshot | undefined | false> {
+    if (!ctx.provenance) return undefined;
     const oldKey = getProvenancePath(ctx, oldPath);
     const expectedNewKey = getProvenancePath(ctx, targetPath);
-    if (oldKey === expectedNewKey) return {};
+    if (oldKey === expectedNewKey) return undefined;
     try {
         const sourceRecord = await readProvenanceSnapshot(ctx, oldPath, true);
-        if (protectUntracked && !(await hasRecordedFilename(ctx, oldPath, sourceRecord, targetPath))) {
-            return { untracked: sourceRecord };
-        }
         let destinationBefore = await readProvenanceSnapshot(ctx, targetPath, true);
         if (!sourceRecord && destinationBefore !== undefined) {
             await ctx.provenance.delete(expectedNewKey);
             destinationBefore = undefined;
         }
-        return { transfer: { oldPath, oldKey, expectedNewKey, sourceRecord, destinationBefore } };
+        return { oldPath, oldKey, expectedNewKey, sourceRecord, destinationBefore };
     } catch (ex) {
         ctx.host.log(
             `Could not prepare file reflection provenance before renaming ${oldPath} -> ${targetPath}`,
@@ -422,6 +386,7 @@ export async function currentStorageSnapshotMatches(
     if (!current || isFolderInfo(current) || current.path !== file.path) return false;
     const readCurrent = await ctx.host.readFileFromStub(current);
     return (
+        readCurrent.path === file.path &&
         readCurrent.stat.mtime === file.stat.mtime &&
         (await isDocContentSame(readCurrent.body, file.body)) &&
         sameProvenance(await readProvenanceSnapshot(ctx, file.path, requireReadableProvenance), revision)
@@ -574,59 +539,39 @@ async function classifyLiveStorageContent(
     file: UXFileInfo,
     currentEntry: { _rev?: string; deleted?: boolean; _deleted?: boolean } | false
 ): Promise<StorageContentClassification> {
-    const matches = currentEntry ? await ctx.host.db().readLiveContentRevisions(file, file.body) : [];
-    if (matches.length) {
-        return { kind: "matching-leaf", revision: matches.length === 1 ? matches[0] : undefined };
+    const db = ctx.host.db();
+    if (
+        currentEntry &&
+        !currentEntry.deleted &&
+        !currentEntry._deleted &&
+        !ctx.setting.currentSettings().handleFilenameCaseSensitive &&
+        db.readRevisionPath
+    ) {
+        return await classifyMatchingFilenameLeaf(ctx, file);
     }
-    return { kind: "unknown" };
+    const matches = currentEntry ? await db.readLiveContentRevisions(file, file.body) : [];
+    return classifyMatchingLeaves(matches);
 }
 
-/**
- * Find a live content match for the observed storage file.
- *
- * @param ctx - The captured file-handler context.
- * @param file - The observed storage path and bytes.
- * @param databasePath - The lookup path for each leaf's Metadata.
- * @param options - Reuse the current Metadata when available. Require a stored spelling for a known name change.
- * @returns Exact-name matches take priority. Body-only matches with unrecorded names can deduplicate an ordinary
- * save when no verified spelling differs. An unavailable candidate prevents inferring a unique revision.
- */
-export async function findMatchingFilenameLeaf(
+/** Use existing live-content matches only when the same filename is also recorded. */
+export async function classifyMatchingFilenameLeaf(
     ctx: FileHandlerContext,
-    file: UXFileInfo,
-    databasePath: FilePathWithPrefix,
-    options: { current?: FilenameRevision; requireStoredPath: boolean }
-): Promise<Extract<StorageContentClassification, { kind: "matching-leaf" | "unknown" }>> {
-    const revisions = await ctx.host.db().readLiveContentRevisions(file, file.body);
-    const filename = getProvenancePath(ctx, file.path);
-    const { current } = options;
-    const matchingNames: string[] = [];
-    const unrecordedNames: string[] = [];
-    let requiresStoredMatch = options.requireStoredPath;
-    let hasUnavailableRevision = false;
-    for (const revision of revisions) {
-        const leaf =
-            current?._rev === revision
-                ? current
-                : await ctx.host.db().readEntryMeta(databasePath, revision, true, "stored");
-        switch (compareRevisionFilename(ctx, leaf, revision, filename)) {
-            case "same":
-                matchingNames.push(revision);
-                break;
-            case "unrecorded":
-                unrecordedNames.push(revision);
-                break;
-            case "different":
-                requiresStoredMatch = true;
-                break;
-            case "unavailable":
-                hasUnavailableRevision = true;
-                break;
-        }
+    file: UXFileInfo
+): Promise<StorageContentClassification> {
+    const db = ctx.host.db();
+    if (!db.readRevisionPath) {
+        return { kind: "unknown" };
     }
-    const matches = requiresStoredMatch || matchingNames.length > 0 ? matchingNames : unrecordedNames;
+    const matches = await db.readLiveContentRevisions(file, file.body, {
+        path: file.path,
+        normalizationVersion: getPathNormalizationVersion(ctx.setting.currentSettings()),
+    });
+    return classifyMatchingLeaves(matches);
+}
+
+function classifyMatchingLeaves(matches: string[]): StorageContentClassification {
     if (matches.length > 0) {
-        return { kind: "matching-leaf", revision: matches.length === 1 && !hasUnavailableRevision ? matches[0] : undefined };
+        return { kind: "matching-leaf", revision: matches.length === 1 ? matches[0] : undefined };
     }
     return { kind: "unknown" };
 }

@@ -1,6 +1,4 @@
 import { isReflectionCompleted } from "@lib/interfaces/FileHandler";
-import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
-import { hasFilenameCaseConflict } from "@lib/conflicts/filenameCaseConflict";
 import {
     LOG_LEVEL_DEBUG,
     LOG_LEVEL_INFO,
@@ -15,6 +13,8 @@ import {
     type FilePathWithPrefixLC,
     type LOG_LEVEL,
 } from "@lib/common/types";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
+import { hasSameParentFilenameCaseConflict } from "@lib/conflicts/filenameCaseConflict";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
@@ -52,7 +52,7 @@ async function reflectScannedEntry(
 }
 
 /**
- * Synchronise a matched file after checking for a filename case difference.
+ * Synchronise a single file between database and storage based on freshness comparison.
  * @param host Services container
  * @param log Logging function
  * @param file Storage file information
@@ -70,15 +70,14 @@ export async function syncFileBetweenDBandStorage(
         throw new Error(`Missing doc:${docPath}`);
     }
 
-    const filenameCaseConflict =
-        !file.deleted &&
-        !doc.deleted &&
-        !doc._deleted &&
-        file.path !== docPath &&
-        hasFilenameCaseConflict(file.path, docPath, getPathNormalizationVersion(host.services.setting.currentSettings()));
-    const compareResult = filenameCaseConflict
-        ? "filename-case-conflict"
-        : host.services.path.compareFileFreshness(file, doc);
+    const filenameChanged = file.path !== docPath && !doc.deleted && !doc._deleted;
+    const settings = filenameChanged ? host.services.setting.currentSettings() : undefined;
+    const compareFilename =
+        settings &&
+        !settings.handleFilenameCaseSensitive &&
+        hasSameParentFilenameCaseConflict(file.path, docPath, getPathNormalizationVersion(settings));
+    // A different local spelling has to be checked before age can choose a direction.
+    const compareResult = compareFilename ? TARGET_IS_NEW : host.services.path.compareFileFreshness(file, doc);
     switch (compareResult) {
         case BASE_IS_NEW:
             if (!host.services.vault.isFileSizeTooLarge(file.stat.size)) {
@@ -93,15 +92,14 @@ export async function syncFileBetweenDBandStorage(
                 );
                 return FilePairProcessResults.SKIPPED;
             }
-        case "filename-case-conflict":
         case TARGET_IS_NEW:
             if (
                 !host.services.vault.isFileSizeTooLarge(doc.size) &&
-                (!filenameCaseConflict || !host.services.vault.isFileSizeTooLarge(file.stat.size))
+                (!compareFilename || !host.services.vault.isFileSizeTooLarge(file.stat.size))
             ) {
                 log("STORAGE <- DB :" + docPath);
-                const observedFile = filenameCaseConflict ? file : stripAllPrefixes(docPath);
-                const reflection = await reflectScannedEntry(host, doc, observedFile, false, scanOptions);
+                const observed = compareFilename ? file : stripAllPrefixes(docPath);
+                const reflection = await reflectScannedEntry(host, doc, observed, false, scanOptions);
                 if (reflection === FilePairProcessResults.COMPLETED) {
                     host.services.context.events.emitEvent("event-file-changed", {
                         file: file.path,

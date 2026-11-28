@@ -1470,14 +1470,14 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
     });
 
     it.each([0, 1] as const)(
-        "preserves an untracked filename with identical content with path normalisation version %s",
+        "applies a canonical filename case change before comparing content with path normalisation version %s",
         async (pathNormalizationVersion) => {
-            const { handler, storageStub, databaseFileAccess, storageAccess, pathService } = createHandler(
+            const { handler, storageStub, databaseFileAccess, storageAccess, pathService, provenance } = createHandler(
                 "same body",
                 "same body",
                 false,
                 EVEN,
-                false,
+                true,
                 pathNormalizationVersion
             );
             const remoteMeta = createMeta("calculus.md", "same body");
@@ -1486,30 +1486,39 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
                 name: "Calculus.md",
                 path: "Calculus.md" as FilePath,
             };
+            const renamedFile = {
+                ...existingFile,
+                name: "calculus.md",
+                path: "calculus.md" as FilePath,
+            };
             databaseFileAccess.fetchEntryMeta.mockResolvedValue(remoteMeta);
+            provenance.get.mockImplementation(async (path) => path === existingFile.path
+                ? { revision: "1-displayed", observedStorageMtime: 3 }
+                : undefined);
+            Object.assign(databaseFileAccess, {
+                readRevisionPath: vi.fn(async (_id, rev) => rev === "1-displayed" ? existingFile.path : remoteMeta.path),
+            });
             databaseFileAccess.fetchEntryFromMeta.mockResolvedValue({ ...remoteMeta, data: "same body" });
             storageAccess.getStub.mockResolvedValue(existingFile);
-            storageAccess.readStubContent.mockResolvedValue(createStorageFile(existingFile.path, "same body"));
+            storageAccess.renameFile.mockResolvedValue(renamedFile);
+            storageAccess.readStubContent.mockResolvedValue(createStorageFile("calculus.md", "same body"));
 
             await expect(handler.dbToStorage(remoteMeta, existingFile)).resolves.toBe(true);
 
             expect(pathService.path2id).toHaveBeenCalledWith("Calculus.md");
             expect(pathService.path2id).toHaveBeenCalledWith("calculus.md");
-            expect(databaseFileAccess.storeIndependentRevision).toHaveBeenCalledWith(
-                expect.objectContaining({ path: existingFile.path }), true
-            );
-            expect(storageAccess.renameFile).not.toHaveBeenCalled();
+            expect(storageAccess.renameFile).toHaveBeenCalledWith(existingFile, "calculus.md");
             expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
         }
     );
 
-    it("preserves an untracked filename when the parent directory differs only by Unicode normalisation", async () => {
-        const { handler, storageStub, databaseFileAccess, storageAccess, pathService } = createHandler(
+    it("applies a filename case change when the parent directory differs only by Unicode normalisation", async () => {
+        const { handler, storageStub, databaseFileAccess, storageAccess, pathService, provenance } = createHandler(
             "same body",
             "same body",
             false,
             EVEN,
-            false,
+            true,
             1
         );
         const nfdParent = "Cafe\u0301";
@@ -1520,19 +1529,28 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
             name: "Note.md",
             path: `${nfdParent}/Note.md` as FilePath,
         };
+        const renamedFile = {
+            ...existingFile,
+            name: "note.md",
+            path: `${nfdParent}/note.md` as FilePath,
+        };
         databaseFileAccess.fetchEntryMeta.mockResolvedValue(remoteMeta);
+        provenance.get.mockImplementation(async (path) => path === `${nfcParent}/Note.md`
+            ? { revision: "1-displayed", observedStorageMtime: 3 }
+            : undefined);
+        Object.assign(databaseFileAccess, {
+            readRevisionPath: vi.fn(async (_id, rev) => rev === "1-displayed" ? existingFile.path : remoteMeta.path),
+        });
         storageAccess.getStub.mockResolvedValue(existingFile);
-        storageAccess.readStubContent.mockResolvedValue(createStorageFile(existingFile.path, "same body"));
+        storageAccess.renameFile.mockResolvedValue(renamedFile);
+        storageAccess.readStubContent.mockResolvedValue(createStorageFile(`${nfdParent}/note.md`, "same body"));
         pathService.path2id.mockImplementation(async (path: string) => path.normalize("NFC").toLowerCase());
 
         await expect(handler.dbToStorage(remoteMeta, existingFile)).resolves.toBe(true);
 
         expect(pathService.path2id).toHaveBeenCalledWith(`${nfdParent}/Note.md`);
         expect(pathService.path2id).toHaveBeenCalledWith(`${nfcParent}/note.md`);
-        expect(databaseFileAccess.storeIndependentRevision).toHaveBeenCalledWith(
-            expect.objectContaining({ path: existingFile.path }), true
-        );
-        expect(storageAccess.renameFile).not.toHaveBeenCalled();
+        expect(storageAccess.renameFile).toHaveBeenCalledWith(existingFile, `${nfcParent}/note.md`);
         expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
     });
 
@@ -1643,7 +1661,7 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
         }
     );
 
-    it("stops an explicitly selected revision when the canonical filename case cannot be applied", async () => {
+    it("stops remote reflection when the canonical filename case cannot be applied", async () => {
         const { handler, storageStub, databaseFileAccess, storageAccess } = createHandler(
             "same body",
             "same body",
@@ -1660,9 +1678,8 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
         storageAccess.getStub.mockResolvedValue(existingFile);
         storageAccess.renameFile.mockResolvedValue(null);
 
-        await expect(handler.dbToStorage(remoteMeta, existingFile, true)).resolves.toBe(false);
+        await expect(handler.dbToStorage(remoteMeta, existingFile)).resolves.toBe(false);
 
-        expect(storageAccess.renameFile).toHaveBeenCalledWith(existingFile, "calculus.md");
         expect(databaseFileAccess.fetchEntryFromMeta).not.toHaveBeenCalled();
         expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
     });
@@ -2274,7 +2291,7 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
         await expect(handler.storeFileToDB(storageFile)).resolves.toBe(true);
 
         expect(databaseFileAccess.fetchEntry).toHaveBeenCalledTimes(1);
-        expect(databaseFileAccess.fetchEntry).toHaveBeenCalledWith(storageFile, undefined, true, true, true, "stored");
+        expect(databaseFileAccess.fetchEntry).toHaveBeenCalledWith(storageFile, undefined, true, true, true);
         expect(databaseFileAccess.fetchEntryMeta).not.toHaveBeenCalled();
         expect(databaseFileAccess.findLiveContentRevisions).not.toHaveBeenCalled();
         expect(storageAccess.getStub).not.toHaveBeenCalled();
@@ -2605,13 +2622,6 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
         provenance.get.mockResolvedValue(undefined);
         databaseFileAccess.findLiveContentRevisions.mockResolvedValue(["3-reconstructed"]);
 
-        databaseFileAccess.getConflictedRevs.mockResolvedValue(["3-reconstructed"]);
-        databaseFileAccess.fetchEntryMeta.mockImplementation(async (_file, rev?: string) =>
-            rev === "3-reconstructed"
-                ? createMeta("note.md", "edited displayed content", rev)
-                : createMeta("note.md", "winner", "3-winner")
-        );
-
         await expect(handler.storeFileToDB(storageFile)).resolves.toBe(true);
 
         expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
@@ -2662,7 +2672,7 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
 
         await expect(handler.storeFileToDB(storageFile)).resolves.toBe(true);
 
-        expect(databaseFileAccess.fetchEntryMeta).toHaveBeenCalledWith(storageFile, undefined, true, "stored");
+        expect(databaseFileAccess.fetchEntryMeta).toHaveBeenCalledWith(storageFile, undefined, true);
         expect(databaseFileAccess.storeIndependentRevision).toHaveBeenCalledWith(storageFile, true);
         expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
     });

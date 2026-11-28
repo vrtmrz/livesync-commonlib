@@ -16,7 +16,7 @@ A1
 
 `D1` and `C2` are the leaves to compare. Their nearest common ancestor is `A1`, not `B1` or `B2`. Automatic three-way merge may proceed only when the same `available` revision is present in both leaf histories. A matching generation number alone does not establish ancestry.
 
-Resolving a conflict writes the selected or merged result on one branch and deletes every losing live leaf which the resolver has observed. Deleted leaves remain part of the tree until compaction removes their bodies. A stale client can therefore receive the resolved branch and the tombstone for a branch whose old content is still present in its storage.
+Selecting an existing revision keeps it as a live leaf. A resolver retires the competing leaves it has reviewed. Combining text creates a new content revision. Deleted leaves remain part of the tree until compaction removes their bodies. A stale client can therefore receive the resolved branch and the tombstone for a branch whose old content is still present in its storage.
 
 Metadata reads which explicitly include deleted entries also return a current PouchDB `_deleted` winner. An ordinary read still excludes deleted entries, and a request for an unavailable specific revision does not fall back to the current winner. A deleted-winner lookup rechecks the winning revision after fetching its body. If it changes, the lookup follows the new winner for at most three attempts and returns no entry if it cannot establish a stable revision. Incoming file reflection uses the current winner and rechecks it before deleting storage, so an older deletion notification does not override a subsequent restoration. Existing conflict and unsynchronised-edit protection still applies.
 
@@ -38,26 +38,25 @@ Commonlib follows these rules:
 - deduplicate unknown-origin content against current non-deleted leaves, preserving differing content as a fresh independent root under the same document ID; and
 - never select the newest modification time as a package-level default.
 
-For a three-way merge, both leaves must record the same full path, including case. Commonlib applies Unicode NFC when `pathNormalizationVersion` is `1`. With version `0`, it compares the stored paths as written.
-
 Ordinary saving and incoming reflection share this classification. A historical byte match alone cannot distinguish an unchanged stale file from an intentional revert, and a prefix or suffix relationship does not prove which version the user edited. Unknown-origin content must not acquire an inferred parent from the current winner or its parent.
 
 After a resolution has propagated, an exact recorded revision can still identify unchanged content below a deleted losing leaf. The resolved winner may replace those bytes under the existing reflection policy. If neither the recorded body nor valid matching content evidence is available, the file follows the conservative unknown-origin path. General history-query helpers remain available for callers with separate contracts, including existing deletion and rename recovery; ordinary save and overwrite protection do not scan all historical bodies.
 
 ## Resolution classes
 
+A whole-file logical deletion is a separate revision state. If one leaf is deleted and the other is live, the conservative text merge leaves the choice to the host.
+
 | State                                                                           | Safe automatic action                                                       |
 | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| The two stored filenames differ in case                                         | Return both leaves with their stored paths for explicit selection.          |
-| Both leaves have matching filenames, identical bytes, and the same deletion state | Collapse the duplicate leaf without creating merged content.              |
-| Text or structured data has matching stored paths, a shared available base, and non-overlapping changes | Perform a conservative three-way merge.                                     |
-| One side deletes content which the other leaves unchanged                       | Preserve the deletion.                                                      |
-| One side deletes content which the other modifies                               | Retain a manual conflict.                                                   |
+| Both leaves have matching names, identical bytes, and the same deletion state   | Collapse the duplicate leaf without creating merged content.                |
+| Both names match and text or structured data has a shared available base and non-overlapping changes | Perform a conservative three-way merge.                                     |
+| In a three-way text merge, one side removes a line the other leaves unchanged                       | Keep the line removed from the merged text.                                                      |
+| One side removes a line which the other modifies                               | Retain a manual conflict.                                                   |
 | A receiving file matches its exact readable recorded revision                   | Apply the propagated result under the existing conflict policy.             |
-| A receiving file with the same spelling matches its saved content hash and byte length                 | Apply the propagated result under the existing conflict policy, even after its recorded revision is pruned. |
+| A receiving file matches its saved content hash and byte length                 | Apply the propagated result under the existing conflict policy, even after its recorded revision is pruned. |
 | A receiving file differs from its readable recorded revision                    | Preserve the edit as a child of that revision.                              |
 | Origin is unknown and no current non-deleted leaf matches                        | Preserve a fresh independent root for host conflict resolution.             |
-| Origin is unknown and current non-deleted leaves already contain the bytes       | Avoid duplicate storage; infer provenance only for a unique match.          |
+| Origin is unknown and current non-deleted leaves already contain the observed spelling and bytes       | Avoid duplicate storage; infer provenance only for a unique match.          |
 | A required merge body or common ancestor is missing or compacted                | Retain a manual conflict.                                                   |
 | Content is binary or otherwise not semantically mergeable                       | Leave the selection policy to the host; Commonlib cannot infer user intent. |
 
@@ -196,15 +195,19 @@ A1
 
 `D2` remains a live metadata branch. The host can therefore ask whether to retain `C1` or the deletion. A PouchDB `_deleted` tombstone would remove that decision from the live conflict and is not used for this operation.
 
+### Filename case in ordinary synchronisation
+
+With case-insensitive document IDs, `Notes/Plan.md` and `Notes/plan.md` can identify the same document. The spelling belongs to each revision. When the receiver can identify the revision and spelling it previously reflected, an incoming case-only rename updates an unchanged file. A local edit based on that recorded revision is preserved as its child.
+
+If the actual spelling in storage has no confirmed base, ordinary synchronisation preserves the file before renaming or overwriting it. A live leaf with the same spelling and bytes already represents the file. Otherwise, the file becomes an independent root under the same document ID. A repeated scan leaves the pending choices intact. This also applies when the two spellings contain identical bytes. This protection applies with the default conflict-write policy. Explicit forced reflection and the `writeDocumentsIfConflicted` overwrite setting retain their existing behaviour.
+
+Automatic content resolution requires both compared revisions to record the same full path, including case. Path identity version `0` compares the recorded spelling directly. Version `1` applies NFC before comparison. Different or unknown names require a host decision. A successful three-way merge returns the recorded spelling as its save path when that spelling still identifies the reviewed document. If it identifies a different document under the current settings, the save path is the original lookup path. After selection, the host reflects the surviving revision using its recorded spelling, or the document's effective path when no name was recorded.
+
+The built-in `DatabaseFileAccess` reads the original spelling directly from revision metadata. Custom adapters can provide `readRevisionPath(documentId, revision)` and honour the filename filter on `readLiveContentRevisions`. Return `undefined` when the revision or its stored path is absent, and propagate I/O errors. The filename filter runs before loading candidate chunks.
+
+A host offering concatenation with a choice of filename can use `storeWithLiveBaseRevision(file, displayedWinnerRev)`. Before saving, the host checks that the chosen name still identifies the reviewed document. If the name identifies another document, both revisions remain available. The chosen name goes on a new child of the displayed winner. The two versions can have independent roots. Retire the other reviewed leaf only after the write succeeds. If the displayed parent has advanced, the write is refused and the current versions remain available for review.
+
 ### Renaming while a conflict is visible
-
-During ordinary reflection under case-insensitive document identity, an untracked Vault file named `note.md` and an incoming revision named `Note.md` share a document ID. If the device has no evidence for the local spelling, Commonlib keeps the Vault file under that spelling and preserves its content in an independent revision. This applies even when the bytes match. If the revision recorded on the device is unavailable, its saved hash can still identify the bytes. The earlier spelling is then unknown, so the host also presents this case for selection.
-
-With case-insensitive document identity and unresolved conflicts, an ordinary save with a live current revision can recognise unknown-origin bytes on a live leaf with the same recorded spelling. If another recorded spelling is verified and no leaf matches the observed spelling and bytes, Commonlib preserves the observed name and bytes in an independent revision. A lookup path for a revision without a stored name gives no spelling evidence. When no differing spelling is established, a pathless byte match still deduplicates the save, and only a unique, verified match can establish provenance.
-
-Hosts can display each conflict leaf's stored `path` when available and use `hasFilenameCaseConflict` from the `conflicts` entry point to recognise this choice. A host selecting a revision reflects both its name and its content. If either revision has no stored `path`, its conflict leaf omits `path`, `hasFilenameCaseConflict` returns `false`, and the host applies its ordinary revision conflict policy.
-
-The conflict result includes each loaded leaf's `datatype`. A host offering manual concatenation can check that both leaves are live and `plain` before combining their text. To save the result under the chosen spelling, `databaseFileAccess.storeWithLiveBaseRevision(file, expectedBaseRevision)` writes the combined content and chosen path as a child of the specified live revision. If the expected revision is no longer a live leaf, the write returns `false`. Resolve the other displayed leaf only after the write succeeds.
 
 For a case-only rename, such as `Note.md` to `note.md`, the renamed entry is written as a child of the displayed revision in the same document tree. The other live branch remains available for resolution.
 
@@ -212,9 +215,9 @@ For a cross-path rename, such as `draft.md` to `published.md`, Commonlib stores 
 
 ### Reconstructing provenance after local state is unavailable
 
-Suppose a local-database reset removed the device-local record, but the storage file still has exactly the bytes held by current non-deleted leaf `C2`. If `C2` is the only matching current leaf, ordinary saving or reflection can reconstruct `C2` as the displayed base and a later edit extends it normally. An unchanged-time scan alone does not guarantee reconstruction.
+Suppose a local-database reset removed the device-local record, but the storage file still has exactly the bytes held by current non-deleted leaf `C2`. If `C2` is the only current leaf with that spelling and those bytes, ordinary saving or reflection can reconstruct `C2` as the displayed base and a later edit extends it normally. An unchanged-time scan alone does not guarantee reconstruction.
 
-If both current leaves contain the same bytes, ordinary saving avoids duplicate storage without selecting either as provenance. If neither contains the storage bytes, those bytes are preserved on an independent root. An unproven deletion preserves both existing branches, and a cross-path rename preserves unproven source branches after storing the target. These outcomes may require user review, but they do not guess that the deterministic winner was displayed.
+If both current leaves contain the same spelling and bytes, ordinary saving avoids duplicate storage without selecting either as provenance. If neither has the observed spelling and bytes, the file is preserved on an independent root. An unproven deletion preserves both existing branches, and a cross-path rename preserves unproven source branches after storing the target. These outcomes may require user review, but they do not guess that the deterministic winner was displayed.
 
 ### Receiving a resolution while showing the losing branch
 

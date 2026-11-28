@@ -480,12 +480,36 @@ export async function prepareChunk(
 
 export async function getDBEntryMetaByPath(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
+    managers: NecessaryManagers<"localDatabase">,
+    path: FilePathWithPrefix | FilePath,
+    opt?: PouchDB.Core.GetOptions,
+    includeDeleted = false
+): Promise<false | LoadedEntry> {
+    const result = await readDBEntryMeta(host, managers, path, opt, includeDeleted);
+    return result && result.metadata;
+}
+
+export async function getConflictEntryMetaByPath(
+    host: NecessaryServicesInterfaces<"path" | "setting", never>,
+    managers: NecessaryManagers<"localDatabase">,
+    path: FilePathWithPrefix,
+    opt: PouchDB.Core.GetOptions
+) {
+    const result = await readDBEntryMeta(host, managers, path, opt, true);
+    if (!result) {
+        return false;
+    }
+    const recordedPath = tryGetFilePath(result.document);
+    return { metadata: result.metadata, path: (recordedPath || undefined) as FilePathWithPrefix | undefined };
+}
+
+async function readDBEntryMeta(
+    host: NecessaryServicesInterfaces<"path" | "setting", never>,
     { localDatabase, readScope }: NecessaryManagers<"localDatabase">,
     path: FilePathWithPrefix | FilePath,
     opt?: PouchDB.Core.GetOptions,
-    includeDeleted = false,
-    pathSource?: "stored"
-): Promise<false | LoadedEntry> {
+    includeDeleted = false
+): Promise<false | { metadata: LoadedEntry & PouchDB.Core.GetMeta; document: EntryDocResponse }> {
     if (!isTargetFile(host, path)) {
         return false;
     }
@@ -557,25 +581,9 @@ export async function getDBEntryMetaByPath(
                 type: type,
                 eden: "eden" in obj ? obj.eden : {},
             };
-            if (pathSource !== "stored") {
-                return doc;
-            }
-            const storedPath = tryGetFilePath(obj) as FilePathWithPrefix | undefined;
-            if (!storedPath) {
-                return doc;
-            }
-            if (storedPath !== path && (await host.services.path.path2id(storedPath)) !== id) {
-                throw new ContentReadError({
-                    documentId: id,
-                    revision: obj._rev,
-                    resources: [],
-                    cause: new Error("Stored filename belongs to a different document"),
-                });
-            }
-            return { ...doc, path: storedPath, storedPath };
+            return { metadata: doc, document: obj };
         }
     } catch (ex) {
-        if (ex instanceof ContentReadError) throw ex;
         if (isErrorOfMissingDoc(ex)) {
             return false;
         }
@@ -678,7 +686,7 @@ async function respondEntryFromMeta(
     { localDatabase, readScope, chunkManager, log = Logger }: NecessaryManagers<"localDatabase" | "chunkManager">,
     settings: ObsidianLiveSyncSettings,
     filename: FilePathWithPrefix | FilePath,
-    meta: MetaEntry & (NewEntry | PlainEntry),
+    meta: NewEntry | PlainEntry,
     dump: boolean,
     waitForReady: boolean,
     localOnly = false
@@ -756,7 +764,6 @@ async function respondEntryFromMeta(
         const doc: LoadedEntry & PouchDB.Core.IdMeta = {
             data: (chunks as EntryLeaf[]).map((e) => e.data),
             path: meta.path,
-            ...(meta.storedPath ? { storedPath: meta.storedPath } : {}),
             _id: meta._id,
             ctime: meta.ctime,
             mtime: meta.mtime,
@@ -833,7 +840,6 @@ export async function getDBEntryByPath(
         return false;
     }
 }
-
 export async function deleteDBEntryByPath(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
     managers: NecessaryManagers<"localDatabase">,

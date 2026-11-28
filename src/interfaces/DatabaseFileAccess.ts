@@ -19,6 +19,12 @@ export interface ContentReadFailure {
     cause: unknown;
 }
 
+/** Restrict live-content matching to an observed, case-preserving filename. */
+export interface LiveContentFilename {
+    path: FilePathWithPrefix;
+    normalizationVersion: number;
+}
+
 export interface DatabaseFileAccess {
     /** Strict reads preserve ordinary absence but reject failed I/O or incomplete content. */
     readEntryMeta: DatabaseFileAccess["fetchEntryMeta"];
@@ -26,6 +32,11 @@ export interface DatabaseFileAccess {
     readEntry: DatabaseFileAccess["fetchEntry"];
     readConflictedRevs: DatabaseFileAccess["getConflictedRevs"];
     readLiveContentRevisions: DatabaseFileAccess["findLiveContentRevisions"];
+    /**
+     * Read the spelling stored on an exact revision of a known document, without loading Chunks.
+     * Missing revisions and unrecorded names return undefined. Other read failures reject.
+     */
+    readRevisionPath?(documentId: DocumentID, revision: string): Promise<string | undefined>;
     delete: (file: UXFileInfoStub | FilePathWithPrefix, rev?: string) => Promise<boolean>;
     store: (file: UXFileInfo, force?: boolean, skipCheck?: boolean) => Promise<boolean>;
     /**
@@ -86,6 +97,7 @@ export interface DatabaseFileAccess {
      * Return current, non-deleted leaf revisions whose decoded content matches the supplied bytes.
      * Include the winning and conflicting leaves, but never their ancestors. Read only locally
      * available Chunks, without requesting remote data or waiting for missing Chunks to arrive.
+     * When a filename is supplied, inspect only leaves with that recorded case-preserving path.
      *
      * A unique match can recover provenance; several matches avoid a duplicate write but leave
      * its origin ambiguous. An empty result means no match was confirmed. The strict read rejects
@@ -93,7 +105,8 @@ export interface DatabaseFileAccess {
      */
     findLiveContentRevisions: (
         file: UXFileInfoStub | FilePathWithPrefix,
-        content: string | string[] | Blob | ArrayBuffer
+        content: string | string[] | Blob | ArrayBuffer,
+        filename?: LiveContentFilename
     ) => Promise<string[]>;
     fetch: (
         file: UXFileInfoStub | FilePathWithPrefix,
@@ -101,43 +114,28 @@ export interface DatabaseFileAccess {
         waitForReady?: boolean,
         skipCheck?: boolean
     ) => Promise<UXFileInfo | false>;
-    /**
-     * Load a revision's content from the supplied Metadata, preserving its optional `storedPath`.
-     */
     fetchEntryFromMeta: (
         meta: MetaEntry,
         waitForReady?: boolean,
         skipCheck?: boolean,
         localOnly?: boolean
     ) => Promise<LoadedEntry | false>;
-    /**
-     * Read a revision's Metadata.
-     *
-     * @param pathSource - Use `"stored"` to return the revision's recorded path as both `path` and
-     * `storedPath`. When the option is omitted or the revision has no recorded path, `path` holds
-     * the lookup path and `storedPath` is absent.
-     */
     fetchEntryMeta: (
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
-        skipCheck?: boolean,
-        pathSource?: "stored"
+        skipCheck?: boolean
     ) => Promise<MetaEntry | false>;
     /**
      * Load a revision's content, or return `false` when it cannot be loaded.
      * `localOnly` overrides `waitForReady`: missing Chunks cause failure without remote requests
      * or waiting for delivery, so provenance checks can use only content already available locally.
-     *
-     * @param pathSource - Use `"stored"` to return the same path fields as {@link DatabaseFileAccess.fetchEntryMeta}.
-     * Content selection and target checks use the lookup path.
      */
     fetchEntry: (
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
         waitForReady?: boolean,
         skipCheck?: boolean,
-        localOnly?: boolean,
-        pathSource?: "stored"
+        localOnly?: boolean
     ) => Promise<LoadedEntry | false>;
     getConflictedRevs: (file: UXFileInfoStub | FilePathWithPrefix) => Promise<string[]>;
 }
